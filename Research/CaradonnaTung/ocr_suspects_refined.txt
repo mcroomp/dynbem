@@ -1,0 +1,57 @@
+Research\CaradonnaTung\page_10_table_1.md:
+  L41: −0.0094
+Research\CaradonnaTung\page_15_table_6.md:
+  L25: ?
+Research\CaradonnaTung\page_17_table_8.md:
+  L46: ≈0.82
+Research\CaradonnaTung\page_18_table_9.md:
+  L43: ?
+Research\CaradonnaTung\page_20_table_11.md:
+  L10: ?
+  L11: ?
+  L12: ?
+  L13: ?
+Research\CaradonnaTung\page_23_table_14.md:
+  L7: ?
+  L36: ?
+Research\CaradonnaTung\page_24_table_15.md:
+  L10: ?
+  L11: ?
+  L11: ?
+  L12: ?
+  L13: ?
+  L14: ?
+  L15: ?
+  L27: ?
+  L31: ?
+  L32: ?
+  L40: ?
+  L44: ?
+Research\CaradonnaTung\page_25_table_16.md:
+  L36: ?
+  L36: ?
+  L37: ?
+  L38: ?
+  L38: ?
+Research\CaradonnaTung\page_26_table_17.md:
+  L25: ?
+  L40: ?
+Research\CaradonnaTung\page_27_table_18.md:
+  L32: ?
+  L43: ?
+  L44: ?
+  L46: ?
+  L52: 0.27?
+Research\CaradonnaTung\page_29_table_20.md:
+  L38: ?
+Research\CaradonnaTung\page_34_table_25.md:
+  L43: ?
+Research\CaradonnaTung\page_37_table_28.md:
+  L21: 0.p
+Research\CaradonnaTung\page_38_table_29.md:
+  L33: ?
+Research\CaradonnaTung\page_39_table_30.md:
+  L7: ?
+  L26: ?
+Research\CaradonnaTung\page_41_table_32.md:
+  L7: ?

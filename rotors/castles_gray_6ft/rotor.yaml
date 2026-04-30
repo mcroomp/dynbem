@@ -1,0 +1,32 @@
+name: Castles-Gray-6ft
+description: >
+  Castles & Gray (1951) NACA TN-2474 — 6-ft diameter, 3-blade,
+  constant-chord, untwisted rotor. NACA 0015 airfoil, sigma_e = 0.050.
+  Primary validation target for Level-1 BEM hover CT/CQ and WBS inflow.
+
+rotor:
+  n_blades: 3
+  radius_m: 0.914          # 3 ft exactly; source: abstract page_01.png
+  root_cutout_m: 0.155     # 6.09" from axis per paper §"Model rotor blades" (16.9% R)
+                           # blade shank starts at 4.85" but has no aerodynamic contour until 6.09"
+  chord_m: 0.0479          # sigma=N*c/(pi*R)=0.050; confirmed Figure 3 1.89"
+  twist_deg: 0.0           # "untwisted" stated in all table headers
+  taper_ratio: 1.0
+  n_elements: 30
+
+airfoil:
+  designation: NACA 0015
+  source: >
+    XFOIL prediction, airfoiltools.com, NCrit=5 Re=200000.
+    NCrit=5 appropriate for closed-return wind tunnel (energy ratio ~0.7).
+    Re=200k closest available to test Re=256k at 0.75R, 1200 rpm.
+  Re_design: 256000
+  CL0: 0.0
+  CL_alpha_per_rad: 5.90   # Table VIII page_39.png, 6-ft at 1200 rpm
+  CD0: 0.01046             # XFOIL alpha=0; used as fallback if polar_csv absent
+  alpha_stall_deg: 15.5    # XFOIL CL peak; gradual stall
+  tip_loss: true
+  polar_csv: naca0015_ncrit5_re200k.csv   # path relative to this YAML file
+
+autorotation:
+  I_ode_kgm2: 1.0

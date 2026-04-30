@@ -1,0 +1,75 @@
+# Beaupoil 2026 — RAWES rotor, adapted for aero package loader.
+#
+# Source: C:\repos\windpower\simulation\rotor_definitions\beaupoil_2026.yaml
+#
+# Adaptations vs. source:
+#   - stationary_assembly_mass_kg consolidated to single sum (0.99 kg)
+#   - mass_kg set explicitly: 4×0.35 + 0.99 + 2.61 = 5.00 kg
+#   - polar_csv added (sg6040_re500k.csv, same directory)
+#   - oswald_efficiency and environment sections removed (not used by loader)
+#
+# Derived quantities (reference):
+#   Solidity:    sigma = N·c / (pi·R) = 4×0.20 / (pi×2.5) = 0.1019
+#   Disk area:   A = pi·(R² - r_root²) = pi·(6.25 - 0.25) = 18.85 m²
+#   Aspect ratio: AR = (R - r_root) / c = 2.0 / 0.20 = 10.0
+
+name: beaupoil_2026
+description: >
+  4-blade RAWES rotor. 1.5 m EPP RG30 foam blades + 1.0 m hub boom, SG6042 airfoil.
+  Hub outer radius 0.5 m (r_root). Total radius 2.5 m. Kaman servo-flap control.
+  Designed and built by Christof Beaupoil.
+
+rotor:
+  n_blades:      4
+  radius_m:      2.5
+  root_cutout_m: 0.5
+  chord_m:       0.20
+  twist_deg:     0.0
+  taper_ratio:   1.0
+  n_elements:    10
+
+airfoil:
+  designation:      SG6040
+  source:           "XFOIL polar, airfoiltools.com, Re=500000, Ncrit=9"
+  Re_design:        127000
+  Re_operating:     490000
+  CL0:              0.393
+  CL_alpha_per_rad: 5.79
+  CD0:              0.0079
+  alpha_stall_deg:  13.0
+  tip_loss:         true
+  polar_csv:        sg6040_re500k.csv
+
+inertia:
+  # Total mass: 4×blade + stationary_assembly + spinning_hub_shell
+  #   = 4×0.35 + 0.99 + 2.61 = 5.00 kg
+  mass_kg:                     5.00
+  I_body_kgm2:                 [5.0, 5.0, 10.0]
+  # I_spin from blades + spinning hub:
+  #   4 × m_b×(R²+R·r0+r0²)/3 + m_hub×r0²/2
+  #   = 4×0.35×(6.25+1.25+0.25)/3 + 2.61×0.25/2 = 3.62 + 0.33 = 3.94 kg·m²
+  I_spin_kgm2:                 3.94
+  blade_mass_kg:               0.35
+  stationary_assembly_mass_kg: 0.99   # sum of all stationary components
+  spinning_hub_shell_mass_kg:  2.61
+
+control:
+  swashplate_pitch_gain_rad: 0.3
+  axle_attachment_length_m:  0.3
+  K_cyc:                     0.4
+  swashplate_phase_deg:       0.0
+  servo_slew_rate_deg_s:     545.0
+  servo_travel_deg:          100.0
+  kaman_flap:
+    enabled:                  true
+    chord_fraction:           0.25
+    span_start_m:             1.2
+    span_end_m:               2.5
+    tau:                      0.45
+    CM_gamma_per_rad:        -0.35
+    swashplate_load_fraction: 0.1
+
+autorotation:
+  I_ode_kgm2:     10.0    # effective spin inertia for dω/dt ODE
+  omega_min_rad_s: 0.5
+  omega_eq_rad_s:  20.148  # measured equilibrium at V_wind=10 m/s
