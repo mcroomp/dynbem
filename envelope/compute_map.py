@@ -41,7 +41,7 @@ _ROTOR_YAML = str(
 QUICK_GRID: dict[str, Any] = {
     "v_targets":   [-0.5, 0.5],
     "winds":       [10.0],
-    "elevations":  [30.0, 45.0, 60.0, 75.0, 90.0],
+    "elevations":  [30.0, 40.0, 50.0, 60.0, 70.0, 80.0],
     "t_min":       100.0,
     "t_max":       1000.0,
     "sample_dn":   1.0,          # N between recorded samples
@@ -437,6 +437,9 @@ def plot_grid(data: dict[str, Any], out_dir: str = ".",
             fontsize=11,
         )
 
+        # Tilt overlay: shown as a second line in each cell for collective plot
+        tilt_hm = data["tilts_arr"][:, :, :, t_indices] if quantity == "col" else None
+
         for vi, vt in enumerate(v_targets):
             ax = axes[0, vi]
             label = "reel-out" if vt < 0 else "reel-in"
@@ -465,8 +468,14 @@ def plot_grid(data: dict[str, Any], out_dir: str = ".",
                         continue
                     brightness = (val - norm.vmin) / max(norm.vmax - norm.vmin, 1e-9)
                     tc = "white" if brightness > 0.6 else "black"
-                    ax.text(xc, yc, fmt.format(val), ha="center", va="center",
-                            fontsize=fontsize, color=tc, fontweight="bold")
+                    if tilt_hm is not None:
+                        tilt_val = tilt_hm[vi, wi, ai, ti]
+                        cell_label = f"{fmt.format(val)}\n{tilt_val:.0f}°"
+                    else:
+                        cell_label = fmt.format(val)
+                    ax.text(xc, yc, cell_label, ha="center", va="center",
+                            fontsize=fontsize, color=tc, fontweight="bold",
+                            linespacing=1.1)
 
             ax.set_xlabel("Tether elevation (deg)")
             ax.set_ylabel("Tether tension (N)")

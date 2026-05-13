@@ -1,6 +1,6 @@
 """Level 2: Pitt-Peters 3-state dynamic inflow with VRS empirical correction.
 
-Inflow distribution (azimuth-averaged for axial flight):
+Inflow distribution (uniform + linear tilt):
     λ(r, ψ) = λ_0 + (r/R)(λ_c cosψ + λ_s sinψ)
 
 Inflow ODE — first-order lags from Peters & HaQuang (1988):
@@ -12,8 +12,16 @@ Steady-state target for λ_0:
     hover / climb / WBS  →  momentum theory: λ_0_ss = T / (2ρA V_T ΩR)
     VRS  (0 < λ₂ < 2)   →  Leishman (2000) empirical polynomial
 
-Cyclic targets λ_c_ss = λ_s_ss = 0 for symmetric axial flight.
-Forward-flight azimuth integration is deferred to Level 3.
+Cyclic steady-state targets (Glauert skewed-wake model):
+    axial flight  → λ_c_ss = λ_s_ss = 0
+    forward flight (µ > 0.01) → λ_c_ss = −µ_x · tan(χ/2)
+                                 λ_s_ss = −µ_y · tan(χ/2)
+    where tan(χ/2) = µ / (√(µ² + λ_total²) + |λ_total|)
+    and µ_x, µ_y are advance ratio components in the hub frame.
+
+Forward-flight blade element loop averages over n_psi_elements azimuth
+stations, using the full λ(r,ψ) inflow distribution at each station.
+V_T uses total disk velocity √(v_edge² + (v_climb + v_i)²) in forward flight.
 
 References
 ----------
@@ -71,11 +79,16 @@ def prescribed_element_forces(
     radius_m: float,
     polar: AirfoilPolar,
     use_tip_loss: bool,
+    v_t_extra: float = 0.0,
 ) -> tuple[float, float]:
     """Blade element with prescribed inflow ratio lambda_r = v_a / (ΩR).
 
     Tangential induction (a′) is neglected — valid when thrust loading is
     moderate (a′ ≪ 1 in hover).
+
+    v_t_extra  In-plane wind tangential contribution at this azimuth (m/s).
+               Positive adds to blade tangential velocity (advancing side).
+               Zero (default) gives the standard axial-flight result.
 
     Returns (dT [N], dQ [N·m]).
     """
@@ -84,7 +97,7 @@ def prescribed_element_forces(
         return 0.0, 0.0
 
     v_a = lambda_r * Omega_R
-    v_t = omega * r
+    v_t = omega * r + v_t_extra
     if v_t < 1e-9:
         return 0.0, 0.0
 
@@ -114,6 +127,10 @@ class PittPetersModel(AeroBase):
     Accepts PittPetersRotorState — [λ_0, λ_c, λ_s, ω, ψ].
     Inflow states are dimensionless (v / ΩR).
 
+    In forward flight (µ > 0.01) the blade element loop integrates over
+    n_psi_elements azimuth stations using the full λ(r,ψ) distribution,
+    and cyclic steady-state targets are set by the Glauert skewed-wake model.
+
     Initialization note: PittPetersRotorState() starts with λ_0 = 0 (no
     induced flow).  The ODE will converge to hover equilibrium within
     ~5 time constants τ_0 = 8R/(3π V_h).  For a 0.914 m rotor at 1200 rpm
@@ -121,6 +138,7 @@ class PittPetersModel(AeroBase):
     """
 
     defn: RotorDefinition
+    n_psi_elements: int = 36
     _polar: AirfoilPolar = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
@@ -150,70 +168,127 @@ class PittPetersModel(AeroBase):
         v_rel    = inputs.wind_world - inputs.v_hub_world
         v_climb  = float(np.dot(v_rel, hub_axis))  # NED: < 0 for descent
 
+        # In-plane (edgewise) wind component
+        v_inplane = v_rel - v_climb * hub_axis
+        v_edge    = float(np.linalg.norm(v_inplane))
+        mu        = v_edge / max(Omega_R, 1e-6)
+
+        # Advance ratio components in hub frame (for cyclic targets)
+        v_inplane_hub = inputs.R_hub.T @ v_inplane
+        mu_x = float(v_inplane_hub[0]) / max(Omega_R, 1e-6)
+        mu_y = float(v_inplane_hub[1]) / max(Omega_R, 1e-6)
+
         lam0  = state.lambda_0
         lam_c = state.lambda_c
         lam_s = state.lambda_s
 
-        # ------------------------------------------------------------------
-        # Blade element loop — prescribed uniform inflow lam0
-        # (λ_c, λ_s contributions average to zero over azimuth)
-        # ------------------------------------------------------------------
-        n    = blade.n_elements
-        r0   = blade.root_cutout_m
-        dr   = (R - r0) / n
-        r_mid = np.linspace(r0 + 0.5 * dr, R - 0.5 * dr, n)
-        twist = math.radians(blade.twist_deg)
-
-        # Total inflow = induced (lam0) + freestream (v_climb/ΩR).
-        # Blade elements must see the combined axial velocity so that WBS
-        # produces net-upward flow (lambda_total < 0) and autorotating torque.
+        # Total axial inflow (induced + freestream) seen by the blade disk
         lambda_climb = v_climb / Omega_R if Omega_R > 1e-6 else 0.0
         lambda_total = lam0 + lambda_climb
 
+        # ------------------------------------------------------------------
+        # Blade element loop
+        # ------------------------------------------------------------------
+        n     = blade.n_elements
+        r0    = blade.root_cutout_m
+        dr    = (R - r0) / n
+        r_mid = np.linspace(r0 + 0.5 * dr, R - 0.5 * dr, n)
+        twist = math.radians(blade.twist_deg)
+
         T_total = Q_total = 0.0
+
         if Omega_R > 1e-6:
-            for rv in r_mid:
-                dT, dQ = prescribed_element_forces(
-                    r=float(rv), dr=dr, chord=blade.chord_m,
-                    twist_rad=twist, collective_rad=inputs.collective_rad,
-                    omega=omega, lambda_r=lambda_total, rho=rho,
-                    n_blades=blade.n_blades, radius_m=R,
-                    polar=self._polar,
-                    use_tip_loss=self.defn.airfoil.tip_loss,
-                )
-                T_total += dT
-                Q_total += dQ
+            if mu > 0.01 and omega > 1.0:
+                # Forward flight: azimuth integration with full λ(r,ψ) inflow.
+                # At each azimuth the blade sees:
+                #   - axial inflow:     λ_total + (r/R)(λ_c cosψ + λ_s sinψ)
+                #   - tangential extra: v_t_extra = v_inplane projected onto
+                #                       the blade tangential direction at ψ
+                n_psi = self.n_psi_elements
+                for i_psi in range(n_psi):
+                    psi = 2.0 * math.pi * i_psi / n_psi
+                    cos_psi = math.cos(psi)
+                    sin_psi = math.sin(psi)
+                    t_hat_ned = inputs.R_hub @ np.array([-sin_psi, cos_psi, 0.0])
+                    v_t_extra = float(np.dot(v_inplane, t_hat_ned))
+
+                    for rv in r_mid:
+                        # Skip reverse-flow region
+                        if omega * float(rv) + v_t_extra <= 0.0:
+                            continue
+                        x = float(rv) / R
+                        lam_local = lambda_total + x * (lam_c * cos_psi + lam_s * sin_psi)
+                        dT, dQ = prescribed_element_forces(
+                            r=float(rv), dr=dr, chord=blade.chord_m,
+                            twist_rad=twist, collective_rad=inputs.collective_rad,
+                            omega=omega, lambda_r=lam_local, rho=rho,
+                            n_blades=blade.n_blades, radius_m=R,
+                            polar=self._polar,
+                            use_tip_loss=self.defn.airfoil.tip_loss,
+                            v_t_extra=v_t_extra,
+                        )
+                        T_total += dT
+                        Q_total += dQ
+
+                T_total /= n_psi
+                Q_total /= n_psi
+
+            else:
+                # Axial flight: uniform inflow, no azimuth variation.
+                # λ_c, λ_s contributions average to zero over the disk.
+                for rv in r_mid:
+                    dT, dQ = prescribed_element_forces(
+                        r=float(rv), dr=dr, chord=blade.chord_m,
+                        twist_rad=twist, collective_rad=inputs.collective_rad,
+                        omega=omega, lambda_r=lambda_total, rho=rho,
+                        n_blades=blade.n_blades, radius_m=R,
+                        polar=self._polar,
+                        use_tip_loss=self.defn.airfoil.tip_loss,
+                    )
+                    T_total += dT
+                    Q_total += dQ
 
         # ------------------------------------------------------------------
         # Pitt-Peters inflow ODE
         # ------------------------------------------------------------------
-        # V_h: hover-equivalent inflow speed from current thrust
         T_pos = max(T_total, 0.0)
         V_h   = math.sqrt(T_pos / (2.0 * rho * A)) if T_pos > 1e-6 else 0.0
 
-        # v0: current induced inflow in m/s; V_T: total axial flow through disk
-        v0  = lam0 * Omega_R
-        V_T = max(abs(v_climb + v0), 1e-2 * max(Omega_R, 1.0))
+        v0 = lam0 * Omega_R
+        # V_T: total flow speed through disk — includes in-plane component
+        # in forward flight.  Floor prevents τ → ∞ in VRS.
+        V_T = max(
+            math.sqrt(v_edge**2 + (v_climb + v0)**2),
+            1e-2 * max(Omega_R, 1.0),
+        )
 
         # λ₂ = V_descent / V_h  (> 0 during descent)
-        V_c   = max(-v_climb, 0.0)
-        lam2  = (V_c / V_h) if V_h > 1e-3 else 0.0
+        V_c  = max(-v_climb, 0.0)
+        lam2 = (V_c / V_h) if V_h > 1e-3 else 0.0
 
-        # Steady-state uniform inflow target
+        # Steady-state uniform inflow
         if v_climb < -1e-3 and 0.0 < lam2 < 2.0:
-            # VRS: Leishman polynomial replaces momentum theory
             lam0_ss = (vrs_lambda1(lam2) * V_h / Omega_R) if Omega_R > 1e-6 else 0.0
         else:
-            # Hover / climb / WBS: momentum theory T = 2ρA v_i V_T
             lam0_ss = T_total / (2.0 * rho * A * V_T * Omega_R) if Omega_R > 1e-6 else 0.0
+
+        # Cyclic steady-state targets — Glauert skewed-wake model.
+        # tan(χ/2) = µ / (√(µ² + λ_total²) + |λ_total|)
+        # λ_c_ss = −µ_x · tan(χ/2),  λ_s_ss = −µ_y · tan(χ/2)
+        mu_sq = mu_x**2 + mu_y**2
+        lam_sq = lambda_total**2
+        denom = math.sqrt(mu_sq + lam_sq) + max(abs(lambda_total), 1e-6)
+        tan_half_chi = math.sqrt(mu_sq) / denom if mu_sq > 1e-8 else 0.0
+        lam_c_ss = -mu_x * tan_half_chi
+        lam_s_ss = -mu_y * tan_half_chi
 
         # Apparent-mass time constants (Peters & HaQuang 1988)
         tau_0  = (8.0 * R) / (3.0 * math.pi * V_T)
         tau_cs = (16.0 * R) / (45.0 * math.pi * V_T)
 
-        d_lam0  = (lam0_ss - lam0)  / tau_0
-        d_lam_c = (0.0    - lam_c)  / tau_cs   # cyclic decays to zero (axial flight)
-        d_lam_s = (0.0    - lam_s)  / tau_cs
+        d_lam0  = (lam0_ss  - lam0)  / tau_0
+        d_lam_c = (lam_c_ss - lam_c) / tau_cs
+        d_lam_s = (lam_s_ss - lam_s) / tau_cs
 
         # ------------------------------------------------------------------
         # Mechanical states

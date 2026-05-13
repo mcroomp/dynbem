@@ -90,13 +90,17 @@ def solve_bem_element(
     radius_m: float,
     polar: AirfoilPolar,
     use_tip_loss: bool,
+    v_t_extra: float = 0.0,
 ) -> BEMElementResult:
     """Solve one blade-element annulus; return converged state and forces.
 
-    v_climb  External axial freestream in the hub-axis direction (NED):
-               > 0  air from above (helicopter climb)
-               = 0  hover
-               < 0  air from below (autorotation / flying wind turbine)
+    v_climb   External axial freestream in the hub-axis direction (NED):
+                > 0  air from above (helicopter climb)
+                = 0  hover
+                < 0  air from below (autorotation / flying wind turbine)
+    v_t_extra In-plane wind tangential contribution at this azimuth (m/s).
+              Positive adds to blade tangential velocity (advancing side).
+              Zero (default) gives the standard axial-flight result.
 
     dT > 0: thrust opposing inflow (upward for level rotor = −Z in NED).
     dQ > 0: reaction torque opposing rotor spin.
@@ -121,7 +125,7 @@ def solve_bem_element(
 
     for _ in range(_MAX_BEM_ITER):
         v_a = lambda_r * Omega_R
-        v_t = omega * r * (1.0 + a_prime)
+        v_t = omega * r * (1.0 + a_prime) + v_t_extra
         if v_t < 1e-9:
             break
 
@@ -177,7 +181,7 @@ def solve_bem_element(
 
     # Recompute final forces at converged state
     v_a_f = lambda_r * Omega_R
-    v_t_f = omega * r * (1.0 + a_prime)
+    v_t_f = omega * r * (1.0 + a_prime) + v_t_extra
     v_rel = math.sqrt(v_a_f**2 + v_t_f**2)
     phi_f = math.atan2(v_a_f, v_t_f)
     alpha_f = theta - phi_f
@@ -207,9 +211,14 @@ class BEMModel(AeroBase):
     """Multi-element BEM rotor model (Level 1).
 
     NED frame throughout.  Returns QuasiStaticRotorState derivatives.
+
+    n_psi_elements controls azimuth discretisation for forward flight
+    (mu > 0.01).  36 points (10 deg steps) is accurate to ~1% for mu < 0.4.
+    Set higher for smoother torque curves; lower for faster envelope sweeps.
     """
 
     defn: RotorDefinition
+    n_psi_elements: int = 36
     _polar: AirfoilPolar = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
@@ -236,6 +245,12 @@ class BEMModel(AeroBase):
         v_rel_world = inputs.wind_world - inputs.v_hub_world
         v_climb = float(np.dot(v_rel_world, hub_axis_ned))
 
+        # In-plane (edgewise) wind component and advance ratio
+        v_inplane = v_rel_world - v_climb * hub_axis_ned
+        v_edge = float(np.linalg.norm(v_inplane))
+        Omega_R = max(omega * blade.radius_m, 1e-6)
+        mu = v_edge / Omega_R
+
         n = blade.n_elements
         r_root, r_tip = blade.root_cutout_m, blade.radius_m
         dr = (r_tip - r_root) / n
@@ -244,16 +259,59 @@ class BEMModel(AeroBase):
 
         T_total = 0.0
         Q_total = 0.0
-        for r in r_stations:
-            elem = solve_bem_element(
-                r=float(r), dr=dr, chord=blade.chord_m,
-                twist_rad=twist_rad, collective_rad=inputs.collective_rad,
-                omega=omega, v_climb=v_climb, rho=inputs.rho_kg_m3,
-                n_blades=blade.n_blades, radius_m=blade.radius_m,
-                polar=self._polar, use_tip_loss=airfoil.tip_loss,
-            )
-            T_total += elem.dT
-            Q_total += elem.dQ
+
+        if mu > 0.01 and omega > 1.0:
+            # Forward flight: average blade forces over n_psi azimuth stations.
+            # At each azimuth psi, project the in-plane wind onto the blade
+            # tangential direction to get v_t_extra, then solve the full BEM
+            # element (which uses the axial momentum equation with this modified
+            # tangential velocity).  Retreating-side elements where the total
+            # tangential velocity reverses are skipped (reverse-flow region).
+            n_psi = self.n_psi_elements
+            for i_psi in range(n_psi):
+                psi = 2.0 * math.pi * i_psi / n_psi
+                # Tangential direction of the blade at azimuth psi in NED frame.
+                # In hub frame: t_hat = [-sin(psi), cos(psi), 0] (direction of
+                # increasing psi, i.e. the direction the tip moves as it rotates).
+                t_hat_ned = inputs.R_hub @ np.array(
+                    [-math.sin(psi), math.cos(psi), 0.0]
+                )
+                v_t_extra = float(np.dot(v_inplane, t_hat_ned))
+
+                for r in r_stations:
+                    # Skip reverse-flow region (standard BEM approximation for mu < 0.5)
+                    if omega * float(r) + v_t_extra <= 0.0:
+                        continue
+                    elem = solve_bem_element(
+                        r=float(r), dr=dr, chord=blade.chord_m,
+                        twist_rad=twist_rad,
+                        collective_rad=inputs.collective_rad,
+                        omega=omega, v_climb=v_climb,
+                        rho=inputs.rho_kg_m3,
+                        n_blades=blade.n_blades, radius_m=blade.radius_m,
+                        polar=self._polar, use_tip_loss=airfoil.tip_loss,
+                        v_t_extra=v_t_extra,
+                    )
+                    T_total += elem.dT
+                    Q_total += elem.dQ
+
+            # Average over azimuth: sum of (N-blade forces at each psi) / n_psi
+            # equals the time-averaged total thrust from all blades.
+            T_total /= n_psi
+            Q_total /= n_psi
+
+        else:
+            # Axial flight (hover / climb / descent): no azimuth variation.
+            for r in r_stations:
+                elem = solve_bem_element(
+                    r=float(r), dr=dr, chord=blade.chord_m,
+                    twist_rad=twist_rad, collective_rad=inputs.collective_rad,
+                    omega=omega, v_climb=v_climb, rho=inputs.rho_kg_m3,
+                    n_blades=blade.n_blades, radius_m=blade.radius_m,
+                    polar=self._polar, use_tip_loss=airfoil.tip_loss,
+                )
+                T_total += elem.dT
+                Q_total += elem.dQ
 
         F_world = -T_total * hub_axis_ned
         M_orbital = np.zeros(3)
