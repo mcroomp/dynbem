@@ -245,7 +245,11 @@ def default() -> RotorDefinition:
 
 
 def _maybe_float(value: object) -> Optional[float]:
-    return None if value is None else float(value)
+    if value is None:
+        return None
+    if isinstance(value, dict):
+        return float(sum(float(v) for v in value.values()))
+    return float(value)
 
 
 def _maybe_int(value: object) -> Optional[int]:

@@ -270,13 +270,15 @@ class BEMModel(AeroBase):
             n_psi = self.n_psi_elements
             for i_psi in range(n_psi):
                 psi = 2.0 * math.pi * i_psi / n_psi
-                # Tangential direction of the blade at azimuth psi in NED frame.
-                # In hub frame: t_hat = [-sin(psi), cos(psi), 0] (direction of
-                # increasing psi, i.e. the direction the tip moves as it rotates).
+                # CCW-from-above rotation (American convention) with ψ=0 at
+                # +X (hub-frame nose). See CLAUDE.md "Rotor rotation direction".
+                # Tangential direction (blade tip's motion): in hub frame
+                # t_hat = [-sin(psi), -cos(psi), 0].
                 t_hat_ned = inputs.R_hub @ np.array(
-                    [-math.sin(psi), math.cos(psi), 0.0]
+                    [-math.sin(psi), -math.cos(psi), 0.0]
                 )
-                v_t_extra = float(np.dot(v_inplane, t_hat_ned))
+                # v_t = ω·r − v_inplane · t_hat, so v_t_extra = −v_inplane·t_hat.
+                v_t_extra = -float(np.dot(v_inplane, t_hat_ned))
 
                 for r in r_stations:
                     # Skip reverse-flow region (standard BEM approximation for mu < 0.5)

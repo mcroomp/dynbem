@@ -91,8 +91,9 @@ def _fwd_forces(r_arr, x_arr, dr, chord, twist, col, omega, Omega_R,
     """Sum thrust and torque over (psi, r), forward flight.
 
     v_in_hub_x, v_in_hub_y are the in-plane wind components in hub frame.
-    Tangential direction at azimuth psi (hub frame) is [-sin(psi), cos(psi), 0],
-    so v_t_extra = -v_in_hub_x*sin(psi) + v_in_hub_y*cos(psi).
+    CCW-from-above (American convention), psi=0 at +X.
+    Tangential direction in hub frame: t_hat = [-sin(psi), -cos(psi), 0].
+    v_t_extra = -v_inplane . t_hat = +v_in_hub_x*sin(psi) + v_in_hub_y*cos(psi).
     """
     T_acc = 0.0
     Q_acc = 0.0
@@ -100,7 +101,7 @@ def _fwd_forces(r_arr, x_arr, dr, chord, twist, col, omega, Omega_R,
         psi = 2.0 * math.pi * ipsi / n_psi
         cos_psi = math.cos(psi)
         sin_psi = math.sin(psi)
-        v_t_extra = -v_in_hub_x * sin_psi + v_in_hub_y * cos_psi
+        v_t_extra = v_in_hub_x * sin_psi + v_in_hub_y * cos_psi
         for i in range(r_arr.shape[0]):
             r = r_arr[i]
             v_t = omega * r + v_t_extra
@@ -257,7 +258,9 @@ class PittPetersModelJIT(AeroBase):
         lam_sq = lambda_total**2
         denom = math.sqrt(mu_sq + lam_sq) + max(abs(lambda_total), 1e-6)
         tan_half_chi = math.sqrt(mu_sq) / denom if mu_sq > 1e-8 else 0.0
-        lam_c_ss = -mu_x * tan_half_chi
+        # CCW-from-above, ψ=0 at +X: λ_c_ss = +mu_x·tan(χ/2),
+        # λ_s_ss = -mu_y·tan(χ/2). See PittPetersModel for full derivation.
+        lam_c_ss = +mu_x * tan_half_chi
         lam_s_ss = -mu_y * tan_half_chi
 
         tau_0  = (8.0 * R) / (3.0 * math.pi * V_T)

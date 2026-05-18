@@ -222,8 +222,11 @@ class PittPetersModel(AeroBase):
                     psi = 2.0 * math.pi * i_psi / n_psi
                     cos_psi = math.cos(psi)
                     sin_psi = math.sin(psi)
-                    t_hat_ned = inputs.R_hub @ np.array([-sin_psi, cos_psi, 0.0])
-                    v_t_extra = float(np.dot(v_inplane, t_hat_ned))
+                    # CCW-from-above (American convention), ψ=0 at +X.
+                    # t_hat = [-sin(ψ), -cos(ψ), 0] in hub frame.
+                    t_hat_ned = inputs.R_hub @ np.array([-sin_psi, -cos_psi, 0.0])
+                    # v_t_extra = -v_inplane · t_hat (so advancing side gets +V).
+                    v_t_extra = -float(np.dot(v_inplane, t_hat_ned))
 
                     lam_local = lambda_total + x_arr * (lam_c * cos_psi + lam_s * sin_psi)
                     v_a = lam_local * Omega_R                       # (n,)
@@ -283,13 +286,17 @@ class PittPetersModel(AeroBase):
             lam0_ss = T_total / (2.0 * rho * A * V_T * Omega_R) if Omega_R > 1e-6 else 0.0
 
         # Cyclic steady-state targets — Glauert skewed-wake model.
-        # tan(χ/2) = µ / (√(µ² + λ_total²) + |λ_total|)
-        # λ_c_ss = −µ_x · tan(χ/2),  λ_s_ss = −µ_y · tan(χ/2)
+        # CCW-from-above, ψ=0 at +X, r_hat = [cos(ψ), -sin(ψ), 0].
+        # Max inflow at back of disk gives:
+        #   λ_c_ss = +µ_x · tan(χ/2),  λ_s_ss = −µ_y · tan(χ/2)
+        # Asymmetric sign reflects the y-flip in r_hat (see CLAUDE.md).
+        # µ here is wind-relative (v_inplane_hub / Ω_R), opposite-sign of
+        # the vehicle-advance-ratio convention used in most texts.
         mu_sq = mu_x**2 + mu_y**2
         lam_sq = lambda_total**2
         denom = math.sqrt(mu_sq + lam_sq) + max(abs(lambda_total), 1e-6)
         tan_half_chi = math.sqrt(mu_sq) / denom if mu_sq > 1e-8 else 0.0
-        lam_c_ss = -mu_x * tan_half_chi
+        lam_c_ss = +mu_x * tan_half_chi
         lam_s_ss = -mu_y * tan_half_chi
 
         # Apparent-mass time constants (Peters & HaQuang 1988)

@@ -148,6 +148,24 @@ __all__ = [
 ]
 
 
-def create_aero(defn=None, model: str = "custom") -> AeroBase:
-    _ = (defn, model)
-    raise NotImplementedError("No aero model implementation is registered in this package.")
+def create_aero(defn: "RotorDefinition", model: str = "pitt_peters_jit") -> AeroBase:
+    """Factory for the aero models in this package.
+
+    model
+      "bem"               BEMModel (Level 1, quasi-static inflow)
+      "pitt_peters"       PittPetersModel (Level 2, dynamic inflow, numpy)
+      "pitt_peters_jit"   PittPetersModelJIT (Level 2, JIT-compiled — default)
+    """
+    if model == "bem":
+        from .bem import BEMModel
+        return BEMModel(defn=defn)
+    if model in ("pitt_peters", "pitt_peters_numpy"):
+        from .pitt_peters import PittPetersModel
+        return PittPetersModel(defn=defn)
+    if model in ("pitt_peters_jit", "jit"):
+        from .pitt_peters_jit import PittPetersModelJIT
+        return PittPetersModelJIT(defn=defn)
+    raise ValueError(
+        f"Unknown aero model {model!r}. "
+        f"Choose 'bem', 'pitt_peters', or 'pitt_peters_jit'."
+    )
