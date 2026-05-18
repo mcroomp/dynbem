@@ -36,6 +36,7 @@ from typing import NamedTuple
 import numpy as np
 
 from . import AeroBase, AeroResult, RotorInputs
+from .cyclic import cyclic_coeffs
 from .rotor_definition import RotorDefinition
 from .rotor_state import QuasiStaticRotorState, RotorState
 from .polar import AirfoilPolar, LinearPolar, TabulatedPolar
@@ -259,35 +260,50 @@ class BEMModel(AeroBase):
 
         T_total = 0.0
         Q_total = 0.0
+        # In-plane hub-frame moments from non-axisymmetric thrust
+        # (forward flight and/or cyclic).  Per-element contribution:
+        #   dM_hub = r·dT·[sin(ψ), cos(ψ), 0]
+        Mx_hub = 0.0
+        My_hub = 0.0
 
-        if mu > 0.01 and omega > 1.0:
-            # Forward flight: average blade forces over n_psi azimuth stations.
-            # At each azimuth psi, project the in-plane wind onto the blade
-            # tangential direction to get v_t_extra, then solve the full BEM
-            # element (which uses the axial momentum equation with this modified
-            # tangential velocity).  Retreating-side elements where the total
-            # tangential velocity reverses are skipped (reverse-flow region).
+        # Cyclic pitch → θ_cyclic(ψ) = θ_1c·cos(ψ) + θ_1s·sin(ψ).
+        theta_1c, theta_1s = cyclic_coeffs(
+            inputs.tilt_lon, inputs.tilt_lat, self.defn.control
+        )
+        has_cyclic = abs(theta_1c) + abs(theta_1s) > 1e-12
+
+        if (mu > 0.01 or has_cyclic) and omega > 1.0:
+            # Forward flight and/or cyclic: average blade forces over n_psi
+            # azimuth stations.  At each ψ, project the in-plane wind onto the
+            # blade tangential direction to get v_t_extra, add cyclic to the
+            # collective, then solve the full BEM element.  Retreating-side
+            # elements where total tangential velocity reverses are skipped
+            # (standard BEM approximation for mu < 0.5).
             n_psi = self.n_psi_elements
             for i_psi in range(n_psi):
                 psi = 2.0 * math.pi * i_psi / n_psi
-                # CCW-from-above rotation (American convention) with ψ=0 at
-                # +X (hub-frame nose). See CLAUDE.md "Rotor rotation direction".
-                # Tangential direction (blade tip's motion): in hub frame
-                # t_hat = [-sin(psi), -cos(psi), 0].
+                sin_psi = math.sin(psi)
+                cos_psi = math.cos(psi)
+                # CCW-from-above rotation (American convention), ψ=0 at +X.
+                # See CLAUDE.md "Rotor rotation direction".
+                # Tangential direction (blade tip's motion) in hub frame:
+                #   t_hat = [-sin(ψ), -cos(ψ), 0]
                 t_hat_ned = inputs.R_hub @ np.array(
-                    [-math.sin(psi), -math.cos(psi), 0.0]
+                    [-sin_psi, -cos_psi, 0.0]
                 )
                 # v_t = ω·r − v_inplane · t_hat, so v_t_extra = −v_inplane·t_hat.
                 v_t_extra = -float(np.dot(v_inplane, t_hat_ned))
 
+                col_psi = inputs.collective_rad + theta_1c * cos_psi + theta_1s * sin_psi
+
                 for r in r_stations:
-                    # Skip reverse-flow region (standard BEM approximation for mu < 0.5)
+                    # Skip reverse-flow region
                     if omega * float(r) + v_t_extra <= 0.0:
                         continue
                     elem = solve_bem_element(
                         r=float(r), dr=dr, chord=blade.chord_m,
                         twist_rad=twist_rad,
-                        collective_rad=inputs.collective_rad,
+                        collective_rad=col_psi,
                         omega=omega, v_climb=v_climb,
                         rho=inputs.rho_kg_m3,
                         n_blades=blade.n_blades, radius_m=blade.radius_m,
@@ -296,14 +312,17 @@ class BEMModel(AeroBase):
                     )
                     T_total += elem.dT
                     Q_total += elem.dQ
+                    Mx_hub  += float(r) * elem.dT * sin_psi
+                    My_hub  += float(r) * elem.dT * cos_psi
 
-            # Average over azimuth: sum of (N-blade forces at each psi) / n_psi
-            # equals the time-averaged total thrust from all blades.
+            # Average over azimuth.
             T_total /= n_psi
             Q_total /= n_psi
+            Mx_hub  /= n_psi
+            My_hub  /= n_psi
 
         else:
-            # Axial flight (hover / climb / descent): no azimuth variation.
+            # Axial flight (hover / climb / descent), no cyclic: axisymmetric.
             for r in r_stations:
                 elem = solve_bem_element(
                     r=float(r), dr=dr, chord=blade.chord_m,
@@ -316,7 +335,7 @@ class BEMModel(AeroBase):
                 Q_total += elem.dQ
 
         F_world = -T_total * hub_axis_ned
-        M_orbital = np.zeros(3)
+        M_orbital = inputs.R_hub @ np.array([Mx_hub, My_hub, 0.0])
         M_spin = Q_total * hub_axis_ned
 
         I_ode = (

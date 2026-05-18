@@ -38,6 +38,7 @@ import numpy as np
 
 from . import AeroBase, AeroResult, RotorInputs
 from .bem import prandtl_tip_loss
+from .cyclic import cyclic_coeffs
 from .rotor_definition import RotorDefinition
 from .rotor_state import PittPetersRotorState, RotorState
 from .polar import AirfoilPolar, LinearPolar, TabulatedPolar
@@ -210,13 +211,26 @@ class PittPetersModel(AeroBase):
         col   = inputs.collective_rad
 
         T_total = Q_total = 0.0
+        # In-plane hub-frame moments from non-axisymmetric thrust
+        # (forward flight, cyclic inflow distribution, and/or cyclic pitch).
+        Mx_hub = 0.0
+        My_hub = 0.0
+
+        # Cyclic pitch coefficients: θ_cyclic(ψ) = θ_1c·cos(ψ) + θ_1s·sin(ψ).
+        theta_1c, theta_1s = cyclic_coeffs(
+            inputs.tilt_lon, inputs.tilt_lat, self.defn.control
+        )
+        has_cyclic = abs(theta_1c) + abs(theta_1s) > 1e-12
 
         if Omega_R > 1e-6:
-            if mu > 0.01 and omega > 1.0:
-                # Forward flight: ψ-loop, vectorized over r at each station.
+            if (mu > 0.01 or has_cyclic or abs(lam_c) + abs(lam_s) > 1e-12) and omega > 1.0:
+                # ψ-loop, vectorized over r at each station.  Triggered by
+                # forward flight, nonzero cyclic, or nonzero λ_c/λ_s state.
                 n_psi = self.n_psi_elements
                 T_acc = 0.0
                 Q_acc = 0.0
+                Mx_acc = 0.0
+                My_acc = 0.0
                 v_t_base = omega * r_arr     # (n,)
                 for i_psi in range(n_psi):
                     psi = 2.0 * math.pi * i_psi / n_psi
@@ -228,6 +242,8 @@ class PittPetersModel(AeroBase):
                     # v_t_extra = -v_inplane · t_hat (so advancing side gets +V).
                     v_t_extra = -float(np.dot(v_inplane, t_hat_ned))
 
+                    col_psi = col + theta_1c * cos_psi + theta_1s * sin_psi
+
                     lam_local = lambda_total + x_arr * (lam_c * cos_psi + lam_s * sin_psi)
                     v_a = lam_local * Omega_R                       # (n,)
                     v_t = v_t_base + v_t_extra                       # (n,)
@@ -235,21 +251,28 @@ class PittPetersModel(AeroBase):
                     if not valid.any():
                         continue
                     phi   = np.arctan2(v_a, np.where(valid, v_t, 1.0))
-                    alpha = (col + twist) - phi
+                    alpha = (col_psi + twist) - phi
                     cl, cd = self._polar.cl_cd_arr(alpha)
                     cn = cl * np.cos(phi) - cd * np.sin(phi)
                     ct = cl * np.sin(phi) + cd * np.cos(phi)
                     q  = 0.5 * rho * (v_a*v_a + v_t*v_t) * chord * dr * n_b
                     dT = np.where(valid, q * cn, 0.0)
                     dQ = np.where(valid, q * ct * r_arr, 0.0)
-                    T_acc += float(dT.sum())
-                    Q_acc += float(dQ.sum())
+                    dT_sum = float(dT.sum())
+                    T_acc  += dT_sum
+                    Q_acc  += float(dQ.sum())
+                    # Per-element moment: r·dT·[sin(ψ), cos(ψ), 0] in hub frame.
+                    rdT_sum = float((dT * r_arr).sum())
+                    Mx_acc += rdT_sum * sin_psi
+                    My_acc += rdT_sum * cos_psi
 
                 T_total = T_acc / n_psi
                 Q_total = Q_acc / n_psi
+                Mx_hub  = Mx_acc / n_psi
+                My_hub  = My_acc / n_psi
 
             else:
-                # Axial flight: uniform inflow over the disk.  Fully vectorized.
+                # Axial flight, no cyclic, no cyclic inflow: axisymmetric.
                 v_a = lambda_total * Omega_R                         # scalar
                 v_t = omega * r_arr                                  # (n,)
                 phi   = np.arctan2(v_a, v_t)
@@ -321,10 +344,11 @@ class PittPetersModel(AeroBase):
         # ------------------------------------------------------------------
         # Assemble outputs
         # ------------------------------------------------------------------
-        F_world = -T_total * hub_axis
+        F_world   = -T_total * hub_axis
+        M_orbital = inputs.R_hub @ np.array([Mx_hub, My_hub, 0.0])
         result  = AeroResult(
             F_world=F_world,
-            M_orbital=np.zeros(3),
+            M_orbital=M_orbital,
             Q_spin=Q_total,
             M_spin=Q_total * hub_axis,
         )
