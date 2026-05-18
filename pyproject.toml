@@ -10,3 +10,6 @@ dependencies = ["numpy"]
 
 [project.optional-dependencies]
 dev = ["pytest"]
+
+[tool.setuptools]
+packages = ["aero"]
