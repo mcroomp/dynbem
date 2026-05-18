@@ -13,7 +13,11 @@ Force on hub from tether: F_tether = tension_n * tether_hat  (toward anchor)
 
 Wind convention (turbine/kite mode)
 -------------------------------------
-  Upward wind → wind_world = [0, 0, -wind_speed]  (negative Z in NED)
+  Wind blows east-to-west (anchor side toward kite side):
+    wind_world = [0, -wind_speed, 0]  (toward -Y in NED)
+  Tether geometry already places the anchor east of the hub
+  (tether_hat = [0, cos(el), sin(el)] with positive Y), so the kite is
+  blown downwind (westward) into the tether and supported by the wind.
 
 Velocity convention
 -------------------
@@ -33,7 +37,8 @@ from typing import Optional
 
 import numpy as np
 
-from aero import PittPetersModel, RotorInputs
+from aero import RotorInputs
+from aero.pitt_peters_jit import PittPetersModelJIT as PittPetersModel
 from aero.rotor_definition import RotorDefinition
 from aero.rotor_state import PittPetersRotorState
 
@@ -93,6 +98,7 @@ def simulate_point(
     conv_window_s: float = 5.0,
     omega_conv_tol: float = 2.0,
     warm_start: Optional[dict] = None,
+    gravity_mps2: float = G,
 ) -> dict:
     """Simulate rotor equilibrium at one operating point.
 
@@ -119,12 +125,13 @@ def simulate_point(
         final_state   dict suitable as warm_start for the next call
     """
     t_hat = tether_hat(elevation_deg)
-    wind_world = np.array([0.0, 0.0, -wind_speed_ms])
+    wind_world = np.array([0.0, -wind_speed_ms, 0.0])
 
     # Precompute fixed geometry terms
-    bz = balance_bz(t_hat, tension_n, mass_kg)
+    f_load = tension_n * t_hat + np.array([0.0, 0.0, mass_kg * gravity_mps2])
+    bz = f_load / float(np.linalg.norm(f_load))
     R_hub = _build_r_hub(bz)
-    f_grav_along = mass_kg * G * float(t_hat[2])   # gravity component along tether
+    f_grav_along = mass_kg * gravity_mps2 * float(t_hat[2])   # gravity component along tether
 
     if warm_start is not None:
         state = PittPetersRotorState(
@@ -177,10 +184,27 @@ def simulate_point(
             arr2[3] = 1.0
             state = state.from_array(arr2)
 
-        # 1-D force integration along tether
+        # 1-D force integration along tether (semi-implicit on v_along).
+        # Probe ∂F_thrust_along/∂v_along by finite difference so the explicit
+        # Euler step on v_along can be damped when thrust is stiff in v_along.
         f_thrust_along = float(np.dot(aero.F_world, t_hat))
+        dv_probe = 0.05
+        inputs_p = RotorInputs(
+            collective_rad=col_now,
+            tilt_lon=0.0,
+            tilt_lat=0.0,
+            R_hub=R_hub,
+            v_hub_world=(v_along + dv_probe) * t_hat,
+            wind_world=wind_world,
+            t=i * dt,
+        )
+        aero_p, _ = model.compute_forces(inputs_p, state)
+        f_thrust_p = float(np.dot(aero_p.F_world, t_hat))
+        k_v = (f_thrust_p - f_thrust_along) / dv_probe   # typically < 0 (damping)
+
         f_along = f_thrust_along + f_grav_along + tension_n
-        v_along += dt * f_along / mass_kg
+        denom = max(1.0 - (dt / mass_kg) * k_v, 1.0)     # only damp, never amplify
+        v_along += (dt / mass_kg) * f_along / denom
 
         # Collective PI (absolute form with anti-windup)
         if v_target is not None:
@@ -279,7 +303,7 @@ def ramp_column_worker(args: dict) -> dict:
     if project_root and project_root not in _sys.path:
         _sys.path.insert(0, project_root)
 
-    from aero import PittPetersModel
+    from aero.pitt_peters_jit import PittPetersModelJIT as PittPetersModel
     from aero.rotor_state import PittPetersRotorState
 
     defn = args["defn"]
@@ -300,10 +324,11 @@ def ramp_column_worker(args: dict) -> dict:
     ki_col = float(args.get("ki_col", 0.02))
     col_min = float(args.get("col_min", -0.25))
     col_max = float(args.get("col_max", 0.20))
+    gravity_mps2 = float(args.get("gravity_mps2", G))
 
     t_hat_arr = tether_hat(elevation_deg)
-    wind_world = np.array([0.0, 0.0, -wind_speed])
-    f_grav_along = mass_kg * G * float(t_hat_arr[2])
+    wind_world = np.array([0.0, -wind_speed, 0.0])
+    f_grav_along = mass_kg * gravity_mps2 * float(t_hat_arr[2])
     int_max = (col_max - col_min) / max(ki_col, 1e-9)
 
     state = PittPetersRotorState(omega_rad_s=omega_init)
@@ -319,7 +344,10 @@ def ramp_column_worker(args: dict) -> dict:
     def _step(tension_now: float, sim_t: float) -> None:
         nonlocal state, v_along, col_now, int_vcol, col_saturated, aero_clamped
 
-        bz = balance_bz(t_hat_arr, tension_now, mass_kg)
+        # Force balance accounts for gravity along the tether; bz uses the
+        # same gravity so the test utility (gravity=0) stays consistent.
+        f_load = tension_now * t_hat_arr + np.array([0.0, 0.0, mass_kg * gravity_mps2])
+        bz = f_load / float(np.linalg.norm(f_load))
         R_hub = _build_r_hub(bz)
         vel = v_along * t_hat_arr
 
@@ -340,9 +368,26 @@ def ramp_column_worker(args: dict) -> dict:
             aero_clamped = True
         state = state.from_array(arr_clipped)
 
+        # Semi-implicit v_along update: probe ∂F_thrust/∂v_along and damp
+        # the explicit Euler step when thrust is stiff in v_along.
         f_thrust_along = float(np.dot(aero.F_world, t_hat_arr))
+        dv_probe = 0.05
+        inputs_p = RotorInputs(
+            collective_rad=col_now,
+            tilt_lon=0.0,
+            tilt_lat=0.0,
+            R_hub=R_hub,
+            v_hub_world=(v_along + dv_probe) * t_hat_arr,
+            wind_world=wind_world,
+            t=sim_t,
+        )
+        aero_p, _ = model.compute_forces(inputs_p, state)
+        f_thrust_p = float(np.dot(aero_p.F_world, t_hat_arr))
+        k_v = (f_thrust_p - f_thrust_along) / dv_probe
+
         f_along = f_thrust_along + f_grav_along + tension_now
-        v_new = v_along + dt * f_along / mass_kg
+        denom = max(1.0 - (dt / mass_kg) * k_v, 1.0)
+        v_new = v_along + (dt / mass_kg) * f_along / denom
         if v_new < -30.0 or v_new > 30.0:
             aero_clamped = True
         v_along = max(-30.0, min(30.0, v_new))
@@ -370,6 +415,8 @@ def ramp_column_worker(args: dict) -> dict:
     sat_samples = [col_saturated]
     omega_samples = [state.omega_rad_s]
     tilt_samples = [_tilt_deg(T_min)]
+    lamc_samples = [state.lambda_c]
+    lams_samples = [state.lambda_s]
     next_sample_t = T_min + sample_dn
 
     # Phase 2: ramp from T_min to T_max, recording at every sample_dn N
@@ -388,6 +435,8 @@ def ramp_column_worker(args: dict) -> dict:
             sat_samples.append(col_saturated)
             omega_samples.append(state.omega_rad_s)
             tilt_samples.append(_tilt_deg(next_sample_t))
+            lamc_samples.append(state.lambda_c)
+            lams_samples.append(state.lambda_s)
             next_sample_t += sample_dn
 
         if t_now >= T_max - 1e-9:
@@ -403,4 +452,6 @@ def ramp_column_worker(args: dict) -> dict:
         "sats": np.array(sat_samples, dtype=bool),
         "omegas": np.array(omega_samples),
         "tilts":  np.array(tilt_samples),
+        "lambda_c": np.array(lamc_samples),
+        "lambda_s": np.array(lams_samples),
     }

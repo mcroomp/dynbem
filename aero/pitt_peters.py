@@ -147,6 +147,18 @@ class PittPetersModel(AeroBase):
         else:
             self._polar = LinearPolar.from_properties(self.defn.airfoil)
 
+        # Cache fixed radial geometry (n_elements, root_cutout, radius, etc.
+        # don't change per call).  This shaves a linspace + per-step Python
+        # overhead from compute_forces.
+        blade = self.defn.blade
+        R = blade.radius_m
+        n = blade.n_elements
+        r0 = blade.root_cutout_m
+        self._dr = (R - r0) / n
+        self._r_mid = np.linspace(r0 + 0.5 * self._dr, R - 0.5 * self._dr, n)
+        self._x_mid = self._r_mid / R
+        self._twist_rad = math.radians(blade.twist_deg)
+
     def initial_rotor_state(self) -> PittPetersRotorState:
         return PittPetersRotorState()
 
@@ -187,24 +199,25 @@ class PittPetersModel(AeroBase):
         lambda_total = lam0 + lambda_climb
 
         # ------------------------------------------------------------------
-        # Blade element loop
+        # Blade element forces (vectorized over r; loop over ψ in fwd flight)
         # ------------------------------------------------------------------
-        n     = blade.n_elements
-        r0    = blade.root_cutout_m
-        dr    = (R - r0) / n
-        r_mid = np.linspace(r0 + 0.5 * dr, R - 0.5 * dr, n)
-        twist = math.radians(blade.twist_deg)
+        r_arr = self._r_mid               # (n,)
+        x_arr = self._x_mid               # (n,)
+        dr    = self._dr
+        twist = self._twist_rad
+        chord = blade.chord_m
+        n_b   = blade.n_blades
+        col   = inputs.collective_rad
 
         T_total = Q_total = 0.0
 
         if Omega_R > 1e-6:
             if mu > 0.01 and omega > 1.0:
-                # Forward flight: azimuth integration with full λ(r,ψ) inflow.
-                # At each azimuth the blade sees:
-                #   - axial inflow:     λ_total + (r/R)(λ_c cosψ + λ_s sinψ)
-                #   - tangential extra: v_t_extra = v_inplane projected onto
-                #                       the blade tangential direction at ψ
+                # Forward flight: ψ-loop, vectorized over r at each station.
                 n_psi = self.n_psi_elements
+                T_acc = 0.0
+                Q_acc = 0.0
+                v_t_base = omega * r_arr     # (n,)
                 for i_psi in range(n_psi):
                     psi = 2.0 * math.pi * i_psi / n_psi
                     cos_psi = math.cos(psi)
@@ -212,41 +225,38 @@ class PittPetersModel(AeroBase):
                     t_hat_ned = inputs.R_hub @ np.array([-sin_psi, cos_psi, 0.0])
                     v_t_extra = float(np.dot(v_inplane, t_hat_ned))
 
-                    for rv in r_mid:
-                        # Skip reverse-flow region
-                        if omega * float(rv) + v_t_extra <= 0.0:
-                            continue
-                        x = float(rv) / R
-                        lam_local = lambda_total + x * (lam_c * cos_psi + lam_s * sin_psi)
-                        dT, dQ = prescribed_element_forces(
-                            r=float(rv), dr=dr, chord=blade.chord_m,
-                            twist_rad=twist, collective_rad=inputs.collective_rad,
-                            omega=omega, lambda_r=lam_local, rho=rho,
-                            n_blades=blade.n_blades, radius_m=R,
-                            polar=self._polar,
-                            use_tip_loss=self.defn.airfoil.tip_loss,
-                            v_t_extra=v_t_extra,
-                        )
-                        T_total += dT
-                        Q_total += dQ
+                    lam_local = lambda_total + x_arr * (lam_c * cos_psi + lam_s * sin_psi)
+                    v_a = lam_local * Omega_R                       # (n,)
+                    v_t = v_t_base + v_t_extra                       # (n,)
+                    valid = v_t > 0.0                                # reverse-flow mask
+                    if not valid.any():
+                        continue
+                    phi   = np.arctan2(v_a, np.where(valid, v_t, 1.0))
+                    alpha = (col + twist) - phi
+                    cl, cd = self._polar.cl_cd_arr(alpha)
+                    cn = cl * np.cos(phi) - cd * np.sin(phi)
+                    ct = cl * np.sin(phi) + cd * np.cos(phi)
+                    q  = 0.5 * rho * (v_a*v_a + v_t*v_t) * chord * dr * n_b
+                    dT = np.where(valid, q * cn, 0.0)
+                    dQ = np.where(valid, q * ct * r_arr, 0.0)
+                    T_acc += float(dT.sum())
+                    Q_acc += float(dQ.sum())
 
-                T_total /= n_psi
-                Q_total /= n_psi
+                T_total = T_acc / n_psi
+                Q_total = Q_acc / n_psi
 
             else:
-                # Axial flight: uniform inflow, no azimuth variation.
-                # λ_c, λ_s contributions average to zero over the disk.
-                for rv in r_mid:
-                    dT, dQ = prescribed_element_forces(
-                        r=float(rv), dr=dr, chord=blade.chord_m,
-                        twist_rad=twist, collective_rad=inputs.collective_rad,
-                        omega=omega, lambda_r=lambda_total, rho=rho,
-                        n_blades=blade.n_blades, radius_m=R,
-                        polar=self._polar,
-                        use_tip_loss=self.defn.airfoil.tip_loss,
-                    )
-                    T_total += dT
-                    Q_total += dQ
+                # Axial flight: uniform inflow over the disk.  Fully vectorized.
+                v_a = lambda_total * Omega_R                         # scalar
+                v_t = omega * r_arr                                  # (n,)
+                phi   = np.arctan2(v_a, v_t)
+                alpha = (col + twist) - phi
+                cl, cd = self._polar.cl_cd_arr(alpha)
+                cn = cl * np.cos(phi) - cd * np.sin(phi)
+                ct = cl * np.sin(phi) + cd * np.cos(phi)
+                q  = 0.5 * rho * (v_a*v_a + v_t*v_t) * chord * dr * n_b
+                T_total = float((q * cn).sum())
+                Q_total = float((q * ct * r_arr).sum())
 
         # ------------------------------------------------------------------
         # Pitt-Peters inflow ODE

@@ -16,6 +16,15 @@ class AirfoilPolar(ABC):
     @abstractmethod
     def cl_cd(self, alpha_rad: float) -> tuple[float, float]: ...
 
+    def cl_cd_arr(self, alpha_rad: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """Batched cl_cd. Default falls back to scalar loop; override for speed."""
+        a = np.asarray(alpha_rad, dtype=float).ravel()
+        cl = np.empty_like(a)
+        cd = np.empty_like(a)
+        for i, x in enumerate(a):
+            cl[i], cd[i] = self.cl_cd(float(x))
+        return cl.reshape(np.shape(alpha_rad)), cd.reshape(np.shape(alpha_rad))
+
 
 @dataclass(frozen=True)
 class LinearPolar(AirfoilPolar):
@@ -39,6 +48,20 @@ class LinearPolar(AirfoilPolar):
         cd = self.CD0 + (abs(alpha_rad) - self.alpha_stall_rad)
         return cl, cd
 
+    def cl_cd_arr(self, alpha_rad: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """Vectorized cl_cd over an array of angles of attack."""
+        a = np.asarray(alpha_rad, dtype=float)
+        cl_lin = self.CL0 + self.CL_alpha_per_rad * a
+        cd = np.full_like(a, self.CD0)
+        stall = np.abs(a) >= self.alpha_stall_rad
+        if stall.any():
+            cl_stall_mag = self.CL0 + self.CL_alpha_per_rad * self.alpha_stall_rad
+            cl_stall = np.copysign(cl_stall_mag, a)
+            cl = np.where(stall, cl_stall, cl_lin)
+            cd = np.where(stall, self.CD0 + (np.abs(a) - self.alpha_stall_rad), cd)
+            return cl, cd
+        return cl_lin, cd
+
     @classmethod
     def from_properties(cls, props: "AirfoilProperties") -> "LinearPolar":
         return cls(
@@ -61,13 +84,20 @@ class TabulatedPolar(AirfoilPolar):
     """
 
     def __init__(self, alpha_rad: np.ndarray, cl: np.ndarray, cd: np.ndarray) -> None:
-        self._alpha = alpha_rad
-        self._cl = cl
-        self._cd = cd
+        self._alpha = np.ascontiguousarray(alpha_rad, dtype=float)
+        self._cl = np.ascontiguousarray(cl, dtype=float)
+        self._cd = np.ascontiguousarray(cd, dtype=float)
 
     def cl_cd(self, alpha_rad: float) -> tuple[float, float]:
         cl = float(np.interp(alpha_rad, self._alpha, self._cl))
         cd = float(np.interp(alpha_rad, self._alpha, self._cd))
+        return cl, cd
+
+    def cl_cd_arr(self, alpha_rad: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """Vectorized cl_cd via np.interp (its C binary search beats a
+        hand-rolled index lookup at the array sizes we use, ~10 elements)."""
+        cl = np.interp(alpha_rad, self._alpha, self._cl)
+        cd = np.interp(alpha_rad, self._alpha, self._cd)
         return cl, cd
 
     @classmethod

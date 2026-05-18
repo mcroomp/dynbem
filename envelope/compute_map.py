@@ -21,6 +21,7 @@ Output arrays (shape: [n_vtargets, n_winds, n_elevations, n_samples])
 from __future__ import annotations
 
 import argparse
+import math
 import os
 import sys
 import time
@@ -117,6 +118,8 @@ def compute_grid(params: dict[str, Any] | None = None, **kwargs: Any) -> dict[st
     v_alongs_arr = np.full(shape, np.nan)
     omegas_arr   = np.full(shape, np.nan)
     tilts_arr    = np.full(shape, np.nan)
+    lambda_c_arr = np.full(shape, np.nan)
+    lambda_s_arr = np.full(shape, np.nan)
     sats_arr     = np.zeros(shape, dtype=bool)
 
     project_root = str(Path(__file__).parent.parent)
@@ -177,6 +180,8 @@ def compute_grid(params: dict[str, Any] | None = None, **kwargs: Any) -> dict[st
             ret_s = res["sats"]
             ret_o = res["omegas"]
             ret_tl = res["tilts"]
+            ret_lc = res["lambda_c"]
+            ret_ls = res["lambda_s"]
             for si, t_s in enumerate(tensions_arr):
                 idx_near = int(np.argmin(np.abs(ret_t - t_s)))
                 if abs(ret_t[idx_near] - t_s) < sample_dn:
@@ -185,6 +190,8 @@ def compute_grid(params: dict[str, Any] | None = None, **kwargs: Any) -> dict[st
                     sats_arr    [vi, wi, ai, si] = ret_s[idx_near]
                     omegas_arr  [vi, wi, ai, si] = ret_o[idx_near]
                     tilts_arr   [vi, wi, ai, si] = ret_tl[idx_near]
+                    lambda_c_arr[vi, wi, ai, si] = ret_lc[idx_near]
+                    lambda_s_arr[vi, wi, ai, si] = ret_ls[idx_near]
 
             elapsed = time.time() - t0
             rate = done / elapsed
@@ -199,6 +206,8 @@ def compute_grid(params: dict[str, Any] | None = None, **kwargs: Any) -> dict[st
         "v_alongs_arr": v_alongs_arr,
         "omegas_arr":   omegas_arr,
         "tilts_arr":    tilts_arr,
+        "lambda_c_arr": lambda_c_arr,
+        "lambda_s_arr": lambda_s_arr,
         "sats_arr":     sats_arr,
         "tensions_arr": tensions_arr,
         "v_targets":    np.array(v_targets),
@@ -220,6 +229,8 @@ def save_grid(data: dict[str, Any], path: str) -> None:
         v_alongs_arr=data["v_alongs_arr"],
         omegas_arr=data["omegas_arr"],
         tilts_arr=data["tilts_arr"],
+        lambda_c_arr=data["lambda_c_arr"],
+        lambda_s_arr=data["lambda_s_arr"],
         sats_arr=data["sats_arr"],
         tensions_arr=data["tensions_arr"],
         v_targets=data["v_targets"],
@@ -233,7 +244,7 @@ def save_grid(data: dict[str, Any], path: str) -> None:
 
 def load_grid(path: str) -> dict[str, Any]:
     raw = np.load(path, allow_pickle=True)
-    return {
+    out = {
         "cols_arr":     raw["cols_arr"],
         "v_alongs_arr": raw["v_alongs_arr"],
         "omegas_arr":   raw["omegas_arr"],
@@ -246,6 +257,15 @@ def load_grid(path: str) -> dict[str, Any]:
         "mass_kg":      float(raw["mass_kg"][0]),
         "rotor_name":   str(raw["rotor_name"][0]),
     }
+    # Older maps don't have the cyclic arrays — fill with NaN so plot_grid
+    # can detect missing data and skip the widget.
+    if "lambda_c_arr" in raw.files:
+        out["lambda_c_arr"] = raw["lambda_c_arr"]
+        out["lambda_s_arr"] = raw["lambda_s_arr"]
+    else:
+        out["lambda_c_arr"] = np.full_like(out["cols_arr"], np.nan)
+        out["lambda_s_arr"] = np.full_like(out["cols_arr"], np.nan)
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -419,7 +439,10 @@ def plot_grid(data: dict[str, Any], out_dir: str = ".",
     na = len(elevations)
     nt = len(t_grid)
     cell_w = max(0.5, 5.0 / na)
-    cell_h = max(0.2, 4.0 / nt)
+    # Collective heatmap also draws a rotor-tilt line + RPM, so it needs
+    # taller cells than the rpm/tilt heatmaps.
+    cell_h_min = 0.4 if quantity == "col" else 0.2
+    cell_h = max(cell_h_min, 4.0 / nt)
     fontsize = max(5, min(8, int(min(cell_w, cell_h) * 13)))
 
     el_edges = _cell_edges(np.array(elevations, dtype=float))
@@ -437,8 +460,21 @@ def plot_grid(data: dict[str, Any], out_dir: str = ".",
             fontsize=11,
         )
 
-        # Tilt overlay: shown as a second line in each cell for collective plot
-        tilt_hm = data["tilts_arr"][:, :, :, t_indices] if quantity == "col" else None
+        # For the collective heatmap we overlay RPM (text) and a small "T"
+        # glyph showing the geometry: the stick is the tether (from hub
+        # toward anchor at the given elevation), the crossbar is the rotor
+        # disk perpendicular to the hub axis.
+        if quantity == "col":
+            rpm_hm  = data["omegas_arr"][:, :, :, t_indices] * (60.0 / (2.0 * math.pi))
+            tilt_hm = data["tilts_arr"][:, :, :, t_indices]
+        else:
+            rpm_hm = None
+            tilt_hm = None
+
+        # T-glyph dimensions (display points; angle is preserved regardless
+        # of cell aspect ratio).
+        L_stick = 11.0
+        L_bar   = 7.0
 
         for vi, vt in enumerate(v_targets):
             ax = axes[0, vi]
@@ -468,14 +504,52 @@ def plot_grid(data: dict[str, Any], out_dir: str = ".",
                         continue
                     brightness = (val - norm.vmin) / max(norm.vmax - norm.vmin, 1e-9)
                     tc = "white" if brightness > 0.6 else "black"
-                    if tilt_hm is not None:
+
+                    if rpm_hm is not None:
+                        rpm_val  = rpm_hm[vi, wi, ai, ti]
                         tilt_val = tilt_hm[vi, wi, ai, ti]
-                        cell_label = f"{fmt.format(val)}\n{tilt_val:.0f}°"
-                    else:
-                        cell_label = fmt.format(val)
-                    ax.text(xc, yc, cell_label, ha="center", va="center",
+
+                        # Text (collective + RPM) in upper portion of cell
+                        ax.annotate(
+                            f"{fmt.format(val)}\n{rpm_val:.0f} rpm",
+                            xy=(xc, yc), xycoords="data",
+                            xytext=(0, 9), textcoords="offset points",
+                            ha="center", va="bottom",
                             fontsize=fontsize, color=tc, fontweight="bold",
-                            linespacing=1.1)
+                            linespacing=1.1,
+                        )
+
+                        # T glyph centered on hub at cell centre.
+                        # Side view: x = east (right), y = up.
+                        # Tether (hub -> anchor) direction = (cos el, -sin el).
+                        # Rotor disk direction (perp to hub axis,
+                        # tilt = angle of hub axis from -Z) = (cos tilt, sin tilt).
+                        if np.isfinite(tilt_val):
+                            el_rad   = math.radians(float(el_ctrs[ai]))
+                            tilt_rad = math.radians(float(tilt_val))
+                            # Stick: from hub outward in tether direction.
+                            sx = L_stick * math.cos(el_rad)
+                            sy = -L_stick * math.sin(el_rad)
+                            ax.annotate(
+                                "", xy=(xc, yc), xycoords="data",
+                                xytext=(sx, sy), textcoords="offset points",
+                                arrowprops=dict(arrowstyle="-", color=tc, lw=1.4),
+                            )
+                            # Crossbar (rotor disk): two halves through hub.
+                            bx = L_bar * math.cos(tilt_rad)
+                            by = L_bar * math.sin(tilt_rad)
+                            for sign in (-1.0, 1.0):
+                                ax.annotate(
+                                    "", xy=(xc, yc), xycoords="data",
+                                    xytext=(sign * bx, sign * by),
+                                    textcoords="offset points",
+                                    arrowprops=dict(arrowstyle="-",
+                                                    color=tc, lw=1.4),
+                                )
+                    else:
+                        ax.text(xc, yc, fmt.format(val), ha="center", va="center",
+                                fontsize=fontsize, color=tc, fontweight="bold",
+                                linespacing=1.1)
 
             ax.set_xlabel("Tether elevation (deg)")
             ax.set_ylabel("Tether tension (N)")
@@ -487,6 +561,65 @@ def plot_grid(data: dict[str, Any], out_dir: str = ".",
             fig.colorbar(mesh, ax=ax, label=qty_label)
 
         fig.tight_layout()
+
+        # Cyclic widget pass — runs after tight_layout so the data transforms
+        # are final when we convert pixel offsets back to data coordinates.
+        if quantity == "col":
+            from matplotlib.patches import Ellipse
+            lamc_hm = data["lambda_c_arr"][:, :, :, t_indices]
+            lams_hm = data["lambda_s_arr"][:, :, :, t_indices]
+            cyc_radius_pts = 6.0
+            cyc_offset_pts = (18.0, -10.0)  # upper-right of cell center
+            cyc_full_scale = 0.25            # |λ_c|, |λ_s| span up to ~0.2
+            pt_px = fig.dpi / 72.0
+
+            for vi in range(nv):
+                ax = axes[0, vi]
+                inv = ax.transData.inverted()
+
+                # Recompute z + sat per ax to know which cells are valid
+                z = vals_hm[vi, wi, :, :].copy()
+                sat = sats_hm[vi, wi, :, :]
+                for ai in range(na):
+                    first_sat = np.argmax(sat[ai])
+                    if sat[ai, first_sat]:
+                        z[ai, first_sat:] = np.nan
+
+                for ai in range(na):
+                    for ti in range(nt):
+                        val = z[ai, ti]
+                        lc = float(lamc_hm[vi, wi, ai, ti])
+                        ls = float(lams_hm[vi, wi, ai, ti])
+                        if not (np.isfinite(val) and np.isfinite(lc) and np.isfinite(ls)):
+                            continue
+                        brightness = (val - norm.vmin) / max(norm.vmax - norm.vmin, 1e-9)
+                        tc = "white" if brightness > 0.6 else "black"
+
+                        xc = float(el_ctrs[ai])
+                        yc = float(t_grid[ti])
+                        xy_px = ax.transData.transform((xc, yc))
+                        cx_px = xy_px[0] + cyc_offset_pts[0] * pt_px
+                        cy_px = xy_px[1] + cyc_offset_pts[1] * pt_px
+
+                        # Circle outline (drawn as Ellipse because data x/y
+                        # scales differ — we want a visual circle).
+                        cc = inv.transform((cx_px, cy_px))
+                        rx = inv.transform((cx_px + cyc_radius_pts * pt_px, cy_px))
+                        ty = inv.transform((cx_px, cy_px + cyc_radius_pts * pt_px))
+                        ax.add_patch(Ellipse(
+                            cc, 2 * (rx[0] - cc[0]), 2 * (ty[1] - cc[1]),
+                            fill=False, edgecolor=tc, lw=0.7,
+                        ))
+
+                        # Dot at (λ_s, λ_c) scaled to circle; clipped to edge.
+                        nx = max(-1.0, min(1.0, ls / cyc_full_scale))
+                        ny = max(-1.0, min(1.0, lc / cyc_full_scale))
+                        dot_px = (cx_px + nx * cyc_radius_pts * pt_px,
+                                  cy_px + ny * cyc_radius_pts * pt_px)
+                        dot_d = inv.transform(dot_px)
+                        ax.plot(dot_d[0], dot_d[1], "o", markersize=3.2,
+                                color=tc, markeredgewidth=0)
+
         fname = out_path / f"envelope_{quantity}_wind{ws:.0f}ms.png"
         fig.savefig(fname, dpi=150)
         plt.close(fig)
