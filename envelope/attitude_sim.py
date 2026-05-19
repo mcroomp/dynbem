@@ -93,7 +93,7 @@ from typing import Optional
 
 import numpy as np
 
-from aero import RotorInputs, create_aero
+from aero import RotorInputs, create_aero, solve_trim_cyclic
 from aero.rotor_definition import RotorDefinition
 from envelope.point_mass import (
     G,
@@ -316,88 +316,60 @@ def simulate_attitude(
                 tilt_lon, tilt_lat, Mx_eq, My_eq, aero_res)
 
     # -----------------------------------------------------------------------
-    # Phase 1: trim solver.  The rotor produces non-trivial steady-state
-    # hub moments in forward flight (advancing/retreating asymmetry), so
-    # the open-loop attitude system is unstable from zero cyclic.
-    # Pre-compute the cyclic commands (trim_tilt_lon, trim_tilt_lat)
-    # that null the hub moments at the equilibrium attitude, then
-    # pre-load the PID integrators with those values.
-    #
-    # Approach: alternate (a) advancing the rotor inflow state at the
-    # current cyclic and (b) a damped Newton update on cyclic using a
-    # one-step finite-difference probe of ∂(Mx, My)/∂(tilt_lat, tilt_lon).
+    # Phase 1a: pre-settle inflow + v_along + collective at zero cyclic.
+    # ω is held fixed (= omega_init) so the inflow chases a stationary
+    # operating point without rotor-torque feedback dragging ω away.
     # -----------------------------------------------------------------------
-    def _evaluate_M_at(rotor_state, tilt_lon_try, tilt_lat_try):
-        """Single BEM call at the trim attitude with the given cyclic."""
+    def _settle_step(rotor_state, v_along, col_now, int_col, tlon, tlat):
         vel = v_along * t_hat
         inputs = RotorInputs(
-            collective_rad=col_now,
-            tilt_lon=tilt_lon_try, tilt_lat=tilt_lat_try,
+            collective_rad=col_now, tilt_lon=tlon, tilt_lat=tlat,
             R_hub=R_hub_eq, v_hub_world=vel, wind_world=wind, t=0.0,
         )
         res, drv = aero.compute_forces(inputs, rotor_state)
-        M_eq = R_hub_eq.T @ res.M_orbital
-        return float(M_eq[0]), float(M_eq[1]), res, drv, inputs
-
-    # Settle inflow at zero cyclic.  ω is HELD FIXED (= omega_init) so
-    # the inflow chases a stationary operating point — without this the
-    # rotor torque feedback would drag ω away during settle.
-    n_inflow_settle = max(1, int(round(settle_time / dt)))
-    for k in range(n_inflow_settle):
-        _, _, _aero_res, drv, inputs = _evaluate_M_at(
-            rotor_state, trim_tilt_lon, trim_tilt_lat,
-        )
-        f_thrust_along = float(np.dot(_aero_res.F_world, t_hat))
+        f_thrust_along = float(np.dot(res.F_world, t_hat))
         f_along = f_thrust_along + f_grav_along + tension_n
         v_along = max(-30.0, min(30.0, v_along + dt * f_along / mass_kg))
         if v_target is not None:
             err = v_along - v_target
             int_col = max(-int_max, min(int_max, int_col + err * dt))
             col_now = max(col_min, min(col_max,
-                                      kp_col * err + ki_col * int_col))
+                                       kp_col * err + ki_col * int_col))
         new_arr = _step_state_semi_implicit(aero, rotor_state, drv, dt, inputs)
-        new_arr[-2] = omega_init                  # hold ω fixed during trim
+        new_arr[-2] = omega_init
         new_arr = _clip_state(new_arr, rotor_state)
         rotor_state = rotor_state.from_array(new_arr)
+        return rotor_state, v_along, col_now, int_col
 
-    # Newton-style trim refinement.  After each cyclic update, let the
-    # inflow re-converge for a few τ_cs so the moments we read reflect
-    # the new cyclic.
-    probe_deg = 0.5
-    probe = math.radians(probe_deg)
-    n_inflow_relax = 100        # ~0.5 s at dt=0.005 — several τ_cs
-    for newton_iter in range(50):
-        Mx0, My0, _, _, _ = _evaluate_M_at(rotor_state, trim_tilt_lon, trim_tilt_lat)
-        if abs(Mx0) < trim_tolerance_Nm and abs(My0) < trim_tolerance_Nm:
-            break
-        # Probe ∂My/∂tilt_lon
-        _, My1, _, _, _ = _evaluate_M_at(rotor_state, trim_tilt_lon + probe, trim_tilt_lat)
-        dMy_dlon = (My1 - My0) / probe
-        # Probe ∂Mx/∂tilt_lat
-        Mx1, _,  _, _, _ = _evaluate_M_at(rotor_state, trim_tilt_lon, trim_tilt_lat + probe)
-        dMx_dlat = (Mx1 - Mx0) / probe
-        # Damped Newton — half-step toward the null
-        if abs(dMy_dlon) > 1e-6:
-            trim_tilt_lon = max(tilt_min, min(tilt_max,
-                trim_tilt_lon - 0.5 * My0 / dMy_dlon))
-        if abs(dMx_dlat) > 1e-6:
-            trim_tilt_lat = max(tilt_min, min(tilt_max,
-                trim_tilt_lat - 0.5 * Mx0 / dMx_dlat))
-        # Relax inflow at the updated cyclic so the next probe is valid.
-        # ω still held at omega_init.
-        for k in range(n_inflow_relax):
-            _, _, _aero_res, drv, inputs = _evaluate_M_at(
-                rotor_state, trim_tilt_lon, trim_tilt_lat,
-            )
-            new_arr = _step_state_semi_implicit(aero, rotor_state, drv, dt, inputs)
-            new_arr[-2] = omega_init
-            new_arr = _clip_state(new_arr, rotor_state)
-            rotor_state = rotor_state.from_array(new_arr)
+    n_inflow_settle = max(1, int(round(settle_time / dt)))
+    for _ in range(n_inflow_settle):
+        rotor_state, v_along, col_now, int_col = _settle_step(
+            rotor_state, v_along, col_now, int_col, 0.0, 0.0,
+        )
 
-    # Capture final trim residual for diagnostics.
-    Mx_trim, My_trim, _, _, _ = _evaluate_M_at(
-        rotor_state, trim_tilt_lon, trim_tilt_lat,
+    # -----------------------------------------------------------------------
+    # Phase 1b: trim solver.  The rotor produces non-trivial steady-state
+    # hub moments in forward flight (advancing/retreating asymmetry), so
+    # the open-loop attitude system is unstable from zero cyclic.
+    # ``aero.solve_trim_cyclic`` finds the (tilt_lon, tilt_lat) that null
+    # those moments at the equilibrium attitude; we then pre-load the
+    # PID integrators with the trim values below.
+    # -----------------------------------------------------------------------
+    vel_eq = v_along * t_hat
+    trim   = solve_trim_cyclic(
+        aero, rotor_state,
+        collective_rad=col_now,
+        R_hub=R_hub_eq, v_hub_world=vel_eq, wind_world=wind,
+        tilt_min=tilt_min, tilt_max=tilt_max,
+        tolerance_Nm=trim_tolerance_Nm,
+        dt_relax=dt, n_inflow_relax=100,
+        fix_omega=True,
     )
+    trim_tilt_lon = trim.tilt_lon
+    trim_tilt_lat = trim.tilt_lat
+    Mx_trim       = trim.Mx_residual
+    My_trim       = trim.My_residual
+    rotor_state   = trim.final_state
 
     # Pre-load PID integrators with the trim cyclic so the controller
     # starts in "trim hold" rather than ramping up from zero.  The PID

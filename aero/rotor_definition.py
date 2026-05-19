@@ -224,7 +224,7 @@ def load(path: str) -> RotorDefinition:
             kaman_flap=KamanFlap(**control.get("kaman_flap", {})),
         ) if control else None,
         inertia=InertiaProperties(
-            mass_kg=_maybe_float(inertia.get("mass_kg")),
+            mass_kg=_resolve_mass_kg(inertia, n_blades=int(rotor["n_blades"])),
             I_body_kgm2=tuple(float(v) for v in inertia.get("I_body_kgm2", [])),
             I_spin_kgm2=_maybe_float(inertia.get("I_spin_kgm2")),
             blade_mass_kg=_maybe_float(inertia.get("blade_mass_kg")),
@@ -250,6 +250,24 @@ def _maybe_float(value: object) -> Optional[float]:
     if isinstance(value, dict):
         return float(sum(float(v) for v in value.values()))
     return float(value)
+
+
+def _resolve_mass_kg(inertia_section: dict, n_blades: int) -> Optional[float]:
+    """Use explicit mass_kg if given; otherwise sum component masses.
+
+    A YAML may omit ``mass_kg`` and provide blade + stationary + shell masses
+    instead.  Summing them yields the total — convenient when the inertia
+    breakdown is the source of truth.
+    """
+    explicit = inertia_section.get("mass_kg")
+    if explicit is not None:
+        return float(explicit)
+    blade = _maybe_float(inertia_section.get("blade_mass_kg"))
+    stat  = _maybe_float(inertia_section.get("stationary_assembly_mass_kg"))
+    shell = _maybe_float(inertia_section.get("spinning_hub_shell_mass_kg"))
+    if blade is not None and stat is not None and shell is not None:
+        return blade * n_blades + stat + shell
+    return None
 
 
 def _maybe_int(value: object) -> Optional[int]:

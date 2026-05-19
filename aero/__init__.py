@@ -141,6 +141,7 @@ from .bem import (  # noqa: F401, E402
 from .pitt_peters import PittPetersModel, vrs_lambda1  # noqa: F401, E402
 from .oye import OyeBEMModel  # noqa: F401, E402
 from .rotor_state import OyeRotorState  # noqa: F401, E402
+from .trim import TrimResult, relax_inflow, solve_trim_cyclic  # noqa: F401, E402
 from .rotor_definition import (  # noqa: F401, E402
     AirfoilProperties,
     AutorotationProperties,
@@ -176,6 +177,9 @@ __all__ = [
     "RotorDefinition",
     "KamanFlap",
     "ValidationIssue",
+    "TrimResult",
+    "solve_trim_cyclic",
+    "relax_inflow",
 ]
 
 
