@@ -35,15 +35,16 @@ def defn():
     return load_rotor(_ROTOR_YAML)
 
 
-# Operating-point inputs.  These come from a compute_map sweep at
-# 30°/200N/v_target=-0.5; the converged collective and ω are reused
-# here as the equilibrium operating point for the attitude sim.
-_OP = dict(
-    elevation_deg=30.0,
-    tension_n=200.0,
-    wind_speed_ms=10.0,
-    collective_eq_rad=math.radians(-9.31),
-    omega_init=33.2,
+# Operating-point inputs from compute_map sweep at 30°/200N/v=-0.5.  PP
+# and Øye converge to slightly different (collective, ω) at the same
+# physical operating point, so we list both.
+_OP_PP = dict(
+    elevation_deg=30.0, tension_n=200.0, wind_speed_ms=10.0,
+    collective_eq_rad=math.radians(-9.31), omega_init=33.2,
+)
+_OP_OYE = dict(
+    elevation_deg=30.0, tension_n=200.0, wind_speed_ms=10.0,
+    collective_eq_rad=math.radians(-9.42), omega_init=32.5,
 )
 
 _CONTROL = dict(
@@ -60,6 +61,13 @@ _CONTROL = dict(
 )
 
 
+# Parameterise the tests over (model_name, operating_point).
+_MODEL_PARAMS = [
+    pytest.param("pitt_peters_jit", _OP_PP, id="pitt_peters_jit"),
+    pytest.param("oye",             _OP_OYE, id="oye"),
+]
+
+
 # ---------------------------------------------------------------------------
 # 1. Trim
 # ---------------------------------------------------------------------------
@@ -67,11 +75,12 @@ _CONTROL = dict(
 class TestTrim:
     """The Newton-iteration trim solver finds cyclic that nulls hub moments."""
 
-    def test_trim_residuals_below_tolerance(self, defn):
-        """|Mx|, |My| at the trim cyclic must be small (< 0.1 N·m)."""
+    @pytest.mark.parametrize("model_name,operating_point", _MODEL_PARAMS)
+    def test_trim_residuals_below_tolerance(self, defn, model_name, operating_point):
+        """|Mx|, |My| at the trim cyclic must be small (< 1 N·m)."""
         result = simulate_attitude(
-            defn=defn, model="pitt_peters_jit",
-            **_OP, **_CONTROL,
+            defn=defn, model=model_name,
+            **operating_point, **_CONTROL,
             t_max=0.0,                    # trim only
             trim_tolerance_Nm=0.05,
         )
@@ -88,10 +97,11 @@ class TestTrim:
 class TestHold:
     """With no perturbation the controller holds equilibrium with bounded drift."""
 
-    def test_no_perturbation_holds_trim(self, defn):
+    @pytest.mark.parametrize("model_name,operating_point", _MODEL_PARAMS)
+    def test_no_perturbation_holds_trim(self, defn, model_name, operating_point):
         result = simulate_attitude(
-            defn=defn, model="pitt_peters_jit",
-            **_OP, **_CONTROL,
+            defn=defn, model=model_name,
+            **operating_point, **_CONTROL,
             pitch_init=0.0, roll_init=0.0,
             t_max=3.0,
         )
@@ -117,10 +127,13 @@ class TestHold:
 class TestRecovery:
     """A small initial perturbation is regulated back to equilibrium."""
 
-    def test_recovery_from_2deg_pitch_perturbation(self, defn):
+    @pytest.mark.parametrize("model_name,operating_point", _MODEL_PARAMS)
+    def test_recovery_from_2deg_pitch_perturbation(
+        self, defn, model_name, operating_point,
+    ):
         result = simulate_attitude(
-            defn=defn, model="pitt_peters_jit",
-            **_OP, **_CONTROL,
+            defn=defn, model=model_name,
+            **operating_point, **_CONTROL,
             pitch_init=math.radians(2.0),
             roll_init=math.radians(-1.0),
             t_max=5.0,
@@ -140,12 +153,15 @@ class TestRecovery:
         assert abs(math.degrees(h["pitch"][-1])) < 0.2
         assert abs(math.degrees(h["roll"][-1]))  < 0.2
 
-    def test_controller_did_actually_act(self, defn):
+    @pytest.mark.parametrize("model_name,operating_point", _MODEL_PARAMS)
+    def test_controller_did_actually_act(
+        self, defn, model_name, operating_point,
+    ):
         """tilt_lon and tilt_lat should have peaked well above their
         steady-state trim values during the recovery transient."""
         result = simulate_attitude(
-            defn=defn, model="pitt_peters_jit",
-            **_OP, **_CONTROL,
+            defn=defn, model=model_name,
+            **operating_point, **_CONTROL,
             pitch_init=math.radians(2.0),
             roll_init=math.radians(-1.0),
             t_max=2.0,
