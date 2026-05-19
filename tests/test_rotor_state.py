@@ -5,9 +5,6 @@ from aero.rotor_state import PittPetersRotorState, QuasiStaticRotorState, RotorS
 
 
 class TestQuasiStaticRotorState:
-    def test_n_states(self):
-        assert QuasiStaticRotorState().n_states == 2
-
     def test_default_fields_zero(self):
         s = QuasiStaticRotorState()
         assert s.omega_rad_s == 0.0
@@ -43,9 +40,6 @@ class TestQuasiStaticRotorState:
 
 
 class TestPittPetersRotorState:
-    def test_n_states(self):
-        assert PittPetersRotorState().n_states == 5
-
     def test_default_fields_zero(self):
         s = PittPetersRotorState()
         assert s.lambda_0 == 0.0

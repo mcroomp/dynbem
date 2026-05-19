@@ -46,6 +46,53 @@ G = 9.81  # m/s²
 
 
 # ---------------------------------------------------------------------------
+# Semi-implicit Euler for dynamic-inflow states
+# ---------------------------------------------------------------------------
+#
+# The Pitt-Peters / Øye inflow states follow  dλ/dt = (λ_ss − λ)/τ  with
+# small τ for small rotors at high V_T.  Plain explicit Euler is unstable
+# when dt/τ > 2; we damp the step by (1 + dt/τ)⁻¹ — the implicit-Euler
+# limit for fixed λ_ss.  Unconditionally stable; reduces to explicit
+# Euler when dt ≪ τ.  τ comes from the aero model's inflow_taus()
+# method (returns ∞ for mechanical states, which then integrate as
+# plain Euler).
+
+def _clip_state(arr: np.ndarray, state) -> np.ndarray:
+    """Model-agnostic state clip.  Convention: ``arr[-2] = omega_rad_s``,
+    ``arr[-1] = spin_angle_rad``, everything before is an inflow state.
+
+    Inflow states clamped to ±10 (well beyond any physical λ ≈ 0.05);
+    omega clamped to [0.5, 300] rad/s; spin angle is unbounded.  Returns
+    a new array.
+    """
+    out = arr.copy()
+    n = arr.size
+    if n >= 3:
+        out[:-2] = np.clip(out[:-2], -10.0, 10.0)
+    out[-2] = max(0.5, min(300.0, out[-2]))
+    return out
+
+
+def _step_state_semi_implicit(model, state, dstate, dt: float,
+                              inputs) -> np.ndarray:
+    """Semi-implicit Euler on dynamic-inflow states; explicit on the rest.
+
+    Queries ``model.inflow_taus(inputs, state)`` for per-state time
+    constants.  Mechanical states (ω, ψ) report τ=∞ and integrate as
+    plain explicit Euler.  Model-agnostic — works with any AeroBase
+    subclass that overrides inflow_taus correctly.
+    """
+    taus = model.inflow_taus(inputs, state)
+    arr  = state.to_array()
+    darr = dstate.to_array()
+    # damp = 1/(1+dt/τ); =1 when τ=∞ (plain Euler)
+    finite = np.isfinite(taus)
+    damp = np.ones_like(arr)
+    damp[finite] = 1.0 / (1.0 + dt / taus[finite])
+    return arr + dt * darr * damp
+
+
+# ---------------------------------------------------------------------------
 # Geometry helpers
 # ---------------------------------------------------------------------------
 
@@ -89,7 +136,7 @@ def simulate_point(
     omega_init: float = 100.0,
     v_along_init: float = 0.0,
     v_target: Optional[float] = None,
-    dt: float = 0.02,
+    dt: float = 0.005,
     t_max: float = 60.0,
     kp_col: float = 0.01,
     ki_col: float = 0.02,
@@ -176,35 +223,23 @@ def simulate_point(
 
         aero, dstate = model.compute_forces(inputs, state)
 
-        # Integrate rotor state (Euler)
-        arr = state.to_array() + dt * dstate.to_array()
+        # Integrate rotor state: semi-implicit on dynamic-inflow states
+        # (τ may be ≪ dt), explicit Euler on ω and ψ.  Model-agnostic.
+        arr = _step_state_semi_implicit(model, state, dstate, dt, inputs)
         state = state.from_array(arr)
         if state.omega_rad_s < 1.0:
             arr2 = state.to_array()
-            arr2[3] = 1.0
+            arr2[-2] = 1.0   # ω is second-to-last by convention
             state = state.from_array(arr2)
 
-        # 1-D force integration along tether (semi-implicit on v_along).
-        # Probe ∂F_thrust_along/∂v_along by finite difference so the explicit
-        # Euler step on v_along can be damped when thrust is stiff in v_along.
+        # 1-D force integration along tether (explicit Euler).  The previous
+        # semi-implicit form used a finite-difference probe of ∂F/∂v_along
+        # to damp stiff thrust; that's no longer needed at dt = 0.005 s
+        # (typical |k_v| ≪ 2m/dt = 2000 N·s/m stability bound) and the probe
+        # doubled the BEM cost per step.
         f_thrust_along = float(np.dot(aero.F_world, t_hat))
-        dv_probe = 0.05
-        inputs_p = RotorInputs(
-            collective_rad=col_now,
-            tilt_lon=0.0,
-            tilt_lat=0.0,
-            R_hub=R_hub,
-            v_hub_world=(v_along + dv_probe) * t_hat,
-            wind_world=wind_world,
-            t=i * dt,
-        )
-        aero_p, _ = model.compute_forces(inputs_p, state)
-        f_thrust_p = float(np.dot(aero_p.F_world, t_hat))
-        k_v = (f_thrust_p - f_thrust_along) / dv_probe   # typically < 0 (damping)
-
         f_along = f_thrust_along + f_grav_along + tension_n
-        denom = max(1.0 - (dt / mass_kg) * k_v, 1.0)     # only damp, never amplify
-        v_along += (dt / mass_kg) * f_along / denom
+        v_along += (dt / mass_kg) * f_along
 
         # Collective PI (absolute form with anti-windup)
         if v_target is not None:
@@ -341,11 +376,10 @@ def ramp_column_worker(args: dict) -> dict:
     _clip_lo = np.array([-10, -10, -10, 0.5, -np.inf])
     _clip_hi = np.array([ 10,  10,  10, 300,  np.inf])
 
-    def _step(tension_now: float, sim_t: float) -> None:
+    def _step(tension_now: float, sim_t: float, dt_in: float) -> None:
+        """Single explicit step of (state, v_along, PI) at the given dt."""
         nonlocal state, v_along, col_now, int_vcol, col_saturated, aero_clamped
 
-        # Force balance accounts for gravity along the tether; bz uses the
-        # same gravity so the test utility (gravity=0) stays consistent.
         f_load = tension_now * t_hat_arr + np.array([0.0, 0.0, mass_kg * gravity_mps2])
         bz = f_load / float(np.linalg.norm(f_load))
         R_hub = _build_r_hub(bz)
@@ -362,38 +396,23 @@ def ramp_column_worker(args: dict) -> dict:
         )
         aero, dstate = model.compute_forces(inputs, state)
 
-        arr_raw = state.to_array() + dt * dstate.to_array()
-        arr_clipped = np.clip(arr_raw, _clip_lo, _clip_hi)
+        # Semi-implicit Euler on dynamic-inflow states; explicit on ω, ψ.
+        arr_raw = _step_state_semi_implicit(model, state, dstate, dt_in, inputs)
+        arr_clipped = _clip_state(arr_raw, state)
         if not np.array_equal(arr_raw, arr_clipped):
             aero_clamped = True
         state = state.from_array(arr_clipped)
 
-        # Semi-implicit v_along update: probe ∂F_thrust/∂v_along and damp
-        # the explicit Euler step when thrust is stiff in v_along.
+        # Explicit Euler on v_along.
         f_thrust_along = float(np.dot(aero.F_world, t_hat_arr))
-        dv_probe = 0.05
-        inputs_p = RotorInputs(
-            collective_rad=col_now,
-            tilt_lon=0.0,
-            tilt_lat=0.0,
-            R_hub=R_hub,
-            v_hub_world=(v_along + dv_probe) * t_hat_arr,
-            wind_world=wind_world,
-            t=sim_t,
-        )
-        aero_p, _ = model.compute_forces(inputs_p, state)
-        f_thrust_p = float(np.dot(aero_p.F_world, t_hat_arr))
-        k_v = (f_thrust_p - f_thrust_along) / dv_probe
-
         f_along = f_thrust_along + f_grav_along + tension_now
-        denom = max(1.0 - (dt / mass_kg) * k_v, 1.0)
-        v_new = v_along + (dt / mass_kg) * f_along / denom
+        v_new = v_along + (dt_in / mass_kg) * f_along
         if v_new < -30.0 or v_new > 30.0:
             aero_clamped = True
         v_along = max(-30.0, min(30.0, v_new))
 
         err = v_along - v_target
-        int_vcol = max(-int_max, min(int_max, int_vcol + err * dt))
+        int_vcol = max(-int_max, min(int_max, int_vcol + err * dt_in))
         col_raw = kp_col * err + ki_col * int_vcol
         col_saturated = col_raw < col_min or col_raw > col_max
         col_now = max(col_min, min(col_max, col_raw))
@@ -401,7 +420,7 @@ def ramp_column_worker(args: dict) -> dict:
     # Phase 1: settle at T_min
     settle_steps = int(settle_time / dt)
     for i in range(settle_steps):
-        _step(T_min, i * dt)
+        _step(T_min, i * dt, dt)
 
     def _tilt_deg(tension_now: float) -> float:
         """Rotor tilt from vertical (deg): angle between hub axis and -Z (down)."""
@@ -417,30 +436,94 @@ def ramp_column_worker(args: dict) -> dict:
     tilt_samples = [_tilt_deg(T_min)]
     lamc_samples = [state.lambda_c]
     lams_samples = [state.lambda_s]
+
+    # ----- Phase 2: ramp from T_min to T_max with backtracking -----
+    #
+    # We walk the tension axis in "segments" of `backtrack_dn` N each.  At
+    # the start of every segment we snapshot the full state.  We step
+    # through the segment at the current dt; when a segment finishes
+    # cleanly (no aero clamp), we keep the samples and advance.  When it
+    # ends in a clamp, we restore the segment-start snapshot, halve the
+    # local dt, and replay the same segment — up to a recursion cap.  Once
+    # past the troublesome segment, dt is restored to the user-set value.
+    #
+    # This keeps the per-step code simple (one dt, no adaptive bookkeeping)
+    # and only pays the smaller-dt cost in the few segments that need it.
+    backtrack_dn = 10.0 * sample_dn        # ~10 samples between snapshots
+    min_dt = dt / 64.0                     # cost cap
+    seg_t_start = T_min
+    seg_sim_t_start = settle_time
+    local_dt = dt
+
+    def _snapshot():
+        return {
+            "state":          state,                  # PittPetersRotorState is frozen
+            "v_along":        v_along,
+            "col_now":        col_now,
+            "int_vcol":       int_vcol,
+            "col_saturated":  col_saturated,
+            # samples taken so far — restored to this length on backtrack
+            "n_samples":      len(t_samples),
+        }
+
+    def _restore(snap):
+        nonlocal state, v_along, col_now, int_vcol, col_saturated
+        state         = snap["state"]
+        v_along       = snap["v_along"]
+        col_now       = snap["col_now"]
+        int_vcol      = snap["int_vcol"]
+        col_saturated = snap["col_saturated"]
+        n = snap["n_samples"]
+        del t_samples [n:]; del col_samples[n:]; del v_samples [n:]
+        del sat_samples[n:]; del omega_samples[n:]; del tilt_samples[n:]
+        del lamc_samples[n:]; del lams_samples[n:]
+
+    snap = _snapshot()
     next_sample_t = T_min + sample_dn
+    sim_t = settle_time
 
-    # Phase 2: ramp from T_min to T_max, recording at every sample_dn N
-    ramp_steps = int((T_max - T_min) / ramp_rate / dt) + 1
-    for i in range(ramp_steps):
-        t_now = min(T_min + ramp_rate * (i + 1) * dt, T_max)
-        _step(t_now, settle_time + i * dt)
+    while seg_t_start < T_max - 1e-9:
+        seg_t_end = min(seg_t_start + backtrack_dn, T_max)
+        # Step from seg_t_start to seg_t_end at local_dt, recording samples.
+        ramp_step_dt = ramp_rate * local_dt   # tension increment per step
+        n_steps_in_seg = max(1, int(math.ceil((seg_t_end - seg_t_start) / ramp_step_dt)))
+        t_now = seg_t_start
+        for k in range(n_steps_in_seg):
+            t_now = min(seg_t_start + ramp_rate * (k + 1) * local_dt, seg_t_end)
+            _step(t_now, sim_t, local_dt)
+            sim_t += local_dt
 
-        if aero_clamped:
+            if aero_clamped:
+                break
+
+            while (next_sample_t <= t_now + 1e-9
+                   and next_sample_t <= T_max + 1e-9):
+                t_samples.append(next_sample_t)
+                col_samples.append(col_now)
+                v_samples.append(v_along)
+                sat_samples.append(col_saturated)
+                omega_samples.append(state.omega_rad_s)
+                tilt_samples.append(_tilt_deg(next_sample_t))
+                lamc_samples.append(state.lambda_c)
+                lams_samples.append(state.lambda_s)
+                next_sample_t += sample_dn
+
+        if not aero_clamped:
+            # Segment succeeded — advance, snapshot, try to recover dt.
+            seg_t_start = seg_t_end
+            seg_sim_t_start = sim_t
+            local_dt = min(dt, local_dt * 2.0)   # gentle dt recovery
+            snap = _snapshot()
+            continue
+
+        # Aero clamped during segment — restore and retry at smaller dt.
+        if local_dt <= min_dt:
+            # Already at the floor; nothing more to do — record clamp and stop.
             break
-
-        while next_sample_t <= t_now + 1e-9 and next_sample_t <= T_max + 1e-9:
-            t_samples.append(next_sample_t)
-            col_samples.append(col_now)
-            v_samples.append(v_along)
-            sat_samples.append(col_saturated)
-            omega_samples.append(state.omega_rad_s)
-            tilt_samples.append(_tilt_deg(next_sample_t))
-            lamc_samples.append(state.lambda_c)
-            lams_samples.append(state.lambda_s)
-            next_sample_t += sample_dn
-
-        if t_now >= T_max - 1e-9:
-            break
+        _restore(snap)
+        aero_clamped = False
+        sim_t = seg_sim_t_start
+        local_dt *= 0.5
 
     return {
         "elevation_deg": elevation_deg,

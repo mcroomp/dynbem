@@ -200,7 +200,8 @@ class TestPittPetersWBS:
         _, cq, _l = _euler_to_steady(pp_model, theta_deg, rpm, -v_descent)
         assert cq < 0, (
             f"Deep WBS CQ = {cq:.6f} should be negative (autorotation). "
-            f"Check total-inflow computation in prescribed_element_forces."
+            f"Check the total-inflow computation in PittPetersModel.compute_forces "
+            f"(blade sees λ_total = λ_0 + v_climb/ΩR)."
         )
 
     def test_inflow_lag_lam0_evolves_gradually(self, pp_model, defn):
@@ -273,3 +274,9 @@ class TestPittPetersWBS:
             f"expected lag to slow convergence (Pitt-Peters tau_0 ~ 0.14 s). "
             f"lam0: {lam0_hover:.5f} → {lam0_at_20ms:.5f} → {lam0_ss_new:.5f}"
         )
+
+
+# Note: a wind-axis L-matrix rotation was implemented and reverted (it
+# produced rotational covariance for `µ_y ≠ 0` but destabilised the tethered-
+# rotor envelope via λ_c → BEM → C_L_hub → λ_s feedback).  See pitt_peters.py.
+

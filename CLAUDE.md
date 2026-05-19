@@ -35,10 +35,9 @@ CCW-from-above traces N → W → S → E (i.e. +X → −Y → −X → +Y).
   `t_hat = [−sin(ψ), −cos(ψ), 0]`
 - `dψ/dt = ω > 0` in normal powered flight.
 
-### v_t_extra and Glauert cyclic targets
+### v_t_extra (tangential apparent wind)
 
-The tangential apparent wind at a blade element is, from first
-principles:
+The tangential apparent wind at a blade element, from first principles:
 
     v_t = (v_blade − v_air) · t_hat = ω·r − v_inplane · t_hat
 
@@ -46,20 +45,6 @@ so `v_t_extra = −v_inplane · t_hat`. With the CCW t_hat above, in hub
 frame components:
 
     v_t_extra = +v_in_hub_x · sin(ψ) + v_in_hub_y · cos(ψ)
-
-Glauert cyclic steady-state targets under this convention (max inflow
-at the back of disk, i.e. at ψ such that `r_hat(ψ) = −v_hub/|v_hub|`):
-
-    λ_c_ss = +mu_x · tan(χ/2)
-    λ_s_ss = −mu_y · tan(χ/2)
-
-where `mu_x, mu_y = v_inplane_hub / Ω_R` (note: these are
-*wind-relative* advance ratios, **opposite sign** to the vehicle's
-forward-speed advance ratio used in most textbooks — that's why the
-λ_c_ss sign here looks inverted vs Leishman/Johnson). The λ_c / λ_s
-asymmetry (one `+`, one `−`) is real: it follows from
-`r_hat_y = −sin(ψ)` having a negation that `r_hat_x = +cos(ψ)` does
-not.
 
 ### Things this convention determines
 
@@ -77,7 +62,240 @@ not.
 
 If you ever need to change the rotation direction, do it in exactly
 one place — the definition of `t_hat` — and re-derive the matching
-`v_t_extra` and Glauert signs. Do not flip the sign of ω.
+`v_t_extra`, hub-moment, and Pitt-Peters L-matrix signs. Do not flip
+the sign of ω.
+
+## Cyclic pitch convention
+
+Inputs `RotorInputs.tilt_lon`, `RotorInputs.tilt_lat` are **swashplate
+tilt angles** (rad). The mapping to blade pitch lives in
+`aero/cyclic.py:cyclic_coeffs()` and goes through the rotor's
+`ControlProperties.swashplate_pitch_gain_rad` (gain) and
+`swashplate_phase_deg` (phase φ):
+
+    θ(ψ) = collective + θ_1c·cos(ψ) + θ_1s·sin(ψ)
+
+with
+
+    θ_1c = gain · (−tilt_lon·cos φ − tilt_lat·sin φ)
+    θ_1s = gain · (−tilt_lon·sin φ + tilt_lat·cos φ)
+
+Sign convention is **helicopter-standard**:
+
+- `tilt_lon > 0`  →  **nose-down** disk (forward stick)
+- `tilt_lat > 0`  →  **roll right**
+
+This assumes no flap dynamics — blade pitch directly sets local thrust,
+no 90° precession. The mapping was derived for our ψ=0-at-+X (nose),
+CCW-from-above convention: `tilt_lon > 0` peaks pitch at ψ=π (tail),
+giving more thrust at the back → nose-down moment via the hub moment
+integral below.
+
+If a future model adds full flap-dynamics ODE, set φ ≈ +90° (rad
+internally, deg in the YAML) so the user's `tilt_lon`/`tilt_lat`
+command a *disk* tilt rather than a thrust asymmetry directly.
+
+`control = None` defaults: gain = 1, φ = 0 → `tilt_lon, tilt_lat` are
+direct blade-pitch amplitudes with helicopter-standard signs.
+
+## Hub-frame aero moments
+
+In the ψ-loop, each blade element contributes per-azimuth thrust `dT`
+in the hub-axis (−Z hub) direction. With `r_pos = r·r_hat(ψ)` and
+`F = dT · (−ẑ_hub)`:
+
+    dM_hub = r_pos × F = r · dT · [sin(ψ), cos(ψ), 0]
+
+i.e. `Mx_hub = Σ r·dT·sin(ψ)`, `My_hub = Σ r·dT·cos(ψ)` (averaged over
+ψ in the model). These are then rotated to world via `R_hub` and
+returned in `AeroResult.M_orbital`.
+
+Coefficient form used in Pitt-Peters:
+
+    C_T     = T_total / (ρ·A·(ΩR)²)
+    C_L_hub = Mx_hub  / (ρ·A·(ΩR)²·R)     # rolling moment coefficient
+    C_M_hub = My_hub  / (ρ·A·(ΩR)²·R)     # pitching moment coefficient
+
+These differ in sign from BladeAD: BladeAD uses ψ=0 at the tail and
+`dMy = −r·cos(ψ)·dT`, so when porting formulas from BladeAD:
+
+- our λ_c = − BladeAD λ_c
+- our λ_s = − BladeAD λ_s
+- our C_M_hub = + BladeAD C_My
+- our C_L_hub = − BladeAD C_Mx
+
+Signs of `M_x → roll-right`, `M_y → pitch-up` follow the standard
+NED body-frame right-hand rule (q = ω_y > 0 ⇒ nose pitches up).
+
+## Pitt-Peters inflow ODE — as implemented
+
+**Canonical reference**: David Peters' own Nikolsky Lecture, JAHS 54(1):011001
+(2009), saved at [Research/Peters_Nikolsky_2008/](Research/Peters_Nikolsky_2008/)
+with sign-translation notes. Eqs 7–11 of that paper define the model.
+
+Peters' L matrix (his Eq 10, with X = tan(χ/2), state ordering (ν_0, ν_s, ν_c)):
+
+    [L] = | 1/2          0          −15π·X/64 |
+          | 0            2(1+X²)     0         |
+          | 15π·X/64     0           2(1−X²)   |
+
+with forcing `{C_T, −C_L, −C_M}` and his ψ=0 at the tail.
+
+After translating to our ψ=0-at-+X convention (our λ_c = −ν_c, our λ_s = −ν_s)
+and using `µ_T = √(µ² + λ_total²)` as the mass-flow scaling, the steady-state
+targets are:
+
+    µ_T   = √(µ² + λ_total²)            # mass-flow non-dim
+    χ     = atan2(µ_inplane, |λ_total|) # wake skew angle
+    L_off = (15π/64) · tan(χ/2)
+    L_cc  = 4·cos(χ) / (1 + cos χ)      # = 2(1−X²), Peters Eq 10
+    L_ss  = 4 / (1 + cos χ)             # = 2(1+X²), Peters Eq 10
+
+    λ_0_ss = C_T/(2·µ_T)              +  L_off · C_M_hub / µ_T
+    λ_c_ss = (−L_off · C_T            +  L_cc  · C_M_hub) / µ_T
+    λ_s_ss = (                            L_ss  · C_L_hub) / µ_T
+
+Time constants (Peters Eq 9 apparent mass `M = diag(8/(3π), 16/(45π), 16/(45π))`):
+`τ_0 = 8R/(3π·V_T)`, `τ_cs = 16R/(45π·V_T)`.
+
+The `−L_off · C_T / µ_T` term in `λ_c_ss` is the Pitt-Peters
+cross-coupling — it produces Glauert wake-skew naturally from thrust
+forcing. The closed-form Glauert tilt has been removed; do not re-add
+it (would double-count).
+
+The cross-coupling term `+L_off · C_M_hub / µ_T` in `λ_0_ss` shifts
+uniform inflow in response to cyclic pitching moment — a higher-order
+effect, small in practice but the formulation is symmetric.
+
+VRS region (`v_climb < 0` and `0 < V_descent/V_h < 2`) still overrides
+`λ_0_ss` with the Leishman empirical polynomial — momentum theory
+doesn't apply in a recirculating wake, so the cross-coupling is also
+skipped in that regime.
+
+### Mass-flow parameter: µ_T vs Peters' V
+
+We use `µ_T = √(µ² + λ_total²)` (classical Glauert). Peters uses
+`V = (µ² + (λ+ν)(λ+2ν)) / √(µ² + (λ+ν)²)` (his Eq 8). They agree in
+high-speed forward flight but differ by 2× in hover. Our µ_T reproduces
+classical Glauert hover `λ_0 = √(C_T/2)`; Peters' V gives `√(C_T)/2`
+(factor √2 different — possibly a C_T normalization convention in his
+paper). The L-matrix STRUCTURE matches Peters exactly; only the scalar
+scaling differs. Swapping to Peters' V would need validation against
+hover data — defer until needed.
+
+### Shared BEM infrastructure (`aero/_bem_common.py`)
+
+Both `PittPetersModel(JIT)` and `OyeBEMModel` import from
+`aero/_bem_common.py`:
+
+- `vrs_lambda1` — Leishman VRS empirical polynomial
+- `_interp_polar` — JIT polar lookup (`@njit`, called from inside both
+  models' ψ-loop kernels)
+- `build_polar_arrays` — one-time tabulation of any `AirfoilPolar` onto
+  contiguous numba arrays
+- `radial_grid` — one-time radial geometry caching
+
+Hot-path kinematics (`Omega_R`, `hub_axis`, `v_climb`, `v_edge`,
+`v_inplane_hub`) and `AeroResult` assembly are **deliberately inline**
+in each model's `compute_forces` to avoid Python function-call
+overhead in the per-step loop. Each is ~10 lines and identical
+across models — duplicate it deliberately rather than abstract.
+
+If you find yourself wanting to share more across models: the ψ-loop
+kernels are the largest duplicated structure, but they have
+model-specific `lam_local(r, ψ)` formulas and numba's `@njit`
+doesn't compose closures cleanly. Don't try to unify them.
+
+### Wind-axis rotation — NOT applied (limitation)
+
+The L matrix is diagonal-plus-off-diagonal in **wind axes**, but the
+current code treats `(C_M_hub, C_L_hub)` as if already in wind axes
+(i.e. assumes in-plane wind along hub −X).  Exact for axial flight and
+pure-longitudinal forward flight; approximate for oblique flight
+`µ_y ≠ 0`.
+
+An earlier implementation rotated forcing/inflow by
+`β = atan2(v_in_hub_y, −v_in_hub_x)` and was rotationally covariant.
+It was reverted because it destabilised the tethered-rotor envelope
+(`envelope.compute_map`) at descent + edgewise wind operating points
+via a nonlinear feedback `λ_c → BEM(lam_local) → C_L_hub → λ_s_ss`.
+Implicit Euler on the λ states alone (now applied in
+`envelope/point_mass.py`) is necessary but not sufficient — the BEM
+loop's λ_c sensitivity also needs damping before the rotation can be
+re-introduced.
+
+## Øye 2-stage annular dynamic inflow (`aero/oye.py`)
+
+`OyeBEMModel` is the **annulus-local** alternative to Pitt-Peters
+implemented for the same project, with a deliberately different
+state structure.
+
+Per radial annulus `i`:
+
+    τ₁ · dW_int[i]/dt + W_int[i] = W_qs[i] + k · τ₁ · dW_qs[i]/dt
+    τ₂(r) · dW[i]/dt + W[i]     = W_int[i]
+
+`W` is what the blade reads in the ψ-loop; `W_int` is the
+intermediate filter stage between the momentum target `W_qs` and `W`.
+`k = 0.6` (empirical, OpenFAST default). Treats `dW_qs/dt = 0`
+across each outer step — DBEMT_Mod=1 equivalent.
+
+`W_qs` per annulus from Glauert momentum (linear form):
+
+    W_qs[i] = dCT/dx[i] / (4·x[i]·µ_T)
+
+with rotor-mean `µ_T = √(µ² + (λ_climb + v_0_mean)²) / Ω_R`. The
+pure axial-momentum form `4·x·λ_r·W = dCT/dx` was tried first and
+was unstable in forward flight — see the docstring in
+`aero.oye._solve_W_qs`.
+
+### Why this exists alongside Pitt-Peters
+
+Pitt-Peters couples C_T, C_M_hub, C_L_hub globally into all three
+inflow harmonics via the L matrix → BEM-driven feedback that's stiff
+at high advance ratios + descent. Øye's per-annulus filters are
+independent → no global feedback → numerically stable in regimes
+that need adaptive time-stepping with Pitt-Peters. This is exactly
+the trade-off OpenFAST's DBEMT made.
+
+### What Øye CAN'T do
+
+- **No cyclic inflow harmonics**: there's no λ_c/λ_s state, so the
+  inflow doesn't develop an asymmetric tilt in response to cyclic
+  pitching/rolling moments. Cyclic *control* still works (hub moments
+  respond correctly to `tilt_lon`/`tilt_lat`), but the cyclic
+  *inflow feedback* that reduces steady-state moment in Pitt-Peters
+  is absent. `tests/test_cyclic.py::test_cyclic_inflow_reduces_hub_moment`
+  doesn't apply.
+- **No wake-skew off-diagonal**: the `-L_off·C_T` term that produces
+  Glauert wake skew from thrust forcing in Pitt-Peters has no
+  analogue here. Wake skew has to come from the BEM ψ-loop's
+  asymmetric loading alone.
+
+### Sign conventions (same as Pitt-Peters)
+
+- `W > 0` for hover / helicopter (induced flow downward through disk)
+- `W > 0` in autorotation too (induction *slows* the upward freestream,
+  but in the same NED-+Z direction it would push in helicopter mode).
+  `λ_total[i] = λ_climb + W[i]` matches Pitt-Peters'
+  `λ_climb + λ_0`.
+
+## Do not revert work without explicit instructions
+
+If a test fails, a build breaks, or run_map blows up, **do not respond
+by deleting or reverting the code that produced the failure unless the
+user has told you to**. The first move is to understand *why* — read
+the code, instrument, reason about it. Reverting silently throws away
+work the user has chosen to keep, and the failure is usually fixable
+in place.
+
+Examples that are NOT a license to revert: a single test failure, a
+"this used to work" report, a regression you introduced, your own
+prior edits looking wrong in hindsight. Examples that ARE: the user
+says "revert it", "drop that change", "go back to X". When uncertain,
+ask before reverting.
+
+This rule has bitten before — see [memory feedback-no-silent-reverts].
 
 ## Workflow
 
@@ -97,12 +315,29 @@ one place — the definition of `t_hat` — and re-derive the matching
 
 ## When extending the aero models
 
-- New levels (e.g. Peters-He) plug in behind the `AeroBase` interface
-  in `aero/__init__.py`. Don't break existing call sites — keep
+- New levels (e.g. Peters-He, polar-grid BEM) plug in behind the
+  `AeroBase` interface in `aero/__init__.py`. Don't break existing
+  call sites — keep
   `compute_forces(inputs, state) -> (AeroResult, RotorState)`.
-- Validation data lives under `Research/`. When adding a new model
-  level, add a `tests/test_<model>.py` and, if appropriate, a
-  `val_step*.py` script that compares against a specific paper's data.
+- Reuse `aero/_bem_common.py` for polar tabulation, radial-grid
+  setup, the VRS polynomial, and the JIT polar interpolator.
+  Hot-path kinematics and result assembly stay inline (see the
+  "Shared BEM infrastructure" section above).
+- Add `inflow_taus(inputs, state) -> np.ndarray` returning the time
+  constant for each state component (`np.inf` for mechanical / quasi-
+  static states). The envelope integrator's semi-implicit damping
+  needs this; the default in `AeroBase` returns all-infinity, which
+  is wrong for any dynamic-inflow model.
+- Add a new `RotorState` subclass in `aero/rotor_state.py` with
+  `to_array` / `from_array`. Convention: mechanical states `ω, ψ` are
+  the **last two** entries — `arr[-2] = omega_rad_s`,
+  `arr[-1] = spin_angle_rad`. The envelope's clipping and recovery
+  code relies on this.
+- Wire the new model into `create_aero` in `aero/__init__.py` with a
+  stable string name. Add docs to the factory docstring.
+- Validation data lives under `Research/`. Add a
+  `tests/test_<model>.py` and, if appropriate, a `val_step*.py`
+  script that compares against a specific paper's data.
 - Don't store derived results inside `Research/` — that directory is
   for source-paper extractions only.
 
@@ -111,5 +346,9 @@ one place — the definition of `t_hat` — and re-derive the matching
 - `Research/CLAUDE.md` — extraction conventions for paper sources.
 - `Research/CaradonnaTung/CLAUDE.md` — Caradonna-Tung page index, CT
   tables, validation notes.
+- `Research/Peters_Nikolsky_2008/CLAUDE.md` — **canonical Pitt-Peters
+  formulation** (L matrix, M matrix, V mass-flow, forcing sign
+  convention) from David Peters' Nikolsky lecture. Read this before
+  touching any Pitt-Peters signs or coefficients.
 
 Defer to those when working inside the respective directories.

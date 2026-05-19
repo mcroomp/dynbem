@@ -1,6 +1,7 @@
 """Level 1 BEM solver — multi-element, NED frame.
 
-Coordinate system: NED (North-East-Down).
+Coordinate system: NED (North-East-Down). Rotation: CCW from above
+(American helicopter convention; see CLAUDE.md).
   - Rotor hub axis points in the +Z (down) direction for a level hover.
   - Thrust opposes gravity: F_world[2] < 0 (upward force = negative Z).
   - v_climb > 0: axial freestream flows downward through disk (helicopter climb).
@@ -12,7 +13,7 @@ wind-turbine induction-factor form (which degenerates at v_climb = 0 / hover).
 
 Momentum-BEM derivation
 -----------------------
-Momentum annulus (with Prandtl tip-loss F):
+Momentum annulus (with combined Prandtl tip + hub loss F = F_tip · F_hub):
     dCT/dx = 4·F·x·λ_r·(λ_r − λ_c)
 
 Blade element (N blades, chord c, local solidity σ_r = N·c/(2π·r)):
@@ -21,6 +22,15 @@ Blade element (N blades, chord c, local solidity σ_r = N·c/(2π·r)):
 Cancel x, define k = σ_r·cn/(4·F):
     k·(λ_r² + x²) = λ_r·(λ_r − λ_c)   ← the iteration equation
     (k−1)·λ_r² + λ_c·λ_r + k·x² = 0   ← quadratic form
+
+Forward flight / cyclic
+-----------------------
+When edgewise advance ratio mu > 0.01 OR cyclic input is nonzero, the
+model integrates over n_psi azimuth stations. At each ψ:
+  - Per-azimuth blade pitch θ(ψ) = collective + θ_1c·cos ψ + θ_1s·sin ψ
+    (cyclic coefficients via aero.cyclic.cyclic_coeffs).
+  - In-plane wind projected onto t_hat for v_t_extra.
+  - In-plane hub moments Mx_hub, My_hub accumulated for AeroResult.M_orbital.
 
 Integration contract
 --------------------
@@ -43,11 +53,11 @@ from .polar import AirfoilPolar, LinearPolar, TabulatedPolar
 
 
 # ---------------------------------------------------------------------------
-# Prandtl tip-loss (public — used in component tests)
+# Prandtl tip / hub losses (public — used in component tests)
 # ---------------------------------------------------------------------------
 
 def prandtl_tip_loss(n_blades: int, x: float, phi_rad: float) -> float:
-    """Prandtl tip-loss factor F at normalised radius x = r/R.
+    """Prandtl tip-loss factor F_tip at normalised radius x = r/R.
 
     Returns F ∈ (0, 1].  F → 1 far from tip; F → 0 at the tip for small phi.
 
@@ -58,6 +68,29 @@ def prandtl_tip_loss(n_blades: int, x: float, phi_rad: float) -> float:
     if abs(phi_rad) < 1e-9 or x >= 1.0:
         return 1.0
     f = (n_blades / 2.0) * (1.0 - x) / (x * abs(math.sin(phi_rad)))
+    return (2.0 / math.pi) * math.acos(min(1.0, math.exp(-f)))
+
+
+def prandtl_hub_loss(n_blades: int, x: float, x_hub: float, phi_rad: float) -> float:
+    """Prandtl hub-loss factor F_hub at normalised radius x = r/R.
+
+    Accounts for root-vortex losses near the hub cutout, mirroring the
+    tip-loss correction. Form follows Glauert/Prandtl with the hub
+    radius substituted for the tip radius:
+
+        f_hub = (N/2) · (x − x_hub) / (x_hub · |sin φ|)
+        F_hub = (2/π) · arccos(exp(−f_hub))
+
+    Returns F → 1 far from the hub, F → 0 at the hub cutout.
+
+    n_blades  number of blades
+    x         r/R, normalised radius (must satisfy x > x_hub)
+    x_hub     root_cutout / R, normalised hub radius ∈ (0, 1)
+    phi_rad   flow angle from rotor plane (rad); may be negative in turbine mode
+    """
+    if abs(phi_rad) < 1e-9 or x <= x_hub or x_hub <= 0.0:
+        return 1.0
+    f = (n_blades / 2.0) * (x - x_hub) / (x_hub * abs(math.sin(phi_rad)))
     return (2.0 / math.pi) * math.acos(min(1.0, math.exp(-f)))
 
 
@@ -92,6 +125,7 @@ def solve_bem_element(
     polar: AirfoilPolar,
     use_tip_loss: bool,
     v_t_extra: float = 0.0,
+    root_cutout_m: float = 0.0,
 ) -> BEMElementResult:
     """Solve one blade-element annulus; return converged state and forces.
 
@@ -107,6 +141,7 @@ def solve_bem_element(
     dQ > 0: reaction torque opposing rotor spin.
     """
     x = r / radius_m
+    x_hub = root_cutout_m / radius_m if radius_m > 0.0 else 0.0
     Omega_R = omega * radius_m
     if Omega_R < 1e-6:
         return BEMElementResult(0.0, 0.0, 0.0, 0.0, 0.0)
@@ -121,7 +156,6 @@ def solve_bem_element(
         lambda_r = min(lambda_c * 0.85, -0.02)
 
     a_prime = 0.0
-    cn_final = 0.0
     F_final = 1.0
 
     for _ in range(_MAX_BEM_ITER):
@@ -134,13 +168,18 @@ def solve_bem_element(
         alpha = theta - phi
         cl, cd = polar.cl_cd(alpha)
 
-        F = prandtl_tip_loss(n_blades, x, phi) if use_tip_loss else 1.0
+        if use_tip_loss:
+            F = (
+                prandtl_tip_loss(n_blades, x, phi)
+                * prandtl_hub_loss(n_blades, x, x_hub, phi)
+            )
+        else:
+            F = 1.0
         F = max(F, 1e-4)
         F_final = F
 
         cn = cl * math.cos(phi) - cd * math.sin(phi)
         ct = cl * math.sin(phi) + cd * math.cos(phi)
-        cn_final = cn
 
         # Momentum-BEM quadratic: k = σ_r·cn/(4·F)
         k = sigma_r * cn / (4.0 * F)
@@ -309,6 +348,7 @@ class BEMModel(AeroBase):
                         n_blades=blade.n_blades, radius_m=blade.radius_m,
                         polar=self._polar, use_tip_loss=airfoil.tip_loss,
                         v_t_extra=v_t_extra,
+                        root_cutout_m=blade.root_cutout_m,
                     )
                     T_total += elem.dT
                     Q_total += elem.dQ
@@ -330,6 +370,7 @@ class BEMModel(AeroBase):
                     omega=omega, v_climb=v_climb, rho=inputs.rho_kg_m3,
                     n_blades=blade.n_blades, radius_m=blade.radius_m,
                     polar=self._polar, use_tip_loss=airfoil.tip_loss,
+                    root_cutout_m=blade.root_cutout_m,
                 )
                 T_total += elem.dT
                 Q_total += elem.dQ
@@ -358,9 +399,3 @@ class BEMModel(AeroBase):
         )
         return result, derivative
 
-    def to_dict(self) -> dict:
-        return {"model": "BEM_Level1", "n_elements": self.defn.blade.n_elements}
-
-    @classmethod
-    def from_definition(cls, defn: RotorDefinition) -> "BEMModel":
-        return cls(defn=defn)

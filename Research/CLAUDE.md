@@ -24,3 +24,12 @@ Contains the experimental data underlying the Leishman VRS polynomial used in Pi
 ## Harrington/ and Harrington_TN2318/
 NACA TN-2318 (Harrington, 1951) — hover CT vs CP polars for two full-scale rotors.
 Candidate dataset for CP-CT polar validation (this paper has torque data; Caradonna-Tung does not).
+
+## Peters_Nikolsky_2008/
+Peters, D.A. (2009). "How Dynamic Inflow Survives in the Competitive World of
+Rotorcraft Aerodynamics: The Alexander Nikolsky Honorary Lecture," *JAHS*
+54(1):011001. The **canonical reference for the Pitt-Peters 3-state dynamic
+inflow model** — Eqs 7–11 give the ODE, V, M, L matrices, and inflow
+distribution verbatim. See [Peters_Nikolsky_2008/CLAUDE.md] for the
+sign-convention translation between Peters' conventions (ψ=0 at tail) and
+ours (ψ=0 at hub +X).

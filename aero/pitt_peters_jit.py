@@ -19,8 +19,13 @@ import numpy as np
 from numba import njit
 
 from . import AeroBase, AeroResult, RotorInputs
+from ._bem_common import (
+    _interp_polar,
+    build_polar_arrays,
+    radial_grid,
+    vrs_lambda1,
+)
 from .cyclic import cyclic_coeffs
-from .pitt_peters import vrs_lambda1
 from .rotor_definition import RotorDefinition
 from .rotor_state import PittPetersRotorState, RotorState
 from .polar import AirfoilPolar, LinearPolar, TabulatedPolar
@@ -29,33 +34,7 @@ from .polar import AirfoilPolar, LinearPolar, TabulatedPolar
 # ---------------------------------------------------------------------------
 # JIT'd kernels
 # ---------------------------------------------------------------------------
-
-@njit(cache=True, fastmath=True)
-def _interp_polar(alpha, alpha_tab, cl_tab, cd_tab):
-    """Scalar binary-search interpolation (cl, cd) at angle alpha (rad).
-
-    Clamps to endpoints outside the tabulated range, matching np.interp.
-    """
-    n = alpha_tab.shape[0]
-    if alpha <= alpha_tab[0]:
-        return cl_tab[0], cd_tab[0]
-    if alpha >= alpha_tab[n - 1]:
-        return cl_tab[n - 1], cd_tab[n - 1]
-    lo = 0
-    hi = n - 1
-    while hi - lo > 1:
-        mid = (lo + hi) >> 1
-        if alpha_tab[mid] <= alpha:
-            lo = mid
-        else:
-            hi = mid
-    a_lo = alpha_tab[lo]
-    a_hi = alpha_tab[hi]
-    t = (alpha - a_lo) / (a_hi - a_lo)
-    return (
-        cl_tab[lo] + t * (cl_tab[hi] - cl_tab[lo]),
-        cd_tab[lo] + t * (cd_tab[hi] - cd_tab[lo]),
-    )
+# _interp_polar moved to aero/_bem_common.py and shared with OyeBEMModel.
 
 
 @njit(cache=True, fastmath=True)
@@ -160,37 +139,10 @@ class PittPetersModelJIT(AeroBase):
             self._polar = TabulatedPolar.from_csv(self.defn.airfoil.polar_csv)
         else:
             self._polar = LinearPolar.from_properties(self.defn.airfoil)
-
-        blade = self.defn.blade
-        R = blade.radius_m
-        n = blade.n_elements
-        r0 = blade.root_cutout_m
-        self._dr = (R - r0) / n
-        self._r_mid = np.ascontiguousarray(
-            np.linspace(r0 + 0.5 * self._dr, R - 0.5 * self._dr, n)
-        )
-        self._x_mid = np.ascontiguousarray(self._r_mid / R)
-        self._twist_rad = math.radians(blade.twist_deg)
-
-        # Polar arrays passed into JIT kernels.  For tabulated polars we use
-        # the existing arrays; for analytical polars we sample onto a uniform
-        # grid (no behaviour change since LinearPolar is piecewise-affine).
-        if isinstance(self._polar, TabulatedPolar):
-            self._alpha_tab = np.ascontiguousarray(self._polar._alpha)
-            self._cl_tab = np.ascontiguousarray(self._polar._cl)
-            self._cd_tab = np.ascontiguousarray(self._polar._cd)
-        else:
-            n_p = 4001
-            a = np.linspace(-math.pi / 2, math.pi / 2, n_p)
-            cl = np.empty(n_p)
-            cd = np.empty(n_p)
-            for i in range(n_p):
-                cl_i, cd_i = self._polar.cl_cd(float(a[i]))
-                cl[i] = cl_i
-                cd[i] = cd_i
-            self._alpha_tab = np.ascontiguousarray(a)
-            self._cl_tab = np.ascontiguousarray(cl)
-            self._cd_tab = np.ascontiguousarray(cd)
+        # Shared with PittPetersModel and OyeBEMModel — see aero/_bem_common.py.
+        (self._dr, self._r_mid, self._x_mid, self._x_hub_unused,
+         self._twist_rad) = radial_grid(self.defn.blade)
+        self._alpha_tab, self._cl_tab, self._cd_tab = build_polar_arrays(self._polar)
 
     def initial_rotor_state(self) -> PittPetersRotorState:
         return PittPetersRotorState()
@@ -207,19 +159,15 @@ class PittPetersModelJIT(AeroBase):
         rho     = inputs.rho_kg_m3
         R       = blade.radius_m
         A       = math.pi * R**2
-        Omega_R = omega * R
 
+        Omega_R = omega * R
         hub_axis = inputs.R_hub @ np.array([0.0, 0.0, 1.0])
         v_rel    = inputs.wind_world - inputs.v_hub_world
         v_climb  = float(np.dot(v_rel, hub_axis))
-
         v_inplane = v_rel - v_climb * hub_axis
         v_edge    = float(np.linalg.norm(v_inplane))
         mu        = v_edge / max(Omega_R, 1e-6)
-
         v_inplane_hub = inputs.R_hub.T @ v_inplane
-        mu_x = float(v_inplane_hub[0]) / max(Omega_R, 1e-6)
-        mu_y = float(v_inplane_hub[1]) / max(Omega_R, 1e-6)
 
         lam0  = state.lambda_0
         lam_c = state.lambda_c
@@ -273,19 +221,31 @@ class PittPetersModelJIT(AeroBase):
         V_c  = max(-v_climb, 0.0)
         lam2 = (V_c / V_h) if V_h > 1e-3 else 0.0
 
+        # Pitt-Peters L-matrix steady-state targets — see PittPetersModel.
+        mu_T_eff = max(V_T / Omega_R if Omega_R > 1e-6 else 0.0, 0.05)
+        mu_inplane = v_edge / max(Omega_R, 1e-6)
+        chi = math.atan2(mu_inplane, abs(lambda_total) + 1e-6)
+        cos_chi = math.cos(chi)
+        tan_half_chi = math.tan(0.5 * chi)
+        L_off = (15.0 * math.pi / 64.0) * tan_half_chi
+        L_cc  = 4.0 * cos_chi / (1.0 + cos_chi)
+        L_ss  = 4.0 / (1.0 + cos_chi)
+
+        norm = rho * A * Omega_R * R * V_T
+        C_L_hub = Mx_hub / norm if norm > 1e-9 else 0.0
+        C_M_hub = My_hub / norm if norm > 1e-9 else 0.0
+
         if v_climb < -1e-3 and 0.0 < lam2 < 2.0:
             lam0_ss = (vrs_lambda1(lam2) * V_h / Omega_R) if Omega_R > 1e-6 else 0.0
         else:
-            lam0_ss = T_total / (2.0 * rho * A * V_T * Omega_R) if Omega_R > 1e-6 else 0.0
+            lam0_ss = (
+                T_total / (2.0 * rho * A * V_T * Omega_R)
+                + L_off * C_M_hub / mu_T_eff
+            ) if Omega_R > 1e-6 else 0.0
 
-        mu_sq = mu_x**2 + mu_y**2
-        lam_sq = lambda_total**2
-        denom = math.sqrt(mu_sq + lam_sq) + max(abs(lambda_total), 1e-6)
-        tan_half_chi = math.sqrt(mu_sq) / denom if mu_sq > 1e-8 else 0.0
-        # CCW-from-above, ψ=0 at +X: λ_c_ss = +mu_x·tan(χ/2),
-        # λ_s_ss = -mu_y·tan(χ/2). See PittPetersModel for full derivation.
-        lam_c_ss = +mu_x * tan_half_chi
-        lam_s_ss = -mu_y * tan_half_chi
+        C_T = T_total / (rho * A * Omega_R * Omega_R) if Omega_R > 1e-6 else 0.0
+        lam_c_ss = (-L_off * C_T + L_cc * C_M_hub) / mu_T_eff
+        lam_s_ss = ( L_ss * C_L_hub) / mu_T_eff
 
         tau_0  = (8.0 * R) / (3.0 * math.pi * V_T)
         tau_cs = (16.0 * R) / (45.0 * math.pi * V_T)
@@ -318,6 +278,26 @@ class PittPetersModelJIT(AeroBase):
             spin_angle_rad=d_spin_angle,
         )
         return result, derivative
+
+    def inflow_taus(self, inputs, state):
+        """Time constants for the [λ_0, λ_c, λ_s, ω, ψ] state vector.
+
+        Identical to PittPetersModel.inflow_taus — defined here as well so
+        the envelope integrator can query either model uniformly.
+        """
+        omega   = state.omega_rad_s
+        R       = self.defn.blade.radius_m
+        Omega_R = omega * R
+        hub_axis = inputs.R_hub @ np.array([0.0, 0.0, 1.0])
+        v_rel    = inputs.wind_world - inputs.v_hub_world
+        v_climb  = float(np.dot(v_rel, hub_axis))
+        v_edge   = float(np.linalg.norm(v_rel - v_climb * hub_axis))
+        v0       = state.lambda_0 * Omega_R
+        V_T = max(math.sqrt(v_edge*v_edge + (v_climb + v0)**2),
+                  1e-2 * max(Omega_R, 1.0))
+        tau_0  = (8.0 * R) / (3.0 * math.pi * V_T)
+        tau_cs = (16.0 * R) / (45.0 * math.pi * V_T)
+        return np.array([tau_0, tau_cs, tau_cs, np.inf, np.inf])
 
     def to_dict(self) -> dict:
         return {"model": "PittPeters_Level2_JIT", "n_elements": self.defn.blade.n_elements}

@@ -21,7 +21,7 @@ import math
 import numpy as np
 import pytest
 
-from aero.bem import prandtl_tip_loss, solve_bem_element, BEMModel
+from aero.bem import prandtl_hub_loss, prandtl_tip_loss, solve_bem_element, BEMModel
 from aero.polar import LinearPolar
 from aero import RotorInputs
 from aero.rotor_definition import (
@@ -154,6 +154,56 @@ class TestPrandtlTipLoss:
     def test_x_one_returns_one(self):
         # At the tip itself (x=1): no tip loss correction needed
         assert prandtl_tip_loss(2, 1.0, math.radians(5)) == pytest.approx(1.0)
+
+
+class TestPrandtlHubLoss:
+    """prandtl_hub_loss(N, x, x_hub, phi) — mirror of tip-loss at the root."""
+
+    def _expected(self, n, x, x_hub, phi_rad):
+        f = (n / 2.0) * (x - x_hub) / (x_hub * abs(math.sin(phi_rad)))
+        return (2.0 / math.pi) * math.acos(min(1.0, math.exp(-f)))
+
+    @pytest.mark.parametrize("n_blades,x,x_hub,phi_deg", [
+        (2, 0.25, 0.15, 5.0),
+        (3, 0.20, 0.17, 4.0),
+        (2, 0.30, 0.10, 8.0),
+        (4, 0.18, 0.15, 5.0),
+    ])
+    def test_matches_formula(self, n_blades, x, x_hub, phi_deg):
+        phi = math.radians(phi_deg)
+        expected = self._expected(n_blades, x, x_hub, phi)
+        assert prandtl_hub_loss(n_blades, x, x_hub, phi) == pytest.approx(expected, rel=1e-9)
+
+    def test_unity_far_from_hub(self):
+        # x >> x_hub: f huge ⇒ exp(-f) ≈ 0 ⇒ F ≈ 1
+        F = prandtl_hub_loss(2, 0.8, 0.1, math.radians(5))
+        assert F == pytest.approx(1.0, abs=1e-4)
+
+    def test_at_hub_returns_one(self):
+        # At x = x_hub: degenerate; helper returns 1.0 to avoid divide-by-zero
+        # in the integrator. Real loss → 0 right at the cutout but we never
+        # evaluate elements there.
+        assert prandtl_hub_loss(2, 0.15, 0.15, math.radians(5)) == pytest.approx(1.0)
+
+    def test_zero_phi_returns_one(self):
+        assert prandtl_hub_loss(2, 0.3, 0.15, 0.0) == pytest.approx(1.0)
+
+    def test_zero_hub_returns_one(self):
+        # No hub cutout: no hub-loss correction.
+        assert prandtl_hub_loss(2, 0.3, 0.0, math.radians(5)) == pytest.approx(1.0)
+
+    def test_more_blades_less_hub_loss(self):
+        phi = math.radians(5)
+        F2 = prandtl_hub_loss(2, 0.18, 0.15, phi)
+        F4 = prandtl_hub_loss(4, 0.18, 0.15, phi)
+        assert F4 > F2
+
+    def test_closer_to_hub_more_loss(self):
+        # Element nearer to the hub-cutout sees more loss (smaller F).
+        phi = math.radians(5)
+        F_near = prandtl_hub_loss(2, 0.16, 0.15, phi)
+        F_far  = prandtl_hub_loss(2, 0.25, 0.15, phi)
+        assert F_near < F_far
 
 
 # ===========================================================================

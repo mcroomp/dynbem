@@ -93,16 +93,6 @@ class TestBEMInterface:
         _, deriv = ct_model.compute_forces(inp, state)
         assert isinstance(deriv, QuasiStaticRotorState)
 
-    def test_result_is_wrench_length_6(self, ct_model):
-        inp, state = _hover_inputs(8.0, 1250)
-        result, _ = ct_model.compute_forces(inp, state)
-        assert len(result) == 6
-
-    def test_derivative_has_correct_n_states(self, ct_model):
-        inp, state = _hover_inputs(8.0, 1250)
-        _, deriv = ct_model.compute_forces(inp, state)
-        assert deriv.n_states == 2
-
     def test_initial_rotor_state(self, ct_model):
         s = ct_model.initial_rotor_state()
         assert isinstance(s, QuasiStaticRotorState)
