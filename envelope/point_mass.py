@@ -37,10 +37,8 @@ from typing import Optional
 
 import numpy as np
 
-from aero import RotorInputs
-from aero.pitt_peters_jit import PittPetersModelJIT as PittPetersModel
+from aero import AeroBase, RotorInputs, create_aero
 from aero.rotor_definition import RotorDefinition
-from aero.rotor_state import PittPetersRotorState
 
 G = 9.81  # m/s²
 
@@ -127,7 +125,7 @@ def _build_r_hub(body_z: np.ndarray) -> np.ndarray:
 # ---------------------------------------------------------------------------
 
 def simulate_point(
-    model: PittPetersModel,
+    model: AeroBase,
     mass_kg: float,
     col_rad: float,
     elevation_deg: float,
@@ -151,7 +149,8 @@ def simulate_point(
 
     Parameters
     ----------
-    model           PittPetersModel instance (create once, reuse across calls)
+    model           AeroBase instance (create once, reuse across calls) —
+                    any of PittPetersModel, PittPetersModelJIT, OyeBEMModel, etc.
     mass_kg         vehicle mass for force balance
     col_rad         initial collective pitch (rad); ignored when warm_start provided
     elevation_deg   tether elevation above horizontal (degrees)
@@ -180,19 +179,21 @@ def simulate_point(
     R_hub = _build_r_hub(bz)
     f_grav_along = mass_kg * gravity_mps2 * float(t_hat[2])   # gravity component along tether
 
-    if warm_start is not None:
-        state = PittPetersRotorState(
-            lambda_0=float(warm_start.get("lambda_0", 0.0)),
-            lambda_c=float(warm_start.get("lambda_c", 0.0)),
-            lambda_s=float(warm_start.get("lambda_s", 0.0)),
-            omega_rad_s=float(warm_start.get("omega_rad_s", omega_init)),
-            spin_angle_rad=float(warm_start.get("spin_angle_rad", 0.0)),
-        )
+    # Generic state initialisation — works with any AeroBase subclass.
+    # warm_start carries the previous call's state.to_array() under
+    # "state_arr"; otherwise we ask the model for its zero state and
+    # poke omega_init into the second-from-last slot (arr[-2] = ω is the
+    # convention enforced by all RotorState subclasses).
+    if warm_start is not None and "state_arr" in warm_start:
+        state = model.initial_rotor_state().from_array(np.asarray(warm_start["state_arr"]))
         v_along = float(warm_start.get("v_along", v_along_init))
         col_now = float(warm_start.get("col", col_rad))
         int_vcol = float(warm_start.get("int_vcol", 0.0))
     else:
-        state = PittPetersRotorState(omega_rad_s=omega_init)
+        zero = model.initial_rotor_state()
+        arr0 = zero.to_array()
+        arr0[-2] = omega_init                       # set ω
+        state = zero.from_array(arr0)
         v_along = v_along_init
         col_now = col_rad
         int_vcol = 0.0
@@ -280,14 +281,12 @@ def simulate_point(
         "converged": converged,
         "col_saturated": col_saturated,
         "final_state": {
-            "lambda_0": state.lambda_0,
-            "lambda_c": state.lambda_c,
-            "lambda_s": state.lambda_s,
-            "omega_rad_s": state.omega_rad_s,
-            "spin_angle_rad": state.spin_angle_rad,
-            "v_along": v_along,
-            "col": col_now,
-            "int_vcol": int_vcol,
+            # Model-agnostic state serialisation: pass state_arr back to a
+            # later simulate_point() call via warm_start to resume.
+            "state_arr": state.to_array(),
+            "v_along":   v_along,
+            "col":       col_now,
+            "int_vcol":  int_vcol,
         },
     }
 
@@ -331,18 +330,17 @@ def ramp_column_worker(args: dict) -> dict:
         sats       np.ndarray  bool, collective saturated at sample
     """
     import sys as _sys
-    import os as _os
 
     # Ensure the aero package is importable in the spawned process
     project_root = args.get("project_root", "")
     if project_root and project_root not in _sys.path:
         _sys.path.insert(0, project_root)
 
-    from aero.pitt_peters_jit import PittPetersModelJIT as PittPetersModel
-    from aero.rotor_state import PittPetersRotorState
+    from aero import create_aero
 
-    defn = args["defn"]
-    model = PittPetersModel(defn=defn)
+    defn        = args["defn"]
+    model_name  = args.get("model", "pitt_peters_jit")
+    model       = create_aero(defn, model=model_name)
 
     mass_kg = float(args["mass_kg"])
     v_target = float(args["v_target"])
@@ -366,15 +364,16 @@ def ramp_column_worker(args: dict) -> dict:
     f_grav_along = mass_kg * gravity_mps2 * float(t_hat_arr[2])
     int_max = (col_max - col_min) / max(ki_col, 1e-9)
 
-    state = PittPetersRotorState(omega_rad_s=omega_init)
+    # Model-agnostic initial state: ω in arr[-2] by convention.
+    zero_state = model.initial_rotor_state()
+    _init_arr = zero_state.to_array()
+    _init_arr[-2] = omega_init
+    state = zero_state.from_array(_init_arr)
     v_along = 0.0
     col_now = 0.0
     int_vcol = 0.0
     col_saturated = False
     aero_clamped = False
-
-    _clip_lo = np.array([-10, -10, -10, 0.5, -np.inf])
-    _clip_hi = np.array([ 10,  10,  10, 300,  np.inf])
 
     def _step(tension_now: float, sim_t: float, dt_in: float) -> None:
         """Single explicit step of (state, v_along, PI) at the given dt."""
@@ -427,6 +426,15 @@ def ramp_column_worker(args: dict) -> dict:
         bz = balance_bz(t_hat_arr, tension_now, mass_kg)
         return float(math.degrees(math.acos(max(-1.0, min(1.0, bz[2])))))
 
+    # λ_c / λ_s are Pitt-Peters-specific (global harmonics).  Other
+    # models (e.g. Øye, which has per-annulus inflow only) report 0 —
+    # the heatmap's cyclic widget then just shows a centred dot.
+    def _lam_c(st):
+        return float(getattr(st, "lambda_c", 0.0))
+
+    def _lam_s(st):
+        return float(getattr(st, "lambda_s", 0.0))
+
     # Record settled state at T_min
     t_samples = [T_min]
     col_samples = [col_now]
@@ -434,8 +442,8 @@ def ramp_column_worker(args: dict) -> dict:
     sat_samples = [col_saturated]
     omega_samples = [state.omega_rad_s]
     tilt_samples = [_tilt_deg(T_min)]
-    lamc_samples = [state.lambda_c]
-    lams_samples = [state.lambda_s]
+    lamc_samples = [_lam_c(state)]
+    lams_samples = [_lam_s(state)]
 
     # ----- Phase 2: ramp from T_min to T_max with backtracking -----
     #
@@ -457,7 +465,7 @@ def ramp_column_worker(args: dict) -> dict:
 
     def _snapshot():
         return {
-            "state":          state,                  # PittPetersRotorState is frozen
+            "state":          state,                  # RotorState is a frozen dataclass
             "v_along":        v_along,
             "col_now":        col_now,
             "int_vcol":       int_vcol,
@@ -504,8 +512,8 @@ def ramp_column_worker(args: dict) -> dict:
                 sat_samples.append(col_saturated)
                 omega_samples.append(state.omega_rad_s)
                 tilt_samples.append(_tilt_deg(next_sample_t))
-                lamc_samples.append(state.lambda_c)
-                lams_samples.append(state.lambda_s)
+                lamc_samples.append(_lam_c(state))
+                lams_samples.append(_lam_s(state))
                 next_sample_t += sample_dn
 
         if not aero_clamped:
