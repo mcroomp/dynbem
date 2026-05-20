@@ -25,7 +25,9 @@ kernel, and they plug into the same `AeroBase` interface. The package also
 includes a flight-envelope sweep driver (`envelope/compute_map.py`), a
 cyclic-trim solver, and a point-mass + cyclic-pitch attitude simulator.
 For empirical validation against published rotor data (Castles-Gray
-TN-2474, Caradonna-Tung TM-81232, Harrington TN-2318), see
+TN-2474 vertical descent, Caradonna-Tung TM-81232 hover CT and
+spanwise CL, Harrington TN-2318 full-scale hover, Wheatley & Hood
+TR 515 forward-flight autorotation), see
 [EMPIRICAL_VALIDATION.md](EMPIRICAL_VALIDATION.md).
 
 Coordinates are NED throughout; rotor rotation is CCW-from-above
