@@ -218,7 +218,7 @@ class OyeBEMModel(AeroBase):
             self._polar = TabulatedPolar.from_csv(self.defn.airfoil.polar_csv)
         else:
             self._polar = LinearPolar.from_properties(self.defn.airfoil)
-        # Shared with PittPetersModel(JIT) — see aero/_bem_common.py.
+        # Shared with PittPetersModel(JIT) — see dynbem/_bem_common.py.
         (self._dr, self._r_mid, self._x_mid, self._x_hub,
          self._twist_rad) = radial_grid(self.defn.blade)
         self._alpha_tab, self._cl_tab, self._cd_tab = build_polar_arrays(self._polar)

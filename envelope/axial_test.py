@@ -47,7 +47,7 @@ def run_axial_ramp(
     through the disk.  Any divergence reflects the integrator + control
     loop only.
     """
-    from aero.rotor_definition import load as load_rotor
+    from dynbem.rotor_definition import load as load_rotor
 
     defn = load_rotor(str(rotor_yaml))
     args = {

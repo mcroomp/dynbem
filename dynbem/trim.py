@@ -73,7 +73,7 @@ def _semi_implicit_step(
     fix_omega_to:  Optional[float],
 ) -> RotorState:
     """One semi-implicit Euler step: damp dynamic-inflow states by
-    ``1/(1 + dt/τ)`` from ``aero.inflow_taus``; plain Euler on mechanical
+    ``1/(1 + dt/τ)`` from ``dynbem.inflow_taus``; plain Euler on mechanical
     states (τ = ∞).  Unconditionally stable for stiff inflow ODEs.
 
     When ``fix_omega_to`` is not None, ω is held at that value

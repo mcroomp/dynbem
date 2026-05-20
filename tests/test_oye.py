@@ -21,10 +21,10 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from aero import RotorInputs, create_aero
-from aero.oye import OyeBEMModel
-from aero.rotor_state import OyeRotorState, PittPetersRotorState
-import aero.rotor_definition as rotor_definition
+from dynbem import RotorInputs, create_aero
+from dynbem.oye import OyeBEMModel
+from dynbem.rotor_state import OyeRotorState, PittPetersRotorState
+import dynbem.rotor_definition as rotor_definition
 
 
 _ROTOR_YAML = str(

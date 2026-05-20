@@ -37,8 +37,8 @@ from typing import Optional
 
 import numpy as np
 
-from aero import AeroBase, RotorInputs, create_aero
-from aero.rotor_definition import RotorDefinition
+from dynbem import AeroBase, RotorInputs, create_aero
+from dynbem.rotor_definition import RotorDefinition
 
 G = 9.81  # m/s²
 
@@ -336,7 +336,7 @@ def ramp_column_worker(args: dict) -> dict:
     if project_root and project_root not in _sys.path:
         _sys.path.insert(0, project_root)
 
-    from aero import create_aero
+    from dynbem import create_aero
 
     defn        = args["defn"]
     model_name  = args.get("model", "pitt_peters_jit")

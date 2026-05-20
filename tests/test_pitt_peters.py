@@ -18,11 +18,11 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from aero.pitt_peters import PittPetersModel, vrs_lambda1
-from aero.bem import BEMModel
-from aero import RotorInputs
-import aero.rotor_definition as rotor_definition
-from aero.rotor_state import PittPetersRotorState, QuasiStaticRotorState
+from dynbem.pitt_peters import PittPetersModel, vrs_lambda1
+from dynbem.bem import BEMModel
+from dynbem import RotorInputs
+import dynbem.rotor_definition as rotor_definition
+from dynbem.rotor_state import PittPetersRotorState, QuasiStaticRotorState
 
 _ROTOR_YAML = str(
     Path(__file__).parent.parent / "rotors" / "castles_gray_6ft" / "rotor.yaml"

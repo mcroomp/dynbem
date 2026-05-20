@@ -97,7 +97,7 @@ def compute_grid(params: dict[str, Any] | None = None, **kwargs: Any) -> dict[st
         cfg.update(params)
     cfg.update(kwargs)
 
-    from aero.rotor_definition import load as _load_rotor
+    from dynbem.rotor_definition import load as _load_rotor
     defn = _load_rotor(cfg["rotor_yaml"])
 
     v_targets:  list[float] = list(cfg["v_targets"])

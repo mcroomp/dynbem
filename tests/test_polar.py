@@ -1,7 +1,7 @@
 import math
 import pytest
 
-from aero.polar import LinearPolar
+from dynbem.polar import LinearPolar
 
 
 @pytest.fixture
@@ -50,7 +50,7 @@ class TestLinearPolar:
         assert cl_neg == pytest.approx(-cl_pos, rel=1e-6)
 
     def test_from_properties(self):
-        from aero.rotor_definition import AirfoilProperties
+        from dynbem.rotor_definition import AirfoilProperties
         props = AirfoilProperties(
             Re_design=500_000,
             CL0=0.1,

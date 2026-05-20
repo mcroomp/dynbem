@@ -50,7 +50,7 @@ class RotorInputs:
     collective_rad   collective pitch angle, rad
     tilt_lon         longitudinal swashplate tilt, rad. Helicopter-standard
                      sign: positive → nose-down (forward stick). Mapped to
-                     blade pitch via aero.cyclic.cyclic_coeffs() using the
+                     blade pitch via dynbem.cyclic.cyclic_coeffs() using the
                      rotor's ControlProperties (gain, phase). With default
                      gain=1, phase=0 (control=None) this acts as the
                      direct θ_1c blade-pitch amplitude with helicopter signs.

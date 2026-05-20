@@ -27,7 +27,7 @@ flight.
 
 For numerical stability at high advance ratios and descent + edgewise
 wind regimes, the BEM-driven feedback through the L matrix can be
-stiff — see ``aero/oye.py`` for the alternative annulus-local
+stiff — see ``dynbem/oye.py`` for the alternative annulus-local
 formulation that avoids the global L coupling.
 
 See CLAUDE.md "Pitt-Peters inflow ODE" for the canonical L-matrix
@@ -59,7 +59,7 @@ from .polar import AirfoilPolar, LinearPolar, TabulatedPolar
 
 
 # Re-export so external callers (tests, docs) can still do
-# ``from aero.pitt_peters import vrs_lambda1``.
+# ``from dynbem.pitt_peters import vrs_lambda1``.
 __all__ = ["PittPetersModel", "vrs_lambda1", "prescribed_element_forces"]
 
 
@@ -149,7 +149,7 @@ class PittPetersModel(AeroBase):
         else:
             self._polar = LinearPolar.from_properties(self.defn.airfoil)
         # Cache fixed radial geometry — shared with OyeBEMModel and
-        # PittPetersModelJIT via aero/_bem_common.py.
+        # PittPetersModelJIT via dynbem/_bem_common.py.
         (self._dr, self._r_mid, self._x_mid, self._x_hub_unused,
          self._twist_rad) = radial_grid(self.defn.blade)
 

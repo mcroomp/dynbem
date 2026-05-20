@@ -48,10 +48,10 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from aero.bem import BEMModel
-from aero import RotorInputs
-import aero.rotor_definition as rotor_definition
-from aero.rotor_state import QuasiStaticRotorState
+from dynbem.bem import BEMModel
+from dynbem import RotorInputs
+import dynbem.rotor_definition as rotor_definition
+from dynbem.rotor_state import QuasiStaticRotorState
 
 _ROTOR_YAML = str(
     Path(__file__).parent.parent / "rotors" / "castles_gray_6ft" / "rotor.yaml"

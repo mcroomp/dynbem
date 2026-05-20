@@ -29,13 +29,13 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from aero import RotorInputs, create_aero
-from aero.rotor_definition import (
+from dynbem import RotorInputs, create_aero
+from dynbem.rotor_definition import (
     ControlProperties,
     RotorDefinition,
     load as load_rotor,
 )
-from aero.rotor_state import PittPetersRotorState
+from dynbem.rotor_state import PittPetersRotorState
 
 _ROTOR_YAML = str(
     Path(__file__).parent.parent / "rotors" / "castles_gray_6ft" / "rotor.yaml"
@@ -55,7 +55,7 @@ def cg_defn() -> RotorDefinition:
 
 @pytest.fixture(scope="module")
 def cg_pp(cg_defn):
-    return create_aero(cg_defn, model="pitt_peters")
+    return create_aero(cg_defn, model="pitt_peters_jit")
 
 
 # ---------------------------------------------------------------------------
@@ -486,8 +486,8 @@ class TestSwashplateMapping:
         So tilt_lon now drives θ_1s < 0 (peak pitch at ψ=3π/2 = right side)
         ⇒ M_x < 0 (roll LEFT).
         """
-        cg_phi0  = create_aero(_defn_with_phase(cg_defn,  0.0), model="pitt_peters")
-        cg_phi90 = create_aero(_defn_with_phase(cg_defn, 90.0), model="pitt_peters")
+        cg_phi0  = create_aero(_defn_with_phase(cg_defn,  0.0), model="pitt_peters_jit")
+        cg_phi90 = create_aero(_defn_with_phase(cg_defn, 90.0), model="pitt_peters_jit")
 
         _, res0  = _euler_to_steady(
             cg_phi0,  _make_inputs(collective_deg=8.0, tilt_lon_deg=2.0),

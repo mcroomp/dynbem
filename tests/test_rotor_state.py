@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from aero.rotor_state import PittPetersRotorState, QuasiStaticRotorState, RotorState
+from dynbem.rotor_state import PittPetersRotorState, QuasiStaticRotorState, RotorState
 
 
 class TestQuasiStaticRotorState:

@@ -16,10 +16,10 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from aero import RotorInputs, create_aero
-from aero.cyclic import cyclic_coeffs
-from aero.rotor_definition import load as load_rotor
-from aero.rotor_state import PittPetersRotorState, QuasiStaticRotorState
+from dynbem import RotorInputs, create_aero
+from dynbem.cyclic import cyclic_coeffs
+from dynbem.rotor_definition import load as load_rotor
+from dynbem.rotor_state import PittPetersRotorState, QuasiStaticRotorState
 
 
 _ROTOR_YAML = str(
@@ -75,7 +75,7 @@ def test_cyclic_coeffs_no_control_defaults_to_direct_amplitudes():
 
 def test_cyclic_coeffs_phase_rotates_cos_to_sin():
     # phi = 90° advances the cos coefficient to sin.
-    from aero.rotor_definition import ControlProperties
+    from dynbem.rotor_definition import ControlProperties
 
     ctrl = ControlProperties(
         swashplate_pitch_gain_rad=1.0,
@@ -164,7 +164,7 @@ def _euler_integrate_pp(model, inputs, n_steps=8000, dt=0.0005):
     (τ_cs ≈ tens of ms at hover) to converge.  Returns the final state and
     the final compute_forces result.
     """
-    from aero.rotor_state import PittPetersRotorState
+    from dynbem.rotor_state import PittPetersRotorState
 
     state = PittPetersRotorState(omega_rad_s=_OMEGA)
     res = None

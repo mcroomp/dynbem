@@ -10,11 +10,11 @@ import math
 import numpy as np
 import pytest
 
-import aero.rotor_definition as rotor_definition
-from aero import RotorInputs
-from aero.pitt_peters import PittPetersModel
-from aero.pitt_peters_jit import PittPetersModelJIT
-from aero.rotor_state import PittPetersRotorState
+import dynbem.rotor_definition as rotor_definition
+from dynbem import RotorInputs
+from dynbem.pitt_peters import PittPetersModel
+from dynbem.pitt_peters_jit import PittPetersModelJIT
+from dynbem.rotor_state import PittPetersRotorState
 
 
 @pytest.fixture(scope="module")

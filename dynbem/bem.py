@@ -28,7 +28,7 @@ Forward flight / cyclic
 When edgewise advance ratio mu > 0.01 OR cyclic input is nonzero, the
 model integrates over n_psi azimuth stations. At each ψ:
   - Per-azimuth blade pitch θ(ψ) = collective + θ_1c·cos ψ + θ_1s·sin ψ
-    (cyclic coefficients via aero.cyclic.cyclic_coeffs).
+    (cyclic coefficients via dynbem.cyclic.cyclic_coeffs).
   - In-plane wind projected onto t_hat for v_t_extra.
   - In-plane hub moments Mx_hub, My_hub accumulated for AeroResult.M_orbital.
 

@@ -23,7 +23,7 @@ from pathlib import Path
 
 import pytest
 
-from aero.rotor_definition import load as load_rotor
+from dynbem.rotor_definition import load as load_rotor
 from envelope.attitude_sim import simulate_attitude
 
 

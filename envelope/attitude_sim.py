@@ -93,8 +93,8 @@ from typing import Optional
 
 import numpy as np
 
-from aero import RotorInputs, create_aero, solve_trim_cyclic
-from aero.rotor_definition import RotorDefinition
+from dynbem import RotorInputs, create_aero, solve_trim_cyclic
+from dynbem.rotor_definition import RotorDefinition
 from envelope.point_mass import (
     G,
     _build_r_hub,
@@ -351,7 +351,7 @@ def simulate_attitude(
     # Phase 1b: trim solver.  The rotor produces non-trivial steady-state
     # hub moments in forward flight (advancing/retreating asymmetry), so
     # the open-loop attitude system is unstable from zero cyclic.
-    # ``aero.solve_trim_cyclic`` finds the (tilt_lon, tilt_lat) that null
+    # ``dynbem.solve_trim_cyclic`` finds the (tilt_lon, tilt_lat) that null
     # those moments at the equilibrium attitude; we then pre-load the
     # PID integrators with the trim values below.
     # -----------------------------------------------------------------------

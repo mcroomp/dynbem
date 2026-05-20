@@ -21,13 +21,13 @@ import math
 import numpy as np
 import pytest
 
-from aero.bem import prandtl_hub_loss, prandtl_tip_loss, solve_bem_element, BEMModel
-from aero.polar import LinearPolar
-from aero import RotorInputs
-from aero.rotor_definition import (
+from dynbem.bem import prandtl_hub_loss, prandtl_tip_loss, solve_bem_element, BEMModel
+from dynbem.polar import LinearPolar
+from dynbem import RotorInputs
+from dynbem.rotor_definition import (
     AirfoilProperties, AutorotationProperties, BladeGeometry, RotorDefinition,
 )
-from aero.rotor_state import QuasiStaticRotorState
+from dynbem.rotor_state import QuasiStaticRotorState
 
 
 # ---------------------------------------------------------------------------

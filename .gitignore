@@ -35,3 +35,6 @@ Thumbs.db
 out/
 *.npz
 
+# One-off / scratch scripts (kept on disk, not tracked)
+oneoff/
+

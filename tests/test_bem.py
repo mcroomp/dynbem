@@ -11,11 +11,11 @@ import math
 import numpy as np
 import pytest
 
-from aero import AeroResult, BEMModel, RotorInputs
-from aero.rotor_definition import (
+from dynbem import AeroResult, BEMModel, RotorInputs
+from dynbem.rotor_definition import (
     AirfoilProperties, AutorotationProperties, BladeGeometry, RotorDefinition,
 )
-from aero.rotor_state import QuasiStaticRotorState
+from dynbem.rotor_state import QuasiStaticRotorState
 
 
 # ---------------------------------------------------------------------------

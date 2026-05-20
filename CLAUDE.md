@@ -69,7 +69,7 @@ the sign of ω.
 
 Inputs `RotorInputs.tilt_lon`, `RotorInputs.tilt_lat` are **swashplate
 tilt angles** (rad). The mapping to blade pitch lives in
-`aero/cyclic.py:cyclic_coeffs()` and goes through the rotor's
+`dynbem/cyclic.py:cyclic_coeffs()` and goes through the rotor's
 `ControlProperties.swashplate_pitch_gain_rad` (gain) and
 `swashplate_phase_deg` (phase φ):
 
@@ -183,10 +183,10 @@ paper). The L-matrix STRUCTURE matches Peters exactly; only the scalar
 scaling differs. Swapping to Peters' V would need validation against
 hover data — defer until needed.
 
-### Shared BEM infrastructure (`aero/_bem_common.py`)
+### Shared BEM infrastructure (`dynbem/_bem_common.py`)
 
 Both `PittPetersModel(JIT)` and `OyeBEMModel` import from
-`aero/_bem_common.py`:
+`dynbem/_bem_common.py`:
 
 - `vrs_lambda1` — Leishman VRS empirical polynomial
 - `_interp_polar` — JIT polar lookup (`@njit`, called from inside both
@@ -224,7 +224,7 @@ Implicit Euler on the λ states alone (now applied in
 loop's λ_c sensitivity also needs damping before the rotation can be
 re-introduced.
 
-## Øye 2-stage annular dynamic inflow (`aero/oye.py`)
+## Øye 2-stage annular dynamic inflow (`dynbem/oye.py`)
 
 `OyeBEMModel` is the **annulus-local** alternative to Pitt-Peters
 implemented for the same project, with a deliberately different
@@ -247,7 +247,7 @@ across each outer step — DBEMT_Mod=1 equivalent.
 with rotor-mean `µ_T = √(µ² + (λ_climb + v_0_mean)²) / Ω_R`. The
 pure axial-momentum form `4·x·λ_r·W = dCT/dx` was tried first and
 was unstable in forward flight — see the docstring in
-`aero.oye._solve_W_qs`.
+`dynbem.oye._solve_W_qs`.
 
 ### Why this exists alongside Pitt-Peters
 
@@ -316,10 +316,10 @@ This rule has bitten before — see [memory feedback-no-silent-reverts].
 ## When extending the aero models
 
 - New levels (e.g. Peters-He, polar-grid BEM) plug in behind the
-  `AeroBase` interface in `aero/__init__.py`. Don't break existing
+  `AeroBase` interface in `dynbem/__init__.py`. Don't break existing
   call sites — keep
   `compute_forces(inputs, state) -> (AeroResult, RotorState)`.
-- Reuse `aero/_bem_common.py` for polar tabulation, radial-grid
+- Reuse `dynbem/_bem_common.py` for polar tabulation, radial-grid
   setup, the VRS polynomial, and the JIT polar interpolator.
   Hot-path kinematics and result assembly stay inline (see the
   "Shared BEM infrastructure" section above).
@@ -328,12 +328,12 @@ This rule has bitten before — see [memory feedback-no-silent-reverts].
   static states). The envelope integrator's semi-implicit damping
   needs this; the default in `AeroBase` returns all-infinity, which
   is wrong for any dynamic-inflow model.
-- Add a new `RotorState` subclass in `aero/rotor_state.py` with
+- Add a new `RotorState` subclass in `dynbem/rotor_state.py` with
   `to_array` / `from_array`. Convention: mechanical states `ω, ψ` are
   the **last two** entries — `arr[-2] = omega_rad_s`,
   `arr[-1] = spin_angle_rad`. The envelope's clipping and recovery
   code relies on this.
-- Wire the new model into `create_aero` in `aero/__init__.py` with a
+- Wire the new model into `create_aero` in `dynbem/__init__.py` with a
   stable string name. Add docs to the factory docstring.
 - Validation data lives under `Research/`. Add a
   `tests/test_<model>.py` and, if appropriate, a `val_step*.py`

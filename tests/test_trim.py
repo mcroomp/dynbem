@@ -1,4 +1,4 @@
-"""Unit tests for aero.solve_trim_cyclic.
+"""Unit tests for dynbem.solve_trim_cyclic.
 
 The trim solver finds the (tilt_lon, tilt_lat) cyclic that nulls the
 in-plane hub moments at a given operating point.  These tests verify:
@@ -21,8 +21,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from aero import RotorInputs, create_aero, relax_inflow, solve_trim_cyclic
-from aero.rotor_definition import load as load_rotor
+from dynbem import RotorInputs, create_aero, relax_inflow, solve_trim_cyclic
+from dynbem.rotor_definition import load as load_rotor
 
 
 _ROTOR_YAML = str(

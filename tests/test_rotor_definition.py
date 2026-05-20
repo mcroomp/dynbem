@@ -1,6 +1,6 @@
 import pytest
 
-from aero.rotor_definition import (
+from dynbem.rotor_definition import (
     AirfoilProperties,
     AutorotationProperties,
     BladeGeometry,
