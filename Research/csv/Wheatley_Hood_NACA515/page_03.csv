@@ -1,0 +1,8 @@
+Quantity,Precision
+"Lift, L",+-2 pounds
+"Drag, D",+-1 pound
+"Pitching moment, M",+-5 pound-feet
+"Torque, Q",+-2 pound-feet
+"Angle of attack, alpha",+-0.1deg
+"Air speed, V",+-0.2 feet per second
+"Rotational speed, N",+-0.5 rpm

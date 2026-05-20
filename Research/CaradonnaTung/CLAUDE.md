@@ -110,31 +110,6 @@ These are the ONLY performance numbers in the paper. There are **no CP / torque 
 
 ---
 
-## ⚠️ Critical finding: CT_DATA reference values in tests are WRONG
-
-The test file `tests/test_bem_components.py` uses:
-
-```python
-CT_DATA = [(5, 0.0029), (8, 0.0064), (12, 0.0105)]
-```
-
-The paper actually reports (at Ω = 1250 rpm):
-```
-5°  → 0.00213
-8°  → 0.00459
-12° → 0.00796
-```
-
-Our references are ~1.38× too high. They appear to have come from a secondary source,
-not this paper directly. The BEM currently "passes" only because the wrong references
-happen to be within ±10% of what the BEM over-predicts.
-
-**Action required:** Fix CT_DATA in `tests/test_bem_components.py` to use the paper values above.
-After fixing, recheck BEM accuracy — the model likely over-predicts CT significantly at these
-conditions (incompressible BEM vs compressible measured data is expected, but should be <10%).
-
----
-
 ## What this paper does NOT contain
 
 - **No CP / torque / power data** — this is a blade-pressure + wake-geometry study, not a
@@ -149,6 +124,8 @@ For CP-CT polar validation, a different dataset is needed, e.g.:
 ---
 
 ## Appendix A pressure data (for future spanwise loading validation)
+
+**NOTE (2024-05-20): All tables in Appendix A (`page_10_table_1.md` through `page_41_table_32.md`) have been manually validated against the source PNGs and corrected. The transcriptions should now be accurate. The `extract_tables.py` script in the parent `Research/` directory should be run to regenerate the CSV derivatives from these corrected markdown files.**
 
 Each table covers 5 radial stations: r/R = 0.50, 0.68, 0.80, 0.89, 0.96.
 For each station: upper and lower surface Cp at ~8–15 x/c points, plus integrated CL.

@@ -1,0 +1,11 @@
+Parameter,Value,Notes
+CD0 (alpha=0deg),**0.01046**,Minimum drag; symmetric airfoil so alpha=0 = minimum
+CD at alpha=2deg,0.01103,Lightly loaded hover
+CD at alpha=4deg,0.01273,Moderate hover loading
+CD at alpha=6deg,0.01538,High hover loading
+CD at alpha=8deg,0.01865,Near stall
+CL_alpha (0-2deg),**6.05 /rad**,= 0.1056/deg; consistent with Table VIII 5.90/rad
+CL_alpha (0-4deg),6.30 /rad,slight non-linearity above 3deg
+CL_max,1.1583,at alpha ~ 15.5deg
+Alpha stall,**~15deg**,gradual; CL starts dropping above 15.5deg
+Transition (alpha=0deg),69% chord,both surfaces; NCrit=5

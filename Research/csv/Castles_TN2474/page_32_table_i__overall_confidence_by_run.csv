@@ -1,0 +1,12 @@
+Run,lambda2 OK,hover lambda1 OK,DeltaCQ OK,Confidence
+3,OK,OK,OK,HIGH
+4,OK,OK,OK,HIGH
+5,OK,OK,OK,HIGH
+6,OK,OK,blank,MED (no DeltaCQ recorded)
+9,OK,lambda1(Q) flag,OK,MED - verify lambda1(Q) hover
+14,OK,OK,OK,HIGH
+32,OK,OK,flag,MED - verify deep-descent DeltaCQ
+34,OK,OK,OK,MED - verify lambda1(T) at lambda2=2.39
+35,OK,OK,OK,HIGH
+36,OK,OK,flag,MED - verify hover DeltaCQ and V/OmegaR=0.0715 lambda1(Q)
+38,OK,OK,missing,MED - DeltaCQ absent for slow-descent phase

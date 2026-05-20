@@ -23,9 +23,10 @@ Two dynamic-inflow models are provided:
 Both models share a tabulated polar interpolator and a common BEM ψ-loop
 kernel, and they plug into the same `AeroBase` interface. The package also
 includes a flight-envelope sweep driver (`envelope/compute_map.py`), a
-cyclic-trim solver, a point-mass + cyclic-pitch attitude simulator, and a
-test suite that validates against NACA TN-2474 (Castles & Gray) and Peters'
-own Nikolsky-lecture data.
+cyclic-trim solver, and a point-mass + cyclic-pitch attitude simulator.
+For empirical validation against published rotor data (Castles-Gray
+TN-2474, Caradonna-Tung TM-81232, Harrington TN-2318), see
+[EMPIRICAL_VALIDATION.md](EMPIRICAL_VALIDATION.md).
 
 Coordinates are NED throughout; rotor rotation is CCW-from-above
 (American helicopter convention).
@@ -92,21 +93,10 @@ python -m envelope.compute_map --help
 
 The `tests/` directory contains unit tests, validation scripts against
 published rotor data, and end-to-end force-balance / frame-transform
-checks. Key files:
-
-- `test_bem.py`, `test_bem_components.py` — Level-1 BEM unit tests
-  (Prandtl tip/hub loss, momentum-BEM convergence, interface).
-- `test_castles_gray.py` — full Castles-Gray (NACA TN-2474) hover CT/CQ,
-  WBS, and autorotation sweep against the paper's Table I data.
-- `test_pitt_peters.py`, `test_pitt_peters_jit.py` — Pitt-Peters
-  hover/VRS/WBS validation; JIT-vs-reference numerical agreement.
-- `test_cyclic.py` — helicopter-standard cyclic sign convention on all
-  three models, plus Pitt-Peters inflow-dynamics response to cyclic.
-- `test_force_balance.py` — hub-frame transform (`R_hub` tilt → force
-  vector tilt), hover collective sweep against vehicle weight,
-  translating-flight + wind, and end-to-end swashplate phase mapping.
-- `val_step*.py`, `validate_table_i.py` — standalone validation
-  scripts (not part of the pytest run; invoked manually).
+checks. For the empirical validation in particular — which papers and
+tables the models are checked against, what the achieved variance is,
+and the physical reasons for any residual bias — see
+[EMPIRICAL_VALIDATION.md](EMPIRICAL_VALIDATION.md).
 
 ---
 
@@ -167,9 +157,7 @@ drop-in upgrade behind the same `AeroBase` interface.
   state
 - `dψ/dt = ω` — spin angle integrated as ODE state
 - Returns `QuasiStaticRotorState` derivative
-- **Validation target**: Caradonna-Tung rotor (NASA TM-81232, 1981) —
-  2-blade NACA 0012, CT vs collective at 5°/8°/12°
-  (see `Research/CaradonnaTung/` for CT tables and test notes)
+- **Validation**: see [EMPIRICAL_VALIDATION.md](EMPIRICAL_VALIDATION.md).
 
 ### Level 2 — Pitt-Peters 3-state dynamic inflow ✅ DONE
 
@@ -209,10 +197,7 @@ drop-in upgrade behind the same `AeroBase` interface.
   Survives in the Competitive World of Rotorcraft Aerodynamics: The
   Alexander Nikolsky Honorary Lecture," *JAHS* 54(1):011001. PDF and
   extraction notes in `Research/Peters_Nikolsky_2008/`.
-- **Validation**: `tests/test_pitt_peters.py` — hover CT vs Level-1
-  BEM, VRS no-blow-up, WBS autorotation sign, first-order inflow lag.
-  `tests/test_cyclic.py` — helicopter-standard cyclic signs on all
-  three models, inflow dynamics under hover + cyclic.
+- **Validation**: see [EMPIRICAL_VALIDATION.md](EMPIRICAL_VALIDATION.md).
 - **Known limitations**:
   - VRS CT still rises to ~2× nominal in deep VRS (λ₂ ≈ 1.5–2) at
     fixed θ; real rotor stays near nominal (paper: θ barely adjusts).
@@ -264,10 +249,7 @@ drop-in upgrade behind the same `AeroBase` interface.
   (which checks PP's specific feedback mechanism) doesn't apply.
   Cyclic *control* still works (hub moments respond correctly to
   swashplate inputs), but cyclic *inflow feedback* is absent.
-- **Validation**: `tests/test_oye.py` — hover CT vs Pitt-Peters (5%
-  match at moderate thrust), climb-vs-hover induction sign, finite-τ
-  lag response, descent + edgewise wind convergence where Pitt-Peters
-  was numerically stiff.
+- **Validation**: see [EMPIRICAL_VALIDATION.md](EMPIRICAL_VALIDATION.md).
 - **References**:
   - Øye, S. (1990).  A simple vortex model.  IEA Symposium.
   - Snel, H. & Schepers, J.G. (1995).  Joint investigation of dynamic
@@ -280,7 +262,7 @@ drop-in upgrade behind the same `AeroBase` interface.
 - Requires new `PetersHeRotorState` dataclass
 - Captures higher harmonics of the inflow distribution
 - Best accuracy for maneuvering flight and aeroelastic coupling
-- **Validation target**: Caradonna-Tung unsteady / forward-flight data
+- **Validation**: see [EMPIRICAL_VALIDATION.md](EMPIRICAL_VALIDATION.md).
 
 ### Forward flight (applies to all levels) — implemented
 

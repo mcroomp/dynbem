@@ -40,6 +40,6 @@
 
 | r/R=0.50 | r/R=0.68 | r/R=0.80 | r/R=0.89 | r/R=0.96 |
 | -------- | -------- | -------- | -------- | -------- |
-| 0.0335   | 0.93     | 10.094   | 0.8225   | 0.0494   |
+| 0.0331   | 0.0375   | 0.10596  | 0.0325   | 0.0496   |
 
-> Note: CL values for r/R=0.68, 0.80, and 0.89 appear anomalous — likely scan/transcription artefacts on this page. Original scan quality is flagged as poor ("ORIGINAL PAGE IS OF POOR QUALITY").
+> Note: the scan quality on this page is poor, so the CL row is still lower-confidence than the rest of the table.

@@ -1,0 +1,475 @@
+# Empirical validation
+
+This file catalogs the real-world rotor data used to validate `dynbem`,
+where each dataset lives in the repo (`Research/<paper>/…`), which tests
+exercise it (`tests/…`), the variance achieved vs the published values,
+and the likely physical reasons for any divergence.
+
+The repo also contains source PDFs and page-by-page PNG scans for every
+paper listed. The `Research/` directory is excluded from the published
+sdist via `MANIFEST.in` — these notes are for developers working in the
+git clone.
+
+---
+
+## Data sources at a glance
+
+| Source | What it provides | Used for |
+|---|---|---|
+| **NACA TN-2474** — Castles & Gray (1951) | Hover CT/ΔCQ; vertical-descent torque polar; WBS inflow shape | BEM thrust + torque, autorotation, WBS validation |
+| **NASA TM-81232** — Caradonna & Tung (1981) | Hover CT from pressure integration (no torque); spanwise Cℓ; wake geometry | BEM thrust, spanwise loading |
+| **NACA TN-2318** — Harrington (1951) | Full-scale hover CT–CQ polar; FM vs CT/σ | BEM thrust + torque at full-scale Re |
+| **NACA TR 515** — Wheatley & Hood (1935) | PCA-2 autogyro full-scale wind-tunnel: CL/CD/α/N at 4 pitch settings, μ = 0.1–0.7 | **Forward-flight autorotation BEM validation** (the only autorotation-specific dataset) |
+| **NACA TR 487** — Wheatley (1934) | Autogyro BEM theory (analytical); companion to TR 515 | Cross-reference for BEM formulation |
+| **NASA CR-2008-215370** — Harris (2008) | Modern re-analysis of TR 515: rotor-axis (CT, CH, CY) digitized from Wheatley's plots | Easier comparison surface (already in rotor frame) for BEM validation |
+| **NREL/TP-500-36834** — Buhl (2005) | WBS quadratic (derivation, not data) | BEM root selection in turbulent windmill state |
+| **JAHS 54(1):011001** — Peters (2009) Nikolsky Lecture | Pitt-Peters L matrix, M matrix, V mass-flow (formulation) | Pitt-Peters ODE structure and steady-state targets |
+| **Leishman (2000) §12.7** + Coleman (1945) | VRS empirical polynomial fit to Castles-Gray + Coleman | VRS uniform-inflow override in Pitt-Peters and Øye |
+| **airfoiltools.com XFOIL** — NACA 0015, Re 200k, NCrit=5 | CL_α and CD₀ polar | Castles-Gray rotor fixture (drag model) |
+
+---
+
+## 1. Castles & Gray (1951) — NACA TN-2474
+
+**Citation.** Castles, W. Jr. & Gray, R.B. (1951). *Empirical Study of the
+Induced-Velocity Distribution Function for a Model Helicopter Rotor in
+Vertical Flight Including Autorotation*. NACA Technical Note 2474.
+
+**Repository location.** [`Research/Castles_TN2474/`](Research/Castles_TN2474/)
+- PDF: `TN2474.pdf` (full paper)
+- Per-page scans: `page_01.png` … `page_72.png`
+- Extracted tables (markdown): `page_32_table_i.md`, `page_36_table_v.md`,
+  `page_39_table_viii.md`, `page_47_figure_8.md`, `page_51_figure_12.md`
+- Polar: `naca0015_polar.md` (XFOIL extraction notes), `xf-naca0015-il-200000-n5.csv`
+- Reference notes: `summary.md`, `abstract.md`
+
+**Rotor.** 6 ft diameter, 3-blade, constant chord, untwisted, NACA 0015.
+Solidity σ_e = 0.050. RPM 1000–1600. Geometry fixture in
+[`rotors/castles_gray_6ft/rotor.yaml`](rotors/castles_gray_6ft/rotor.yaml).
+
+**Test file.** [`tests/test_castles_gray.py`](tests/test_castles_gray.py)
+
+### 1a. Hover CT and ΔCQ (Table V, page 36)
+
+Test class: `TestCastlesGrayHover` (Run 15, 1200 rpm).
+Per-point assertion bounds: **CT ±50%, ΔCQ ±25%**.
+
+| Quantity | Observed BEM bias | Bound used |
+|---|---|---|
+| CT vs Table V | +30–45 % over-prediction (systematic) | ±50 % |
+| ΔCQ vs Table V | typically <15 % | ±25 % |
+| Figure of merit | 0.40 < FM < 1.00 (measured: 0.70–0.80) | sanity bound only |
+
+### 1b. Hover at fixed CT (Table I, page 32)
+
+Test class: `TestCastlesGrayTableIHover`. Eleven hover rows at CT≈0.002,
+0.005, 0.008 across both RPMs.
+
+| Quantity | Mean error | RMSE | Bound |
+|---|---|---|---|
+| CT | **+11 %** | 11 % | ±20 % |
+| ΔCQ | −1.5 % | 14 % | ±25 % |
+
+### 1c. Vertical-descent autorotation (Figure 8, page 47)
+
+Test class: `TestCastlesGrayAutorotation`. Verifies that BEM torque
+crosses zero (autorotation equilibrium) somewhere in the descent
+window the paper identifies, and that the sign of Q_spin flips between
+helicopter mode (Q > 0, driving torque needed) and WBS (Q < 0, rotor
+extracts energy).
+
+| Check | Assertion |
+|---|---|
+| Hover: Q_spin > 0 | sign only |
+| Deep WBS (λ₂ > 2): Q_spin < 0 | sign only |
+| Sign flip exists between v_climb extremes | brackets the descent regime |
+
+### 1d. WBS inflow shape (Figure 12, page 51)
+
+Test class: `TestCastlesGrayWBSInflow`. λ₁ = v_i/V_h recovered from BEM
+thrust via momentum theory must match the paper's measured inflow curve.
+Bound: **±20 % across the WBS branch (λ₂ > 2.0)**.
+
+### Why CT is over-predicted by ~10–45 %
+
+The Castles-Gray ranges are larger than the residual physics error: the
+Level-1 BEM is *inviscid and incompressible* with a tabulated polar.
+Specific contributors:
+
+- **Compressibility.** Tip Mach number at 1600 rpm is M ≈ 0.33 — small
+  but non-zero. Real lift-curve slope rises with Mach; the fixture uses
+  a fixed `CL_α = 5.90 /rad` taken from Table VIII at M = 0.248.
+- **Reynolds-dependent drag.** Polar is XFOIL at Re = 200k while the
+  test ran near Re = 256k at 0.75R. CD₀ at the higher Re is ~10 % lower.
+- **Tip loss.** Prandtl tip-loss is a thin-wake approximation; it
+  under-estimates loss at low aspect ratio and at the very tip.
+- **σ vs Re inconsistency in the paper.** The Re reported in Table VIII
+  implies chord ≈ 0.044 m while the abstract solidity σ = 0.050 implies
+  chord = 0.0479 m. The fixture uses 0.0479 m (σ-based); this alone
+  introduces a ~10 % geometric mismatch that propagates to CT.
+- **Profile drag at zero lift.** CQ has a profile-drag term that scales
+  with σ·CD₀. XFOIL CD₀ at NCrit=5 is 0.01046; the actual airfoil at the
+  test Re may have a laminar separation bubble that XFOIL doesn't fully
+  resolve.
+
+---
+
+## 2. Caradonna & Tung (1981) — NASA TM-81232
+
+**Citation.** Caradonna, F.X. & Tung, C. (1981). *Experimental and
+Analytical Studies of a Model Helicopter Rotor in Hover*. NASA TM-81232 /
+USAAVRADCOM TR-81-A-23.
+
+**Repository location.** [`Research/CaradonnaTung/`](Research/CaradonnaTung/)
+- Per-page scans: `page_01.png` … `page_58.png` + `cover_1.png`, `cover_2.png`
+- Extracted Cp tables: `page_10_table_1.md` … `page_41_table_32.md` (32 tables, one per (θ_c, Ω) condition)
+- Index: [`Research/CaradonnaTung/CLAUDE.md`](Research/CaradonnaTung/CLAUDE.md)
+
+**Rotor.** 1.143 m radius, 2-blade NACA 0012, untwisted, σ = 0.1062.
+Pressure-tap measurements at 5 radial stations × 12 chordwise. CT
+extracted by chordwise pressure integration; **no torque data**.
+
+**Test files.**
+- [`tests/test_bem_components.py`](tests/test_bem_components.py),
+  class `TestCaradonnaTungValidation` — integrated CT vs figure values.
+- [`tests/test_caradonna_spanwise.py`](tests/test_caradonna_spanwise.py) —
+  **spanwise sectional CL** vs the per-table CL extractions
+  (`Research/CaradonnaTung/page_NN_table_NN.md` → `__cl.csv`). 10
+  sampled tests across three low-Mach operating points (Tables 17, 27,
+  28). Whole-dataset survey across all 32 tables in
+  [`oneoff/val_caradonna_spanwise.py`](oneoff/val_caradonna_spanwise.py).
+
+### Integrated CT
+
+| Source | θ_c | Ω (rpm) | M_tip | Measured CT |
+|---|---|---|---|---|
+| Figure 3, page 44 | 5° | 1250 | 0.434 | 0.00213 |
+| Figure 4, page 45 | 8° | 1250 | 0.439 | 0.00459 |
+| Figure 5, page 46 | 12° | 1250 | 0.433 | 0.00796 |
+
+`CT_DATA` in the test file uses exactly these reference values.
+
+**Result.** BEM over-predicts CT by ~30–45 % across all three
+collectives. Assertion bound: **±50 %** absolute, **±15 %** on the
+ratios `CT_8/CT_5` and `CT_12/CT_8`.
+
+### Spanwise CL — 152-comparison survey
+
+For each of the 32 (θ_c, Ω) operating points, the paper gives a
+chord-integrated section CL at five radial stations (r/R = 0.50, 0.68,
+0.80, 0.89, 0.96). Comparing BEM section CL (computed by re-running
+`solve_bem_element` at each station) against measurement:
+
+| Subset | Comparisons | Median error | RMSE | Max |
+|---|---|---|---|---|
+| All operating points | 152 | 27.6 % | 63.7 % | 415 % |
+| Low-Mach (M_tip < 0.5) | 55 | 31.2 % | 73.3 % | 324 % |
+
+The high outliers come from documented OCR damage in the source tables
+(see `Research/CaradonnaTung/CLAUDE.md` page index). For the
+cleanest low-Mach point (Table 17 at θ = 8°, Ω = 1250 rpm, M = 0.439 —
+the C-T-marked "primary validation case"), section CL agrees within
+13–33 % across all five stations, with the rotor tip (r/R = 0.96)
+giving the tightest agreement (~13 %) because the Prandtl tip-loss
+correction is well-calibrated there.
+
+**Why CT is over-predicted by ~30–45 %.** Same root causes as
+Castles-Gray (inviscid + incompressible BEM vs compressible measured
+data with viscous polar), but the bias is larger here because Caradonna
+& Tung's rotor runs at higher M_tip (0.43–0.88) — compressibility
+effects on CL_α and shock-induced load redistribution near the tip get
+more pronounced.
+
+---
+
+## 3. Harrington (1951) — NACA TN-2318
+
+**Citation.** Harrington, R.D. (1951). *Full-Scale-Tunnel Investigation
+of the Static-Thrust Performance of a Coaxial Helicopter Rotor*. NACA
+Technical Note 2318.
+
+**Repository location.** [`Research/Harrington_TN2318/`](Research/Harrington_TN2318/)
+- PDF: `TN2318.pdf`
+- Per-page scans: `page_01.png` … `page_24.png`
+
+**Rotor (single-rotor configuration, "Rotor 1").** σ = 0.027, ΩR = 500
+ft/s (152.4 m/s), R = 3.81 m. Full-scale tunnel test — Re is an order of
+magnitude above Castles-Gray and Caradonna-Tung.
+
+**Test file.** [`tests/test_bem_components.py`](tests/test_bem_components.py),
+class `TestHarringtonR1Validation` (lines 472+).
+
+**Reference data extraction.** TN-2318 publishes a continuous CT–CQ
+polar (Figure 4, p. 17) and an FM vs CT/σ curve (Figure 6, p. 19) rather
+than tabulated points. The test uses three points read off Figure 6:
+
+| CT/σ | CT | Collective estimated via Leishman hover formula |
+|---|---|---|
+| 0.08 | 0.00216 | ~7° |
+| 0.12 | 0.00324 | ~10° |
+| 0.18 | 0.00486 | ~14° |
+
+**Result.** BEM over-predicts CT by ~30–45 %. Bound: **±50 % absolute,
+±15 % on CT ratios** between adjacent collectives. FM bounded to [0.40,
+0.85].
+
+**Why the BEM FM exceeds the measured peak (0.51).** At σ = 0.027 the
+profile-drag term σ·CD₀ is very small, so the inviscid BEM FM approaches
+the actuator-disk limit (FM → 1). Real rotors lose additional power to
+unsteady-wake / vortex-induced effects the Level-1 BEM doesn't model.
+
+---
+
+## 4. Wheatley & Hood (1935) — NACA TR 515 (PCA-2 autogyro)
+
+**Citation.** Wheatley, J.B. & Hood, M.J. (1935). *Full-Scale Wind-Tunnel
+Tests of a PCA-2 Autogiro Rotor*. NACA Technical Report 515.
+
+**Repository location.** [`Research/Wheatley_Hood_NACA515/`](Research/Wheatley_Hood_NACA515/)
+- PDF: `NACA-Report-515.pdf` (NTRS citation 19930091587)
+- Per-page scans: `cover.png`, `page_01.png` … `page_10.png`, `nomenclature.png`
+- Extracted tables: `page_09_table_i.md`, `page_09_table_ii.md`,
+  `page_10_table_iii.md`, `page_10_table_iv.md`
+- Folder index: [`Research/Wheatley_Hood_NACA515/CLAUDE.md`](Research/Wheatley_Hood_NACA515/CLAUDE.md)
+
+**Companion theory paper.** Wheatley (1934), NACA TR 487, in
+[`Research/Wheatley_NACA487/`](Research/Wheatley_NACA487/) — develops the
+autogyro BEM theory that TR 515 validates against. Has limited
+experimental comparison in its own appendices.
+
+**Modern re-analysis.** Harris (2008), NASA CR-2008-215370, in
+[`Research/Harris_CR-2008-215370/`](Research/Harris_CR-2008-215370/) —
+re-implements Wheatley & Bailey theory in modern form and digitizes
+the TR 515 wind-tunnel data into rotor-axis (CT, CH, CY) figures
+(§5.3 pp. 87–89), which are easier to compare with BEM output than the
+airplane-axes CL/CD form in the original tables.
+
+**Rotor (Pitcairn PCA-2).** 4 blades, untwisted, mixed airfoils (symmetric
+outer 22-3/4 in chord + cambered inner 14-25/32 in). Diameter 45 ft.
+Tested at four nominal RPMs (98.6, 118.7, 137.6, 147.9), three pitch
+settings (0.8°, 1.9°, 2.7°), tunnel speeds 32–173 ft/s. **No swashplate
+— the rotor simply autorotates.**
+
+**Rotor fixture.** [`rotors/wheatley_pca2/rotor.yaml`](rotors/wheatley_pca2/rotor.yaml)
+— 4-blade, R = 6.85 m, σ ≈ 0.10, deliberately simplified (constant
+chord, untwisted, reused NACA 0015 polar). The real PCA-2 had mixed
+airfoils + taper + twist; the simplification is documented in the
+fixture's `description`.
+
+**Test file.** [`tests/test_wheatley_autorotation.py`](tests/test_wheatley_autorotation.py)
+— 20 tests, runs in ~15 s. Three test classes:
+
+1. **`TestWheatleyTableIII`** / **`TestWheatleyTableIV`** — order-of-magnitude
+   CT comparison plus monotonicity. For each table, sample 3 rows
+   spanning μ; assert BEM CT / measured CT ∈ [0.5, 4.0] after
+   cyclic-trim emulation of flapping. Plus a fixed-RPM monotonicity
+   check.
+2. **`TestAutorotationEquilibrium`** — the real rotor is at Q_aero = 0
+   by construction (no rotor drive in the wind tunnel). Sample 5
+   operating points; assert |CQ_BEM| ≤ 0.003 and CQ_BEM < 0 (the
+   observed dataset-wide bias direction). See "Expected variance"
+   below.
+3. **`TestPitchSweep`** — at matched μ, higher pitch must give higher CT.
+
+**Whole-dataset survey** in
+[`oneoff/val_wheatley_autorotation.py`](oneoff/val_wheatley_autorotation.py)
+runs the BEM at every row of Tables I-IV (469 rows total) and
+aggregates Q-residual statistics. This is the script that informed
+the sampled unit-test bounds.
+
+### Extraction status
+
+| Table | Pitch | Fairing | Rows | Confidence | Notes |
+|---|---|---|---|---|---|
+| I   | 1.9° | Exposed | 60 (of 87) | MODERATE | PDF text + consistency filter; 27 rows skipped for OCR damage |
+| II  | 0.8° | Faired  | 73         | MODERATE | Same approach |
+| III | 1.9° | Faired  | 79         | **HIGH** | Manually transcribed from cropped PNG; 0/79 fail L/D = CL/CD within 10 % |
+| IV  | 2.7° | Faired  | 74         | **HIGH** | Same; 0/74 fail |
+
+Total **286 validated operating points** covering advance ratio
+μ ≈ 0.13 – 0.72 across four pitch settings — the most extensive
+autorotation-regime dataset in the validation set, fills the gap left by
+Castles-Gray (vertical descent only).
+
+### Coordinate convention
+
+The paper reports coefficients in **airplane axes** (CL = lift/qS,
+CD = drag/qS), with α = shaft angle of attack relative to the tunnel
+freestream. To convert to rotor-axis (CT, CH, CY) for BEM comparison,
+rotate the in-plane forces by α; Harris §5.3 gives the explicit
+transformation.
+
+### Measured variance — 469-row survey
+
+From the whole-dataset survey
+([`oneoff/val_wheatley_autorotation.py`](oneoff/val_wheatley_autorotation.py)):
+
+| Metric | No cyclic trim | With cyclic trim |
+|---|---|---|
+| CQ mean | −0.00169 | −0.00113 |
+| CQ RMSE | 0.00171 | 0.00116 |
+| max \|CQ\| | 0.00220 | 0.00176 |
+| sign | all 469 rows < 0 | all 469 rows < 0 |
+
+The real rotor at autorotation has CQ = 0 by construction; the
+\|CQ_BEM\| values above are the residual. For scale, hover CQ for a
+typical rotor is ~0.0003 – 0.0005, so the BEM autorotation residual is
+~3× larger than the hover scale.
+
+The sign is consistently negative — the BEM over-drives the rotor
+relative to the real autorotation balance. Probable cause: the
+rigid-blade BEM cannot reproduce flapping-induced reductions in local
+angle of attack on the advancing side, leaving the integrated induced
+torque too large.
+
+Spot-check absolute CT comparison (5 rows spanning μ = 0.14 – 0.70):
+BEM CT / measured CT ranges from **1.25 (high μ) to 2.65 (low μ)** —
+typical Level-1 BEM bias on top of the inadequate-fixture bias
+(simplified polar + no twist). Tightening would need the real PCA-2
+polars (Harris Appendix 11.9) and ideally flap dynamics.
+
+## 5. Buhl (2005) — NREL/TP-500-36834
+
+**Citation.** Buhl, M.L. Jr. (2005). *A New Empirical Relationship
+between Thrust Coefficient and Induction Factor for the Turbulent
+Windmill State*. NREL/TP-500-36834.
+
+**Repository location.** [`Research/Buhl_NREL_TP500_36834/`](Research/Buhl_NREL_TP500_36834/)
+- PDF: `36834.pdf` (12 pages)
+- Extraction notes: `extraction.md`
+
+**What this contributes.** Buhl's derivation is mathematical — no new
+data. The result `CT = 8/9 + (4F − 40/9)·a + (50/9 − 4F)·a²` (his Eq 18)
+fills the numerical gap between classical momentum theory `CT = 4Fa(1−a)`
+and Glauert's empirical fit for a > 0.4. `dynbem`'s BEM uses this
+quadratic for WBS root selection.
+
+**No tolerance to report** — this is structural (right root chosen, root
+exists). The Castles-Gray WBS-inflow test (Figure 12, ±20 %) is the
+empirical check on whether the WBS branch produces the right inflow
+shape.
+
+---
+
+## 6. Peters (2009) — JAHS 54(1):011001 (Nikolsky Lecture)
+
+**Citation.** Peters, D.A. (2009). *How Dynamic Inflow Survives in the
+Competitive World of Rotorcraft Aerodynamics: The Alexander Nikolsky
+Honorary Lecture*. Journal of the American Helicopter Society
+54(1):011001. DOI: 10.4050/JAHS.54.011001.
+
+**Repository location.** [`Research/Peters_Nikolsky_2008/`](Research/Peters_Nikolsky_2008/)
+- PDF: `Peters_Nikolsky_Lecture_JAHS_2009.pdf`
+- Sign-convention translation notes: [`Research/Peters_Nikolsky_2008/CLAUDE.md`](Research/Peters_Nikolsky_2008/CLAUDE.md)
+
+**What this provides.** The canonical formulation by the original
+developer of the Pitt-Peters model. Specifically:
+- Eq 7 — Pitt-Peters ODE `[M]{ν̇} + V·[L]⁻¹{ν} = {C_T, −C_L, −C_M}`
+- Eq 8 — Mass-flow parameter V
+- Eq 9 — Apparent-mass matrix `M = diag(8/(3π), 16/(45π), 16/(45π))`
+- Eq 10 — Influence-coefficient matrix L (with the off-diagonal
+  ±15π·X/64 wake-skew coupling)
+- Eq 11 — Inflow distribution `υ(r, ψ) = ν₀ + ν_s · r · sin(ψ) + ν_c · r · cos(ψ)`
+
+Used in [`dynbem/pitt_peters.py`](dynbem/pitt_peters.py) and
+[`dynbem/pitt_peters_jit.py`](dynbem/pitt_peters_jit.py).
+
+**No tolerance to report** — this is formulation, not data. The tests
+that exercise Pitt-Peters
+([`tests/test_pitt_peters.py`](tests/test_pitt_peters.py),
+[`tests/test_pitt_peters_jit.py`](tests/test_pitt_peters_jit.py),
+[`tests/test_cyclic.py`](tests/test_cyclic.py)) verify Eq-10 structure:
+diagonal terms, off-diagonal cross-coupling sign, wake-skew angle
+response to advance ratio, and λ_c/λ_s response to cyclic forcing.
+
+**One open question on V vs µ_T** is documented in
+[`Research/Peters_Nikolsky_2008/CLAUDE.md`](Research/Peters_Nikolsky_2008/CLAUDE.md):
+we use `µ_T = √(µ² + λ²)` rather than Peters' V (his Eq 8). The two
+differ by a factor of √2 in hover and agree in high-speed forward flight.
+µ_T reproduces classical Glauert hover (`λ₀ = √(C_T/2)`); Peters' V
+gives `λ₀ = √(C_T)/2`. A definitive choice between them needs
+independent hover data — deferred until needed.
+
+---
+
+## 7. VRS empirical polynomial — Leishman + Coleman
+
+**Sources.**
+- Leishman, J.G. (2000). *Principles of Helicopter Aerodynamics*, §12.7
+  ("Vortex Ring State and Autorotation"). Cambridge University Press.
+  (Reference book, not in repo.)
+- Castles-Gray (TN-2474) hover/descent measurements (in repo, see §1
+  above).
+- Coleman, R.P. et al. (1945). NACA wartime report on helicopter rotor
+  inflow in descent. (Cited by Leishman; original not in repo.)
+
+**Polynomial.** A 4th-order fit (Leishman §12.7) to the combined
+Castles-Gray + Coleman data:
+
+    λ₁(λ₂) = a + b·λ₂ + c·λ₂² + d·λ₂³ + e·λ₂⁴   (0 < λ₂ < 2)
+
+Coefficients defined in [`dynbem/_bem_common.py`](dynbem/_bem_common.py)
+function `vrs_lambda1`. Used by both Pitt-Peters
+(`pitt_peters.py:_steady_targets`) and Øye (`oye.py`) to override the
+uniform-inflow target inside the VRS region where momentum theory does
+not apply.
+
+**Test file.** [`tests/test_pitt_peters.py`](tests/test_pitt_peters.py)
+class `TestPittPetersVRS` exercises:
+- Hover boundary continuity (`vrs_lambda1(0) = 1`).
+- Monotonicity across the VRS branch.
+- `test_shallow_vrs_ct_not_blown_up` — CT stays bounded across the
+  VRS region (the failure mode without the polynomial is unphysical
+  thrust spikes from momentum theory's degeneracy).
+
+**Why no formal tolerance.** The polynomial *is* the model in the VRS
+region — momentum theory fails there by construction, so the empirical
+fit is the ground truth. The validity range is 0 < λ₂ < 2 (Castles-Gray
+WBS branch); outside that range the BEM falls back to momentum theory.
+
+---
+
+## Summary of variance vs published data
+
+| Source | Quantity | BEM model error | Test bound |
+|---|---|---|---|
+| Castles-Gray Table I (hover, 11 pts) | CT | +11 % mean / 11 % RMSE | ±20 % |
+| Castles-Gray Table I (hover, 11 pts) | ΔCQ | −1.5 % mean / 14 % RMSE | ±25 % |
+| Castles-Gray Table V (hover, Run 15) | CT | ~+30–45 % | ±50 % |
+| Castles-Gray Table V (hover, Run 15) | ΔCQ | typically <15 % | ±25 % |
+| Castles-Gray Fig 12 (WBS inflow shape) | λ₁ vs λ₂ | within 20 % | ±20 % |
+| Caradonna-Tung Fig 3/4/5 (hover) | CT | +30–45 % | ±50 % |
+| Caradonna-Tung Fig 3/4/5 (hover) | CT ratios | within ~10 % | ±15 % |
+| Harrington TN-2318 (hover) | CT | +30–45 % | ±50 % |
+| Harrington TN-2318 (hover) | CT ratios | within ~10 % | ±15 % |
+
+The consistent picture: the Level-1 BEM is *correct in structure*
+(monotonicity, sign flips, autorotation crossing, inflow shape) and
+*systematically high* on absolute CT by 10–45 %, with the bias growing
+at higher M_tip and on smaller-σ rotors. CQ tracks better because the
+profile-drag term partially absorbs the bias, and ratios between
+operating points track within ~10 % because the bias is largely
+multiplicative.
+
+### Why the systematic bias exists, in one place
+
+1. **Inviscid and incompressible.** Level-1 BEM uses a tabulated polar
+   but does not correct for tip-Mach effects on CL_α or shock-induced
+   load redistribution.
+2. **Polar-vs-test Reynolds mismatch.** Most polars are XFOIL at a
+   nearby Re; CD₀ is sensitive to laminar separation bubbles that XFOIL
+   doesn't fully resolve at NCrit values different from the test
+   facility's turbulence intensity.
+3. **Prandtl tip-loss.** Thin-wake approximation; tends to
+   under-estimate loss for low-aspect-ratio rotors and at the very tip.
+4. **Geometric uncertainty in the source rotors.** Castles-Gray's chord
+   is implied two different ways (from σ and from Re), differing by
+   ~10 %; this propagates directly to CT.
+5. **Source-paper extraction quality.** Several Caradonna-Tung scans
+   have OCR damage (documented in `Research/CaradonnaTung/CLAUDE.md`);
+   we use only the figure-caption CT values which are cleanly readable.
+
+The pattern is robust across three independent rotor experiments
+(Castles-Gray, Caradonna-Tung, Harrington), spanning Re 200k → 2M and
+M_tip 0.25 → 0.88. That consistency is itself a kind of validation: the
+BEM has a stable, predictable bias rather than wild scatter.

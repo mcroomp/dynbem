@@ -1,0 +1,47 @@
+name: Wheatley-PCA-2
+description: >
+  Pitcairn PCA-2 autogiro rotor, as tested in the NACA full-scale wind
+  tunnel by Wheatley & Hood (NACA TR 515, 1935). Validation target for
+  forward-flight autorotation BEM. Geometry is a deliberately simplified
+  reconstruction (constant chord, untwisted, single airfoil polar)
+  derived from the figures in TR 515 and the geometry write-up in
+  Harris (NASA CR-2008-215370) Appendix 11.5. The original blade had
+  mixed airfoils (Goettingen 429 inner, symmetric outer) with non-trivial
+  taper and twist; we approximate the rotor's effective behaviour for
+  Level-1 BEM validation without trying to match the blade details.
+
+rotor:
+  n_blades: 4              # 4 blades stated throughout TR 515 and Harris
+  radius_m: 6.85           # from omega_R = 232 ft/s at 98.6 rpm => R ~ 22.47 ft = 6.85 m
+                           # (diameter 45 ft; TR 515 abstract states "tip speed up to 348 ft/s
+                           # at 147.9 rpm" which is consistent within 0.5%)
+  root_cutout_m: 1.20      # ~17.5% R; PCA-2 inboard blade did not contribute lift over the
+                           # rotating hub assembly. Estimated from Harris Fig 3-12.
+  chord_m: 0.55            # ~22 in (0.559 m) — outer-blade chord per TR 515 blade drawing;
+                           # the cambered inner section is shorter (14-25/32 in) but inboard
+                           # contribution is small at the advance ratios of interest.
+  twist_deg: 0.0           # Wheatley reports non-zero twist (~-6 deg from root to tip).
+                           # Approximated as 0 here for the Level-1 fixture; refine if needed.
+  taper_ratio: 1.0
+  n_elements: 30
+
+airfoil:
+  designation: NACA 0012-equivalent (PCA-2 outer)
+  source: >
+    PCA-2 outer airfoil was symmetric, 22-3/4 in chord. We reuse the NACA 0015
+    XFOIL polar (NCrit=5, Re=200k) from castles_gray_6ft as a proxy. The
+    real airfoil is closer to NACA 0009/0012, and the wind-tunnel Re is
+    ~1.5M (an order of magnitude higher than the polar's 200k), so this
+    fixture is good to about ~30% on absolute CT; it primarily validates
+    sign / trend / autorotation balance rather than absolute force.
+  Re_design: 1500000       # tunnel Re for outer blade at omega_R = 280 ft/s
+  CL0: 0.0
+  CL_alpha_per_rad: 5.73   # 2*pi rounded; symmetric thin-airfoil prediction
+  CD0: 0.0098              # NACA 0012 at Re=1.5M (slightly lower than 0015 at Re=200k)
+  alpha_stall_deg: 15.0
+  tip_loss: true
+  polar_csv: naca0015_ncrit5_re200k.csv
+
+autorotation:
+  I_ode_kgm2: 50.0         # PCA-2 rotor inertia is large (heavy blades) but precise value
+                           # does not affect steady-state BEM CT; placeholder for ODE work.

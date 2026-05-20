@@ -5,6 +5,12 @@ implementation roadmap, research sources) live in [README.md](README.md).
 **Read it first** — most of what you'd want to know about this codebase is
 there, and this file does not repeat it.
 
+Empirical validation — which papers/tables back each model, the
+achieved variance vs published data, and why any residual bias exists
+— lives in [EMPIRICAL_VALIDATION.md](EMPIRICAL_VALIDATION.md). Read
+that before changing anything in the BEM / Pitt-Peters / Øye signs or
+coefficients.
+
 This file holds only directives that are specifically for you (the AI
 assistant) and would be noise in the README.
 
@@ -340,10 +346,32 @@ This rule has bitten before — see [memory feedback-no-silent-reverts].
   script that compares against a specific paper's data.
 - Don't store derived results inside `Research/` — that directory is
   for source-paper extractions only.
+- **`Research/extract_tables.py`** converts every markdown table under
+  `Research/` into an ASCII CSV under `Research/csv/<Paper>/…`,
+  mirroring the source folder structure (Greek letters and subscripts
+  transliterated to plain names — `mu`, `alpha`, `theta0.75R`,
+  `DeltaCQ`, etc.). The script is idempotent: run it whenever a
+  table extraction is updated to keep `Research/csv/` in sync. Tests
+  can import the CSVs directly (e.g. with `numpy.genfromtxt` or
+  `csv.DictReader`) instead of re-parsing the markdown. If a paper
+  introduces a Unicode character not yet handled, add it to
+  `_ASCII_MAP` in the script and re-run — the run prints a warning for
+  any character it falls back to dropping.
+- **The markdown table is the single source of truth.** If you find an
+  error in a generated CSV (bad cell, wrong column name, scrambled
+  row), **fix it in the source `.md` file under `Research/<Paper>/`**
+  and then re-run `python Research/extract_tables.py` to regenerate
+  the CSVs. Never edit a file under `Research/csv/` directly — those
+  files are derived output and will be overwritten on the next run.
+  When in doubt about a value, re-check the high-resolution `.png` of
+  the source page that the `.md` cites (the file the extraction was
+  originally made from); correct the `.md`, regenerate, and verify
+  the consistency-check assertions in any related test still pass.
 
 ## Subfolder CLAUDE.md files
 
-- `Research/CLAUDE.md` — extraction conventions for paper sources.
+- `Research/CLAUDE.md` — extraction conventions for paper sources and
+  the `extract_tables.py` MD→CSV converter described above.
 - `Research/CaradonnaTung/CLAUDE.md` — Caradonna-Tung page index, CT
   tables, validation notes.
 - `Research/Peters_Nikolsky_2008/CLAUDE.md` — **canonical Pitt-Peters
