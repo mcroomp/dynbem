@@ -1,0 +1,28 @@
+include README.md
+include LICENSE
+include pyproject.toml
+recursive-include dynbem *.py
+recursive-include rotors *.yaml *.csv
+
+prune Research
+prune tests
+prune envelope
+prune rotors/*/Research
+prune out
+prune .github
+prune oneoff
+prune dist
+prune build
+prune .venv
+prune .pytest_cache
+prune __pycache__
+
+exclude CLAUDE.md
+exclude run_map.cmd
+exclude setup.cmd
+exclude requirements.txt
+exclude *.cmd
+
+global-exclude *.pyc
+global-exclude __pycache__
+global-exclude .DS_Store
