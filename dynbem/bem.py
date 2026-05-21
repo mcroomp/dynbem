@@ -111,6 +111,153 @@ class BEMElementResult(NamedTuple):
     momentum_residual: float  # |4F·λ_r·(λ_r−λ_c) − σ_r·cn·(λ_r²+x²)| at convergence
 
 
+def _solve_bem_element_windmill(
+    r: float,
+    dr: float,
+    chord: float,
+    twist_rad: float,
+    collective_rad: float,
+    omega: float,
+    v_climb: float,
+    rho: float,
+    n_blades: int,
+    radius_m: float,
+    polar: AirfoilPolar,
+    use_tip_loss: bool,
+    root_cutout_m: float,
+    alpha_stall_rad: float,
+) -> BEMElementResult | None:
+    """Wind-turbine BEM iteration for axial upflow (v_climb < 0).
+
+    Solves the standard windmill momentum balance
+        a / (1 - a) = sigma_r * Cn / (4 F sin^2(phi))
+    with helicopter-convention angles throughout (positive
+    collective+twist = pitch-to-stall, phi < 0 in upflow).  Returns
+    `None` when the iteration does not converge to a valid windmill
+    state (0 < a < 0.5 and AoA below stall) -- in that case the caller
+    should fall back to the helicopter momentum quadratic.
+
+    "Valid windmill state" means the rotor extracts axial momentum
+    from the wind (induction factor a > 0, axial flow at disk is in
+    same direction as freestream but reduced in magnitude).  Excludes
+    propeller mode (a < 0, rotor accelerates the flow) and deep WBS
+    (a > 0.5, momentum theory breaks down -- Glauert/Buhl correction
+    would be needed but is out of scope for this branch).
+    """
+    if v_climb >= -1e-9:
+        return None  # axial windmill regime requires upflow
+
+    U = -v_climb  # positive axial freestream speed
+    Omega_R = omega * radius_m
+    if Omega_R < 1e-6:
+        return None
+    x = r / radius_m
+    x_hub = root_cutout_m / radius_m if radius_m > 0.0 else 0.0
+    sigma_r = n_blades * chord / (2.0 * math.pi * r)
+    theta = collective_rad + twist_rad  # helicopter convention
+
+    a = 0.3       # typical windmill starting point
+    a_prime = 0.0
+    F_final = 1.0
+
+    for _ in range(_MAX_BEM_ITER):
+        # NED conventions: v_a points in +Z direction (downward).  Axial
+        # wind is upflow, so v_a at disk is negative.  (1 - a) is the
+        # induction-reduced axial speed; we apply the NED sign by
+        # multiplying by -U.
+        v_a = -(1.0 - a) * U
+        v_t = (1.0 + a_prime) * omega * r
+        if v_t < 1e-9:
+            return None
+
+        phi = math.atan2(v_a, v_t)  # negative for windmill (v_a < 0)
+        alpha = theta - phi          # helicopter convention
+        cl, cd = polar.cl_cd(alpha)
+
+        # Skip deep stall -- the windmill equation can't model the
+        # post-stall regime cleanly.  Let the helicopter branch deal
+        # with these elements.
+        if alpha > alpha_stall_rad:
+            return None
+
+        if use_tip_loss:
+            F = (prandtl_tip_loss(n_blades, x, phi)
+                 * prandtl_hub_loss(n_blades, x, x_hub, phi))
+        else:
+            F = 1.0
+        F = max(F, 1e-4)
+        F_final = F
+
+        # Helicopter Cn/Ct convention.  At negative phi, cos(phi) =
+        # cos(|phi|) and sin(phi) = -sin(|phi|), so the formula matches
+        # the textbook turbine `Cn = Cl cos|phi| + Cd sin|phi|` exactly.
+        cn = cl * math.cos(phi) - cd * math.sin(phi)
+        ct = cl * math.sin(phi) + cd * math.cos(phi)
+
+        # Windmill momentum: a / (1-a) = sigma_r Cn / (4 F sin^2 phi).
+        sin2 = math.sin(phi) ** 2
+        if cn <= 1e-9 or sin2 < 1e-12:
+            return None
+        denom_a = 4.0 * F * sin2 / (sigma_r * cn) + 1.0
+        a_new = 1.0 / denom_a
+
+        # Tangential induction: a' / (1+a') = sigma_r Ct / (4 F sin phi cos phi)
+        sin_cos = math.sin(phi) * math.cos(phi)
+        if abs(ct) > 1e-9 and abs(sin_cos) > 1e-9:
+            denom_ap = 4.0 * F * sin_cos / (sigma_r * ct) - 1.0
+            a_prime_new = 1.0 / denom_ap if abs(denom_ap) > 1e-8 else 0.0
+        else:
+            a_prime_new = 0.0
+
+        # Stay in the "easy regime": 0 < a < 0.5 (Buhl not implemented).
+        if not (0.0 <= a_new <= 0.5):
+            return None
+        a_prime_new = max(-0.5, min(0.5, a_prime_new))
+
+        converged = (abs(a_new - a) < _BEM_TOL
+                     and abs(a_prime_new - a_prime) < _BEM_TOL)
+        a = 0.5 * a + 0.5 * a_new
+        a_prime = 0.5 * a_prime + 0.5 * a_prime_new
+        if converged:
+            break
+    else:
+        return None  # did not converge
+
+    # Final state and forces.
+    v_a_f = -(1.0 - a) * U
+    v_t_f = (1.0 + a_prime) * omega * r
+    v_rel = math.sqrt(v_a_f ** 2 + v_t_f ** 2)
+    phi_f = math.atan2(v_a_f, v_t_f)
+    alpha_f = theta - phi_f
+    if alpha_f > alpha_stall_rad:
+        return None
+    cl_f, cd_f = polar.cl_cd(alpha_f)
+    cn_f = cl_f * math.cos(phi_f) - cd_f * math.sin(phi_f)
+    ct_f = cl_f * math.sin(phi_f) + cd_f * math.cos(phi_f)
+    if cn_f <= 0.0:
+        return None
+
+    q_dyn = 0.5 * rho * v_rel ** 2 * chord * dr * n_blades
+    # dT, dQ in helicopter convention -- exactly the same expressions
+    # the helicopter branch uses.  Sign emerges naturally from cn_f /
+    # ct_f at phi < 0:
+    #   cn_f = cl cos(phi) - cd sin(phi)  -> positive in upflow
+    #     (lift normal to rotor plane, in -NED-Z = same direction as
+    #     reaction thrust the rotor feels from the wind).
+    #   ct_f = cl sin(phi) + cd cos(phi)  -> negative at phi < 0 when
+    #     lift dominates: lift's tangential component drives the rotor
+    #     (extraction), so dQ < 0 in dynbem convention as expected.
+    dT = q_dyn * cn_f
+    dQ = q_dyn * ct_f * r
+
+    # Map a -> lambda_r in dynbem NED convention.
+    lambda_r = v_a_f / Omega_R
+    # Track momentum residual for diagnostics (always ~0 at windmill
+    # convergence by construction).
+    _ = F_final  # tip-loss factor preserved only for diagnostic prints
+    return BEMElementResult(lambda_r, a_prime, dT, dQ, 0.0)
+
+
 def solve_bem_element(
     r: float,
     dr: float,
@@ -368,18 +515,40 @@ class BEMModel(AeroBase):
             My_hub  /= n_psi
 
         else:
-            # Axial flight (hover / climb / descent), no cyclic: axisymmetric.
+            # Axial flight (hover / climb / descent / windmill), no
+            # cyclic: axisymmetric.  When v_climb < 0 (wind blows
+            # axially through the disk) try the wind-turbine windmill
+            # iteration first -- it has a valid root in the
+            # energy-extraction regime that the helicopter momentum
+            # quadratic does not.  Fall back to the helicopter quadratic
+            # element-by-element when windmill fails (deep stall,
+            # propeller mode, deep WBS, etc.).
+            alpha_stall_rad = math.radians(airfoil.alpha_stall_deg)
             for i_r, r in enumerate(r_stations):
-                elem = solve_bem_element(
-                    r=float(r), dr=dr,
-                    chord=float(chord_per_station[i_r]),
-                    twist_rad=float(twist_per_station_rad[i_r]),
-                    collective_rad=inputs.collective_rad,
-                    omega=omega, v_climb=v_climb, rho=inputs.rho_kg_m3,
-                    n_blades=blade.n_blades, radius_m=blade.radius_m,
-                    polar=self._polar, use_tip_loss=airfoil.tip_loss,
-                    root_cutout_m=blade.root_cutout_m,
-                )
+                elem = None
+                if v_climb < -1e-9:
+                    elem = _solve_bem_element_windmill(
+                        r=float(r), dr=dr,
+                        chord=float(chord_per_station[i_r]),
+                        twist_rad=float(twist_per_station_rad[i_r]),
+                        collective_rad=inputs.collective_rad,
+                        omega=omega, v_climb=v_climb, rho=inputs.rho_kg_m3,
+                        n_blades=blade.n_blades, radius_m=blade.radius_m,
+                        polar=self._polar, use_tip_loss=airfoil.tip_loss,
+                        root_cutout_m=blade.root_cutout_m,
+                        alpha_stall_rad=alpha_stall_rad,
+                    )
+                if elem is None:
+                    elem = solve_bem_element(
+                        r=float(r), dr=dr,
+                        chord=float(chord_per_station[i_r]),
+                        twist_rad=float(twist_per_station_rad[i_r]),
+                        collective_rad=inputs.collective_rad,
+                        omega=omega, v_climb=v_climb, rho=inputs.rho_kg_m3,
+                        n_blades=blade.n_blades, radius_m=blade.radius_m,
+                        polar=self._polar, use_tip_loss=airfoil.tip_loss,
+                        root_cutout_m=blade.root_cutout_m,
+                    )
                 T_total += elem.dT
                 Q_total += elem.dQ
 

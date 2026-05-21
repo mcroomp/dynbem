@@ -62,8 +62,7 @@ class BladeGeometry:
     # Optional radial stations for non-uniform chord / twist (wind-turbine
     # blades are heavily twisted and tapered).  When provided, `chord_at`
     # and `twist_at` interpolate; the scalar `chord_m` / `twist_deg`
-    # fields are retained for backward compatibility (used as a fallback
-    # and reported by `solidity`, `aspect_ratio`).
+    # fields are retained as a fallback when the arrays are absent.
     r_stations_m: tuple[float, ...] = field(default_factory=tuple)
     chord_stations_m: tuple[float, ...] = field(default_factory=tuple)
     twist_stations_deg: tuple[float, ...] = field(default_factory=tuple)
