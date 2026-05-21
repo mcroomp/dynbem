@@ -36,3 +36,8 @@ dynbem = { workspace = true }
 [tool.pytest.ini_options]
 timeout = 10
 testpaths = ["tests"]
+# Repo root on sys.path so tests can import `envelope`, `verification`,
+# etc. The `python -m pytest` invocation does this implicitly; the
+# `pytest` CLI (used by `uv run pytest` in CI) does not, hence the
+# explicit setting.
+pythonpath = ["."]
