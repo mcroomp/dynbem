@@ -489,35 +489,76 @@ BEM has a stable, predictable bias rather than wild scatter.
 
 ---
 
-## Open: dynbem vs CCBlade on the Beaupoil rotor
+## dynbem vs CCBlade cross-check
 
 [`tests/test_dynbem_vs_ccblade.py`](tests/test_dynbem_vs_ccblade.py)
-drives
-[`verification/dynbem_vs_ccblade_beaupoil.py`](verification/dynbem_vs_ccblade_beaupoil.py),
-which compares dynbem against CCBlade (NREL's open-source BEM, run
-inside the Docker container at
-[`verification/ccblade_docker/`](verification/ccblade_docker/)) at 25
-operating points on the Beaupoil RAWES rotor.
+runs two cross-check sweeps against CCBlade (NREL's open-source BEM,
+run inside the Docker container at
+[`verification/ccblade_docker/`](verification/ccblade_docker/)).
 
-After reconciling the dynbem-vs-CCBlade Q-sign convention (helicopter
-"autorotation Q < 0" vs turbine "extracting Q > 0"), absolute
-agreement is still poor:
+### NREL Phase VI -- the right cross-check
 
-| Quantity | dynbem / CCBlade | Worst-case ratio |
-|---|---|---|
-| Thrust ratio T_db / T_cc | ~1.4x at design point | ~6x at low-loading |
-| |Q| ratio                | ~3.6x at design point | order-of-magnitude at high TSR |
+Verifier:
+[`verification/dynbem_vs_ccblade_nrel_phase_vi.py`](verification/dynbem_vs_ccblade_nrel_phase_vi.py).
+Rotor: 2-blade twisted/tapered HAWT, S809 airfoil, R = 5.029 m, 72 RPM,
++3 deg tip pitch, V_wind = 5..25 m/s. This is the operating envelope
+CCBlade was calibrated for; dynbem's `BladeGeometry` was extended with
+`r_stations_m` / `chord_stations_m` / `twist_stations_deg` so both
+BEMs see the same twisted/tapered geometry.
 
-Pattern: the disagreement is largest at low U_wind / high Omega (light
-disk loading) and narrows at heavy disk loading. Candidate suspects:
-Prandtl tip-loss formulation at light loading, polar interpretation
-near zero AoA, 4-blade solidity arithmetic. The spot test asserts only
-finiteness, thrust-sign agreement, and a factor-of-10 envelope on CT
--- it deliberately doesn't bake in tight bounds until the root cause
-is identified.
+Full-sweep numbers (21 operating points):
 
-To regenerate the CCBlade reference CSV after a fixture change:
+| Quantity | Median | Mean | RMSE | Max | Where the max sits |
+|---|---|---|---|---|---|
+| CT err | 12 % | 28 % | 43 % | 147 % | V=5 m/s, TSR=7.5 (high-TSR / light-loading) |
+| CQ err | 37 % | 66 % | 98 % | 333 % | V=5 m/s (same) |
+
+For V >= 12 m/s (well past the TSR ~ 4-5 transition), every per-point
+CT err is below 20 %; CQ err stays in the 25-50 % band. The spot test
+asserts median CT < 20 %, median CQ < 50 %, all per-point CT errs
+< 20 % at V >= 12 m/s, and both BEMs predicting positive thrust +
+positive (turbine-extraction) torque at every operating point.
+
+Convention reconciliation (handled inside the verifier):
+
+- dynbem positive collective = pitch-to-stall (helicopter), CCBlade
+  positive pitch = pitch-to-feather (turbine). Pitch is negated when
+  passed to dynbem.
+- Twist values transfer 1:1 (both BEMs interpret positive twist as
+  pitch-to-stall direction at that station).
+- Wind blowing axially into the disk -> `wind_world = (0, 0, -U_wind)`
+  in NED (autorotation/windmill in dynbem terminology).
+- dynbem CQ < 0 when wind drives the rotor (helicopter convention),
+  CCBlade CQ > 0 in the same situation; dynbem CQ is negated before
+  comparison.
+
+### Beaupoil RAWES rotor -- known mismatch, smoke test only
+
+Verifier:
+[`verification/dynbem_vs_ccblade_beaupoil.py`](verification/dynbem_vs_ccblade_beaupoil.py).
+This cross-check is **mismatched by design**: Beaupoil is a
+helicopter-style rotor (4-blade untwisted, constant chord, cambered
+SG6040 with CL0 = +0.39, zero pitch) being forced into the
+wind-turbine flow CCBlade was built for. dynbem's per-element
+diagnostics at the design point show every blade station deep in
+stall (AoA = 18..41 deg, well past SG6040's 13 deg stall) -- the
+zero-pitch cambered geometry locks both BEMs into post-stall
+behaviour that the helicopter and turbine conventions interpret
+differently. Smoke test only (finiteness, thrust-sign, factor-of-10
+CT envelope). Kept in the repo as a documented example of when a
+naive BEM cross-check produces incompatible numbers; resolving it
+would require treating Beaupoil as the helicopter rotor it is
+(autorotation balance via the existing dynbem helicopter path)
+rather than as a turbine.
+
+### Regenerating CCBlade reference CSVs
 
     cd verification/ccblade_docker
-    MSYS_NO_PATHCONV=1 docker compose run --rm ccblade
-    # -> writes verification/data/beaupoil_2026.csv
+    docker compose build      # one-shot
+    MSYS_NO_PATHCONV=1 docker compose run --rm ccblade  # Beaupoil (default)
+    # or:
+    MSYS_NO_PATHCONV=1 docker compose run --rm ccblade \
+        --config /in/nrel_phase_vi.yaml
+
+Output CSVs land at `verification/data/<name>.csv` and are committed
+so the unit tests stay deterministic without requiring a Docker run.

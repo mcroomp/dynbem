@@ -1,0 +1,68 @@
+# NREL Unsteady Aerodynamics Experiment Phase VI (UAE), Sequence S
+# configuration. 2-bladed, twisted, tapered horizontal-axis wind turbine.
+# Tested in the NASA Ames 80 ft x 120 ft wind tunnel, May 2000.
+#
+# Geometry source:
+#   Hand, M.M. et al. (2001) "Unsteady Aerodynamics Experiment Phase VI:
+#   Wind Tunnel Test Configurations and Available Data Campaigns",
+#   NREL/TP-500-29955, Table A-1 (airfoil section only, S809 starts at
+#   r ~ 1.26 m -- the inner blade is a structural cylinder/transition
+#   not modelled here).
+#
+# Operating envelope: Sequence S = upwind, 0 deg yaw, fixed tip pitch
+# +3 deg (pitch-to-feather, CCBlade convention), 72 RPM.
+#
+# Used by:
+#   verification/dynbem_vs_ccblade_nrel_phase_vi.py    (BEM cross-check)
+#   verification/ccblade_docker/inputs/nrel_phase_vi.yaml  (same data,
+#                                                          CCBlade-side)
+#
+# Pitch sign reminder: dynbem treats positive collective_rad as
+# pitch-to-stall (helicopter convention), CCBlade treats positive
+# pitch as pitch-to-feather (turbine convention).  The verifier
+# negates the Sequence S +3 deg pitch before handing it to dynbem.
+# Twist is unambiguous (both BEMs add it to local pitch in the
+# pitch-to-stall direction).
+
+name: nrel_phase_vi_seqS
+description: >
+  NREL UAE Phase VI, Sequence S.  2-blade, R = 5.029 m, S809 airfoil,
+  twisted (22 deg root to 0.8 deg tip) and tapered (0.74 m root to
+  0.36 m tip).
+
+rotor:
+  n_blades:      2
+  radius_m:      5.029
+  root_cutout_m: 1.257   # start of airfoil section (S809)
+  # Scalar chord/twist fallback values -- only used if r_stations_m is
+  # absent.  Here they are the tip values, so the radial table below
+  # takes precedence.
+  chord_m:       0.358
+  twist_deg:     0.79
+  n_elements:    16
+  # Hand 2001 Table A-1 airfoil-section geometry (matches the values
+  # used by verification/ccblade_docker/inputs/_make_nrel_phase_vi_yaml.py).
+  r_stations_m:        [1.257, 1.343, 1.510, 1.648, 1.952, 2.257,
+                        2.343, 2.562, 2.867, 3.172, 3.476, 3.781,
+                        4.086, 4.391, 4.696, 5.000]
+  chord_stations_m:    [0.737, 0.728, 0.711, 0.697, 0.666, 0.636,
+                        0.627, 0.605, 0.574, 0.543, 0.512, 0.482,
+                        0.451, 0.420, 0.389, 0.358]
+  twist_stations_deg:  [22.00, 18.30, 14.29, 11.91,  8.42,  6.16,
+                         5.66,  4.66,  3.42,  2.49,  1.83,  1.40,
+                         1.13,  0.96,  0.85,  0.79]
+
+airfoil:
+  designation:      S809
+  source:           "XFOIL polar, airfoiltools.com, Re=1000000, NCrit=9"
+  Re_design:        1000000
+  Re_operating:     1000000
+  CL0:              0.14
+  CL_alpha_per_rad: 6.20    # standard 2*pi-ish for S809 pre-stall
+  CD0:              0.013
+  alpha_stall_deg:  14.0
+  tip_loss:         true
+  polar_csv:        xf-s809-nr-1000000.csv
+
+autorotation:
+  I_ode_kgm2:     1.0       # not used for wind-turbine cross-check, placeholder

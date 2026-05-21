@@ -295,7 +295,12 @@ class BEMModel(AeroBase):
         r_root, r_tip = blade.root_cutout_m, blade.radius_m
         dr = (r_tip - r_root) / n
         r_stations = np.linspace(r_root + 0.5 * dr, r_tip - 0.5 * dr, n)
-        twist_rad = math.radians(blade.twist_deg)
+        # Per-station chord / twist: interpolated from blade.r_stations_m
+        # if the YAML provides them, otherwise falls back to the scalar
+        # blade.chord_m / blade.twist_deg.  See BladeGeometry.chord_at.
+        chord_per_station = np.array([blade.chord_at(float(r)) for r in r_stations])
+        twist_per_station_rad = np.array(
+            [math.radians(blade.twist_at(float(r))) for r in r_stations])
 
         T_total = 0.0
         Q_total = 0.0
@@ -335,13 +340,14 @@ class BEMModel(AeroBase):
 
                 col_psi = inputs.collective_rad + theta_1c * cos_psi + theta_1s * sin_psi
 
-                for r in r_stations:
+                for i_r, r in enumerate(r_stations):
                     # Skip reverse-flow region
                     if omega * float(r) + v_t_extra <= 0.0:
                         continue
                     elem = solve_bem_element(
-                        r=float(r), dr=dr, chord=blade.chord_m,
-                        twist_rad=twist_rad,
+                        r=float(r), dr=dr,
+                        chord=float(chord_per_station[i_r]),
+                        twist_rad=float(twist_per_station_rad[i_r]),
                         collective_rad=col_psi,
                         omega=omega, v_climb=v_climb,
                         rho=inputs.rho_kg_m3,
@@ -363,10 +369,12 @@ class BEMModel(AeroBase):
 
         else:
             # Axial flight (hover / climb / descent), no cyclic: axisymmetric.
-            for r in r_stations:
+            for i_r, r in enumerate(r_stations):
                 elem = solve_bem_element(
-                    r=float(r), dr=dr, chord=blade.chord_m,
-                    twist_rad=twist_rad, collective_rad=inputs.collective_rad,
+                    r=float(r), dr=dr,
+                    chord=float(chord_per_station[i_r]),
+                    twist_rad=float(twist_per_station_rad[i_r]),
+                    collective_rad=inputs.collective_rad,
                     omega=omega, v_climb=v_climb, rho=inputs.rho_kg_m3,
                     n_blades=blade.n_blades, radius_m=blade.radius_m,
                     polar=self._polar, use_tip_loss=airfoil.tip_loss,

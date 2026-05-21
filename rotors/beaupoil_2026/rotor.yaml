@@ -25,7 +25,6 @@ rotor:
   root_cutout_m: 0.5
   chord_m:       0.20
   twist_deg:     0.0
-  taper_ratio:   1.0
   n_elements:    10
 
 airfoil:

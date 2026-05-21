@@ -11,7 +11,6 @@ rotor:
                            # blade shank starts at 4.85" but has no aerodynamic contour until 6.09"
   chord_m: 0.0479          # sigma=N*c/(pi*R)=0.050; confirmed Figure 3 1.89"
   twist_deg: 0.0           # "untwisted" stated in all table headers
-  taper_ratio: 1.0
   n_elements: 30
 
 airfoil:

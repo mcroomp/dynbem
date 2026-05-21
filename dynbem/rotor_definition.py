@@ -1,9 +1,27 @@
 """Rotor definition interfaces and generic YAML loading utilities."""
 
+import bisect
 import math
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Sequence
+
+
+def _lerp(x: float, xs: Sequence[float], ys: Sequence[float]) -> float:
+    """Clamped linear interpolation -- `xs` must be monotonically
+    increasing.  Used for radially-varying blade chord / twist."""
+    n = len(xs)
+    if n == 0:
+        raise ValueError("empty interpolation table")
+    if n == 1 or x <= xs[0]:
+        return float(ys[0])
+    if x >= xs[-1]:
+        return float(ys[-1])
+    i = bisect.bisect_right(xs, x)
+    x0, x1 = xs[i - 1], xs[i]
+    y0, y1 = ys[i - 1], ys[i]
+    t = (x - x0) / (x1 - x0)
+    return float(y0 + t * (y1 - y0))
 
 try:
     import yaml
@@ -40,8 +58,34 @@ class BladeGeometry:
     root_cutout_m: float
     chord_m: float
     twist_deg: float = 0.0
-    taper_ratio: float = 1.0
     n_elements: int = 10
+    # Optional radial stations for non-uniform chord / twist (wind-turbine
+    # blades are heavily twisted and tapered).  When provided, `chord_at`
+    # and `twist_at` interpolate; the scalar `chord_m` / `twist_deg`
+    # fields are retained for backward compatibility (used as a fallback
+    # and reported by `solidity`, `aspect_ratio`).
+    r_stations_m: tuple[float, ...] = field(default_factory=tuple)
+    chord_stations_m: tuple[float, ...] = field(default_factory=tuple)
+    twist_stations_deg: tuple[float, ...] = field(default_factory=tuple)
+
+    @property
+    def has_radial_stations(self) -> bool:
+        return (len(self.r_stations_m) >= 2
+                and len(self.chord_stations_m) == len(self.r_stations_m)
+                and len(self.twist_stations_deg) == len(self.r_stations_m))
+
+    def chord_at(self, r: float) -> float:
+        """Chord at radial position r (linear interp on r_stations_m if
+        provided, otherwise the scalar chord_m)."""
+        if not self.has_radial_stations:
+            return self.chord_m
+        return float(_lerp(r, self.r_stations_m, self.chord_stations_m))
+
+    def twist_at(self, r: float) -> float:
+        """Twist (deg) at radial position r."""
+        if not self.has_radial_stations:
+            return self.twist_deg
+        return float(_lerp(r, self.r_stations_m, self.twist_stations_deg))
 
     @property
     def span_m(self) -> float:
@@ -52,16 +96,8 @@ class BladeGeometry:
         return self.root_cutout_m + (2.0 / 3.0) * self.span_m
 
     @property
-    def S_w_m2(self) -> float:
-        return self.n_blades * self.chord_m * self.span_m
-
-    @property
     def disk_area_m2(self) -> float:
         return math.pi * (self.radius_m**2 - self.root_cutout_m**2)
-
-    @property
-    def aspect_ratio(self) -> float:
-        return self.span_m / self.chord_m
 
     @property
     def solidity(self) -> float:
@@ -150,16 +186,8 @@ class RotorDefinition:
         return self.blade.r_cp_m
 
     @property
-    def S_w_m2(self) -> float:
-        return self.blade.S_w_m2
-
-    @property
     def disk_area_m2(self) -> float:
         return self.blade.disk_area_m2
-
-    @property
-    def aspect_ratio(self) -> float:
-        return self.blade.aspect_ratio
 
     @property
     def solidity(self) -> float:
@@ -199,7 +227,10 @@ def load(path: str) -> RotorDefinition:
             root_cutout_m=float(rotor["root_cutout_m"]),
             chord_m=float(rotor["chord_m"]),
             twist_deg=float(rotor.get("twist_deg", 0.0)),
-            taper_ratio=float(rotor.get("taper_ratio", 1.0)),
+            n_elements=int(rotor.get("n_elements", 10)),
+            r_stations_m=tuple(float(v) for v in rotor.get("r_stations_m", [])),
+            chord_stations_m=tuple(float(v) for v in rotor.get("chord_stations_m", [])),
+            twist_stations_deg=tuple(float(v) for v in rotor.get("twist_stations_deg", [])),
         ),
         airfoil=AirfoilProperties(
             Re_design=int(airfoil["Re_design"]),

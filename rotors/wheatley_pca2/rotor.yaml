@@ -22,7 +22,6 @@ rotor:
                            # contribution is small at the advance ratios of interest.
   twist_deg: 0.0           # Wheatley reports non-zero twist (~-6 deg from root to tip).
                            # Approximated as 0 here for the Level-1 fixture; refine if needed.
-  taper_ratio: 1.0
   n_elements: 30
 
 airfoil:
