@@ -8,6 +8,7 @@ use dynbem_rs::polar::Polar as _;
 use numpy::{IntoPyArray, PyArray1, PyReadonlyArray1, PyReadonlyArray2};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
+use pyo3::PyTypeInfo;
 
 // ===========================================================================
 // Polars
@@ -241,6 +242,22 @@ impl PyKamanFlap {
     fn notes(&self) -> String {
         self.0.notes.clone()
     }
+
+    fn __reduce__(&self, py: Python<'_>) -> PyResult<(PyObject, PyObject)> {
+        let cls: PyObject = Self::type_object_bound(py).into_any().unbind();
+        let args = (
+            self.0.enabled,
+            self.0.chord_fraction,
+            self.0.span_start_m,
+            self.0.span_end_m,
+            self.0.tau,
+            self.0.CM_gamma_per_rad,
+            self.0.swashplate_load_fraction,
+            self.0.notes.clone(),
+        )
+            .into_py(py);
+        Ok((cls, args))
+    }
 }
 
 #[pyclass(name = "BladeGeometry", module = "dynbem._dynbem")]
@@ -332,6 +349,23 @@ impl PyBladeGeometry {
     }
     fn twist_at(&self, r: f64) -> f64 {
         self.0.twist_at(r)
+    }
+
+    fn __reduce__(&self, py: Python<'_>) -> PyResult<(PyObject, PyObject)> {
+        let cls: PyObject = Self::type_object_bound(py).into_any().unbind();
+        let args = (
+            self.0.n_blades,
+            self.0.radius_m,
+            self.0.root_cutout_m,
+            self.0.chord_m,
+            self.0.twist_deg,
+            self.0.n_elements,
+            self.0.r_stations_m.clone(),
+            self.0.chord_stations_m.clone(),
+            self.0.twist_stations_deg.clone(),
+        )
+            .into_py(py);
+        Ok((cls, args))
     }
 }
 
@@ -426,6 +460,25 @@ impl PyAirfoilProperties {
     fn Re_operating(&self) -> Option<i64> {
         self.0.Re_operating
     }
+
+    fn __reduce__(&self, py: Python<'_>) -> PyResult<(PyObject, PyObject)> {
+        let cls: PyObject = Self::type_object_bound(py).into_any().unbind();
+        let args = (
+            self.0.Re_design,
+            self.0.CL0,
+            self.0.CL_alpha_per_rad,
+            self.0.CD0,
+            self.0.alpha_stall_deg,
+            self.0.tip_loss,
+            self.0.name.clone(),
+            self.0.source.clone(),
+            self.0.polar_csv.clone(),
+            self.0.CD_structural,
+            self.0.Re_operating,
+        )
+            .into_py(py);
+        Ok((cls, args))
+    }
 }
 
 #[pyclass(name = "InertiaProperties", module = "dynbem._dynbem")]
@@ -494,6 +547,21 @@ impl PyInertiaProperties {
     fn I_body_kgm2(&self) -> Vec<f64> {
         self.0.I_body_kgm2.clone()
     }
+
+    fn __reduce__(&self, py: Python<'_>) -> PyResult<(PyObject, PyObject)> {
+        let cls: PyObject = Self::type_object_bound(py).into_any().unbind();
+        let args = (
+            self.0.mass_kg,
+            self.0.I_body_kgm2.clone(),
+            self.0.I_spin_kgm2,
+            self.0.blade_mass_kg,
+            self.0.stationary_assembly_mass_kg,
+            self.0.spinning_hub_shell_mass_kg,
+            self.0.I_blade_flap_kgm2,
+        )
+            .into_py(py);
+        Ok((cls, args))
+    }
 }
 
 #[pyclass(name = "ControlProperties", module = "dynbem._dynbem")]
@@ -559,6 +627,21 @@ impl PyControlProperties {
     fn kaman_flap(&self) -> PyKamanFlap {
         PyKamanFlap(self.0.kaman_flap.clone())
     }
+
+    fn __reduce__(&self, py: Python<'_>) -> PyResult<(PyObject, PyObject)> {
+        let cls: PyObject = Self::type_object_bound(py).into_any().unbind();
+        let args = (
+            self.0.swashplate_pitch_gain_rad,
+            self.0.axle_attachment_length_m,
+            self.0.K_cyc,
+            self.0.swashplate_phase_deg,
+            self.0.servo_slew_rate_deg_s,
+            self.0.servo_travel_deg,
+            PyKamanFlap(self.0.kaman_flap.clone()),
+        )
+            .into_py(py);
+        Ok((cls, args))
+    }
 }
 
 #[pyclass(name = "AutorotationProperties", module = "dynbem._dynbem")]
@@ -594,6 +677,17 @@ impl PyAutorotationProperties {
     #[getter]
     fn omega_eq_rad_s(&self) -> Option<f64> {
         self.0.omega_eq_rad_s
+    }
+
+    fn __reduce__(&self, py: Python<'_>) -> PyResult<(PyObject, PyObject)> {
+        let cls: PyObject = Self::type_object_bound(py).into_any().unbind();
+        let args = (
+            self.0.I_ode_kgm2,
+            self.0.omega_min_rad_s,
+            self.0.omega_eq_rad_s,
+        )
+            .into_py(py);
+        Ok((cls, args))
     }
 }
 
@@ -676,6 +770,21 @@ impl PyRotorDefinition {
     #[getter]
     fn solidity(&self) -> f64 {
         self.0.solidity()
+    }
+
+    fn __reduce__(&self, py: Python<'_>) -> PyResult<(PyObject, PyObject)> {
+        let cls: PyObject = Self::type_object_bound(py).into_any().unbind();
+        let args = (
+            PyBladeGeometry(self.0.blade.clone()),
+            PyAirfoilProperties(self.0.airfoil.clone()),
+            self.0.control.clone().map(PyControlProperties),
+            PyInertiaProperties(self.0.inertia.clone()),
+            PyAutorotationProperties(self.0.autorotation.clone()),
+            self.0.name.clone(),
+            self.0.description.clone(),
+        )
+            .into_py(py);
+        Ok((cls, args))
     }
 }
 
