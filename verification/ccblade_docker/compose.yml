@@ -1,0 +1,14 @@
+services:
+  ccblade:
+    build:
+      context: .
+      args:
+        WISDEM_VERSION: "4.2.1"
+    image: aero-ccblade:4.2.1
+    # Default run: process inputs/nrel_phase_vi.yaml and write
+    # ../data/nrel_phase_vi_seqS.csv.  Override `command:` to point at
+    # a different YAML in ./inputs/.
+    volumes:
+      - ./inputs:/in:ro
+      - ../data:/out
+    command: ["--config", "/in/beaupoil_2026.yaml"]

@@ -25,7 +25,8 @@ git clone.
 | **NREL/TP-500-36834** — Buhl (2005) | WBS quadratic (derivation, not data) | BEM root selection in turbulent windmill state |
 | **JAHS 54(1):011001** — Peters (2009) Nikolsky Lecture | Pitt-Peters L matrix, M matrix, V mass-flow (formulation) | Pitt-Peters ODE structure and steady-state targets |
 | **Leishman (2000) §12.7** + Coleman (1945) | VRS empirical polynomial fit to Castles-Gray + Coleman | VRS uniform-inflow override in Pitt-Peters and Øye |
-| **airfoiltools.com XFOIL** — NACA 0015, Re 200k, NCrit=5 | CL_α and CD₀ polar | Castles-Gray rotor fixture (drag model) |
+| **airfoiltools.com XFOIL** -- NACA 0015, Re 200k, NCrit=5 | CL_alpha and CD0 polar | Castles-Gray rotor fixture (drag model) |
+| **CCBlade** (NREL / WISDEM) | Independent open-source BEM | Cross-check against dynbem on the Beaupoil RAWES rotor; runs in Docker, see `verification/ccblade_docker/` |
 
 ---
 
@@ -482,6 +483,41 @@ multiplicative.
    we use only the figure-caption CT values which are cleanly readable.
 
 The pattern is robust across three independent rotor experiments
-(Castles-Gray, Caradonna-Tung, Harrington), spanning Re 200k → 2M and
-M_tip 0.25 → 0.88. That consistency is itself a kind of validation: the
+(Castles-Gray, Caradonna-Tung, Harrington), spanning Re 200k -> 2M and
+M_tip 0.25 -> 0.88. That consistency is itself a kind of validation: the
 BEM has a stable, predictable bias rather than wild scatter.
+
+---
+
+## Open: dynbem vs CCBlade on the Beaupoil rotor
+
+[`tests/test_dynbem_vs_ccblade.py`](tests/test_dynbem_vs_ccblade.py)
+drives
+[`verification/dynbem_vs_ccblade_beaupoil.py`](verification/dynbem_vs_ccblade_beaupoil.py),
+which compares dynbem against CCBlade (NREL's open-source BEM, run
+inside the Docker container at
+[`verification/ccblade_docker/`](verification/ccblade_docker/)) at 25
+operating points on the Beaupoil RAWES rotor.
+
+After reconciling the dynbem-vs-CCBlade Q-sign convention (helicopter
+"autorotation Q < 0" vs turbine "extracting Q > 0"), absolute
+agreement is still poor:
+
+| Quantity | dynbem / CCBlade | Worst-case ratio |
+|---|---|---|
+| Thrust ratio T_db / T_cc | ~1.4x at design point | ~6x at low-loading |
+| |Q| ratio                | ~3.6x at design point | order-of-magnitude at high TSR |
+
+Pattern: the disagreement is largest at low U_wind / high Omega (light
+disk loading) and narrows at heavy disk loading. Candidate suspects:
+Prandtl tip-loss formulation at light loading, polar interpretation
+near zero AoA, 4-blade solidity arithmetic. The spot test asserts only
+finiteness, thrust-sign agreement, and a factor-of-10 envelope on CT
+-- it deliberately doesn't bake in tight bounds until the root cause
+is identified.
+
+To regenerate the CCBlade reference CSV after a fixture change:
+
+    cd verification/ccblade_docker
+    MSYS_NO_PATHCONV=1 docker compose run --rm ccblade
+    # -> writes verification/data/beaupoil_2026.csv
