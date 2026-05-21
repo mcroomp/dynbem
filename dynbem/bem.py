@@ -125,7 +125,6 @@ def _solve_bem_element_windmill(
     polar: AirfoilPolar,
     use_tip_loss: bool,
     root_cutout_m: float,
-    alpha_stall_rad: float,
 ) -> BEMElementResult | None:
     """Wind-turbine BEM iteration for axial upflow (v_climb < 0).
 
@@ -174,11 +173,12 @@ def _solve_bem_element_windmill(
         alpha = theta - phi          # helicopter convention
         cl, cd = polar.cl_cd(alpha)
 
-        # Skip deep stall -- the windmill equation can't model the
-        # post-stall regime cleanly.  Let the helicopter branch deal
-        # with these elements.
-        if alpha > alpha_stall_rad:
-            return None
+        # No pre-stall AoA guard: the windmill momentum equation depends
+        # only on Cn (not on dCn/dalpha), so as long as Cn > 0 and the
+        # iteration converges, the polar's post-stall plateau is fine.
+        # Helicopter autorotation operates routinely above stall (high
+        # AoA, high Cl, high Cd) and we want the windmill solver to own
+        # those cases too.
 
         if use_tip_loss:
             F = (prandtl_tip_loss(n_blades, x, phi)
@@ -194,12 +194,54 @@ def _solve_bem_element_windmill(
         cn = cl * math.cos(phi) - cd * math.sin(phi)
         ct = cl * math.sin(phi) + cd * math.cos(phi)
 
-        # Windmill momentum: a / (1-a) = sigma_r Cn / (4 F sin^2 phi).
         sin2 = math.sin(phi) ** 2
         if cn <= 1e-9 or sin2 < 1e-12:
             return None
+
+        # Classical windmill momentum for a <= 0.4 reduces algebraically
+        # to:
+        #   a / (1 - a) = sigma_r Cn / (4 F sin^2 phi)
+        # (the (1-a)^2 factor on the blade-element side and the
+        # 4F a (1-a) on the momentum side cancel one (1-a) cleanly).
         denom_a = 4.0 * F * sin2 / (sigma_r * cn) + 1.0
         a_new = 1.0 / denom_a
+
+        if a_new > 0.4:
+            # Buhl (NREL/TP-500-36834 Eq 18) replaces the classical
+            # 4F a (1-a) momentum side with an empirical quadratic that
+            # bridges 0.4 < a < ~1.  The blade-element side stays
+            # C_T_BE = sigma_r Cn (1-a)^2 / sin^2(phi), so at
+            # convergence:
+            #   8/9 + (4F - 40/9) a + (50/9 - 4F) a^2 = K (1-a)^2
+            # with K = sigma_r Cn / sin^2(phi).  Rearranged in a:
+            #   (50/9 - 4F - K) a^2 + (4F - 40/9 + 2K) a + (8/9 - K) = 0
+            # We use the current iterate's K (it depends on phi which
+            # depends on a, so the whole thing is a fixed-point).
+            #
+            # The Glauert / Buhl pieces match at a = 0.4 in both value
+            # and first derivative, so transitions between the
+            # classical branch above and the Buhl branch here are
+            # smooth.
+            K = sigma_r * cn / sin2
+            A = 50.0 / 9.0 - 4.0 * F - K
+            B = 4.0 * F - 40.0 / 9.0 + 2.0 * K
+            C = 8.0 / 9.0 - K
+            disc = B * B - 4.0 * A * C
+            if disc < 0.0 or abs(A) < 1e-12:
+                return None
+            sq = math.sqrt(disc)
+            a_lower = (-B - sq) / (2.0 * A)
+            a_upper = (-B + sq) / (2.0 * A)
+            # Pick the physical root in [0.4, 1.0].
+            candidates = [
+                cand for cand in (a_lower, a_upper)
+                if 0.4 <= cand <= 1.0
+            ]
+            if not candidates:
+                return None
+            # If both roots are in range, take the smaller (closer to
+            # the classical branch).
+            a_new = min(candidates)
 
         # Tangential induction: a' / (1+a') = sigma_r Ct / (4 F sin phi cos phi)
         sin_cos = math.sin(phi) * math.cos(phi)
@@ -209,8 +251,10 @@ def _solve_bem_element_windmill(
         else:
             a_prime_new = 0.0
 
-        # Stay in the "easy regime": 0 < a < 0.5 (Buhl not implemented).
-        if not (0.0 <= a_new <= 0.5):
+        # Buhl is calibrated up to a ~ 1; beyond that (flow reversal at
+        # the disk) the helicopter quadratic's empirical fit is the
+        # right tool.
+        if not (0.0 <= a_new <= 1.0):
             return None
         a_prime_new = max(-0.5, min(0.5, a_prime_new))
 
@@ -229,8 +273,6 @@ def _solve_bem_element_windmill(
     v_rel = math.sqrt(v_a_f ** 2 + v_t_f ** 2)
     phi_f = math.atan2(v_a_f, v_t_f)
     alpha_f = theta - phi_f
-    if alpha_f > alpha_stall_rad:
-        return None
     cl_f, cd_f = polar.cl_cd(alpha_f)
     cn_f = cl_f * math.cos(phi_f) - cd_f * math.sin(phi_f)
     ct_f = cl_f * math.sin(phi_f) + cd_f * math.cos(phi_f)
@@ -521,9 +563,8 @@ class BEMModel(AeroBase):
             # iteration first -- it has a valid root in the
             # energy-extraction regime that the helicopter momentum
             # quadratic does not.  Fall back to the helicopter quadratic
-            # element-by-element when windmill fails (deep stall,
-            # propeller mode, deep WBS, etc.).
-            alpha_stall_rad = math.radians(airfoil.alpha_stall_deg)
+            # element-by-element when windmill fails (a outside [0, 1],
+            # Cn <= 0, no-convergence).
             for i_r, r in enumerate(r_stations):
                 elem = None
                 if v_climb < -1e-9:
@@ -536,7 +577,6 @@ class BEMModel(AeroBase):
                         n_blades=blade.n_blades, radius_m=blade.radius_m,
                         polar=self._polar, use_tip_loss=airfoil.tip_loss,
                         root_cutout_m=blade.root_cutout_m,
-                        alpha_stall_rad=alpha_stall_rad,
                     )
                 if elem is None:
                     elem = solve_bem_element(

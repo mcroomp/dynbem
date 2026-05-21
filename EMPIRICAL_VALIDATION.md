@@ -508,20 +508,21 @@ BEMs see the same twisted/tapered geometry.
 
 dynbem.bem dispatches axial-flow operating points dynamically:
 when `v_climb < 0` it tries the wind-turbine windmill iteration
-(`a / (1-a) = sigma_r Cn / (4 F sin^2 phi)`) first; if a valid
-windmill state exists it uses that, otherwise it falls back to the
-helicopter momentum quadratic. The regime is read from the flow
-state -- no fixture flag.
+first (classical momentum theory for `a < 0.4`, Buhl's empirical
+quadratic for `0.4 < a < 1`); if a valid windmill state exists it
+uses that, otherwise it falls back to the helicopter momentum
+quadratic. The regime is read from the flow state -- no fixture
+flag.
 
 Full-sweep numbers (21 operating points):
 
 | Quantity | Median | Mean | RMSE | Max |
 |---|---|---|---|---|
-| CT err | 10 % | 8 % | 9 % | 11 % |
-| CQ err | 26 % | 22 % | 25 % | 35 % |
+| CT err | 2 % | 2 % | 2 % | 6 % |
+| CQ err | 2 % | 3 % | 3 % | 8 % |
 
-The spot test asserts median CT < 15 %, every per-point CT < 15 %,
-median CQ < 30 %, every per-point CQ < 40 %, and both BEMs predicting
+The spot test asserts median CT < 5 %, every per-point CT < 10 %,
+median CQ < 5 %, every per-point CQ < 10 %, and both BEMs predicting
 positive thrust + positive (turbine-extraction) torque at every
 operating point.
 
