@@ -1,0 +1,8 @@
+U (m/s),Free-Wake (Nm),Press Meas (Nm),Strain Gauges (Nm),BEM with Prandtl correction (Nm),BEM without Prandtl correction (Nm)
+5,290,285,290,290,290
+7,730,725,800,740,780
+10,1200,1170,1340,1180,1210
+13,1210,1160,1310,1170,1190
+15,1010,930,1170,970,920
+20,780,750,1110,650,640
+25,1100,1070,1480,870,910

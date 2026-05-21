@@ -38,3 +38,7 @@ out/
 # One-off / scratch scripts (kept on disk, not tracked)
 oneoff/
 
+
+# OCR work-in-progress
+Research/ocr/
+Research/csv/ocr/
