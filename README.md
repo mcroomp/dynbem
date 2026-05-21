@@ -95,9 +95,13 @@ python -m envelope.compute_map --help
 
 The `tests/` directory contains unit tests, validation scripts against
 published rotor data, and end-to-end force-balance / frame-transform
-checks. For the empirical validation in particular — which papers and
-tables the models are checked against, what the achieved variance is,
-and the physical reasons for any residual bias — see
+checks. Whole-dataset validation sweeps against each paper live in
+[`verification/`](verification/) and are imported by the matching
+`tests/test_<paper>_<quantity>.py` in sampled mode -- one source of
+BEM-driver logic, fast tests, and a full-sweep script you can re-run to
+refresh aggregate bounds. For which papers and tables the models are
+checked against, what the achieved variance is, and the physical
+reasons for any residual bias, see
 [EMPIRICAL_VALIDATION.md](EMPIRICAL_VALIDATION.md).
 
 ---

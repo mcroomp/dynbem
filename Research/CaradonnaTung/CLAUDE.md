@@ -127,6 +127,32 @@ For CP-CT polar validation, a different dataset is needed, e.g.:
 
 **NOTE (2024-05-20): All tables in Appendix A (`page_10_table_1.md` through `page_41_table_32.md`) have been manually validated against the source PNGs and corrected. The transcriptions should now be accurate. The `extract_tables.py` script in the parent `Research/` directory should be run to regenerate the CSV derivatives from these corrected markdown files.**
 
+**NOTE (2026-05-21): 13 of the 60 page PNGs were rotated up to ~1 deg
+off-axis (page 41 by +0.988 deg, the worst). They were straightened
+in-place via `Research/CaradonnaTung/deskew.py`, which detects long
+horizontal / vertical ruled lines via Hough and rotates by the
+median angular deviation. Each rotated file has a sibling `.png.bak`
+so the operation is reversible. Page 41 was then re-OCR'd through
+the Research/ocr pipeline; the new table 32 values are noticeably
+cleaner (more cells filled, fewer "?" flags). If a future page PNG
+gets re-scanned and arrives slightly skewed, run `deskew.py` on it
+before re-running OCR -- straight ruled lines materially improve
+the grid detector's cell alignment.**
+
+## Deskew utility -- `deskew.py`
+
+```
+.venv\Scripts\python Research\CaradonnaTung\deskew.py page_NN.png        # in-place, .bak saved
+.venv\Scripts\python Research\CaradonnaTung\deskew.py --dry-run page_*.png
+.venv\Scripts\python Research\CaradonnaTung\deskew.py --out-dir straight\ page_*.png
+```
+
+Detects long near-horizontal and near-vertical line segments via
+Canny + probabilistic Hough; the weighted median angular deviation
+becomes the rotation correction. Below `--min-skew` (default 0.05
+deg) the page is left untouched. Across the 60 PNGs in this folder
+the corrections ranged 0.11 -- 0.99 deg.
+
 Each table covers 5 radial stations: r/R = 0.50, 0.68, 0.80, 0.89, 0.96.
 For each station: upper and lower surface Cp at ~8–15 x/c points, plus integrated CL.
 

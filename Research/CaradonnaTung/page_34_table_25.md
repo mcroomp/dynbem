@@ -1,4 +1,4 @@
-# Table 25 — θc=8°, Ω=2500 rpm
+# Table 25 — θc=8°, Ω=2500 rpm, M_tip=0.877
 
 ## Upper surface (−Cp)
 

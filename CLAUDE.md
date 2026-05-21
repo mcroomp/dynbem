@@ -309,6 +309,26 @@ This rule has bitten before — see [memory feedback-no-silent-reverts].
   `.venv\Scripts\activate` (Windows), or invoke directly via
   `.venv\Scripts\python` / `.venv\Scripts\pytest`. Don't install packages
   globally or create a new venv.
+- **Shell**: always use the Bash tool with `.venv/Scripts/python` (forward
+  slashes work fine on this Windows checkout). Do not switch to the
+  PowerShell tool -- its quoting and Unicode handling have bitten this
+  project's output (em-dashes render as the replacement glyph,
+  `Select-Object` piping breaks on array args, etc.). If a one-liner is
+  awkward in bash, write a short script under the appropriate dir and
+  run it through bash instead.
+- **CRITICAL -- ASCII only in new Python / CSV / Markdown content.** No
+  Greek letters, no em-dashes, no degree signs, no smart quotes, no
+  subscripts/superscripts, no plus-minus or less-equal glyphs. Use plain
+  ASCII transliterations: `theta`, `Omega`, `psi`, `lambda`, `sigma`,
+  `mu`, `deg`, `<=`, `+/-`, `--`, `"..."`. The Windows console codepage
+  mangles non-ASCII output (em-dash renders as a replacement character),
+  `extract_tables.py` transliterates everything for the CSV mirror
+  anyway, and grep / sed / diff are noticeably less reliable on
+  mixed-encoding text. Applies to source code, string literals, print
+  output, comments, docstrings, CSV cells, and Markdown bodies. Existing
+  non-ASCII content in legacy docstrings and Research/ table titles can
+  stay until it is edited for another reason; do not introduce new
+  instances.
 - **Coordinate frame**: NED everywhere. See README "Coordinate system" —
   the "coordinate trap" section especially matters when you adapt
   equations from a paper, because most rotor literature uses a different
@@ -318,6 +338,18 @@ This rule has bitten before — see [memory feedback-no-silent-reverts].
   notes" sections. The signs are load-bearing and were tuned to make
   hover, climb, descent, VRS, and autorotation all work in one code
   path.
+- **Validation tests pair with `verification/` scripts.** When a test
+  in `tests/` checks the model against a published dataset, do not
+  duplicate the BEM-call + comparison loop inside the test file.
+  Instead: factor the loop into `verification/<paper>_<quantity>.py`
+  as an importable function that accepts a `sample` argument, then
+  have both the script's `main()` and the unit test call it. The unit
+  test runs with a small `sample` (fast, fits in the pytest budget)
+  and asserts on the returned aggregate; the verification script with
+  no sample is the authoritative whole-dataset sweep used to
+  re-baseline bounds. This keeps the per-test BEM-driver logic in
+  exactly one place and prevents the spot tests and the survey from
+  drifting apart.
 
 ## When extending the aero models
 

@@ -55,6 +55,7 @@ import csv
 import re
 import sys
 from pathlib import Path
+from typing import Callable
 
 ROOT = Path(__file__).resolve().parent
 CSV_ROOT = ROOT / "csv"
@@ -273,24 +274,139 @@ VALIDATION_RULES: dict[str, Callable[[dict[str, str]], str | None]] = {
 }
 
 
+# ---------------------------------------------------------------------------
+# Caradonna-Tung sanity checks
+#
+# Lightweight validators that just emit warnings: catches obvious OCR damage
+# (missing cells, sign flips, exponent typos) without false-flagging on
+# values the human reviewer has already verified as 'unreadable' (those are
+# marked with a trailing '?' in the markdown — see parse_caradonna.py).
+# ---------------------------------------------------------------------------
+
+# Page → θc (deg). From the Caradonna-Tung page index in CLAUDE.md.
+_CT_THETA_PER_PAGE = {
+    10: 0,  11: 2,  12: 2,  13: 2,  14: 2,  15: 2,  16: 4,  17: 4,
+    18: 5,  19: 5,  20: 5,  21: 5,  22: 5,  23: 5,  24: 7,  25: 7,
+    26: 8,  27: 8,  28: 8,  29: 8,  30: 8,  31: 8,  32: 8,  33: 8,
+    34: 8,  35: 8,  36: 12, 37: 12, 38: 12, 39: 12, 40: 12, 41: 12,
+}
+
+# Conservative plausible CL band per θc. Generous bands (~1.5× scatter)
+# so we only flag obvious OCR damage, not measurement variation.
+_CT_CL_RANGE = {
+    0:  (-0.02, 0.02),   # essentially zero lift
+    2:  ( 0.01, 0.09),
+    4:  ( 0.02, 0.20),
+    5:  ( 0.05, 0.25),
+    7:  ( 0.10, 0.40),
+    8:  ( 0.15, 0.45),
+    10: ( 0.25, 0.55),
+    12: ( 0.30, 0.65),
+}
+
+
+def _ct_parse_cell(s: str) -> tuple[float | None, str]:
+    """Return (parsed_value, status) where status ∈
+    {'ok', 'empty', 'flagged', 'unparseable'}.
+    A trailing '?' marks a cell the reviewer flagged unreadable —
+    silently skip those.
+    """
+    s = (s or "").strip()
+    if not s:
+        return None, "empty"
+    if s.endswith("?"):
+        return None, "flagged"
+    try:
+        return float(s.lstrip("+")), "ok"
+    except ValueError:
+        return None, "unparseable"
+
+
+def _ct_page_from_csv_name(name: str) -> int | None:
+    m = re.match(r"page_(\d+)_table_\d+__", name)
+    return int(m.group(1)) if m else None
+
+
+def validate_ct_cl(path: Path, row: dict[str, str]) -> list[str]:
+    """CL row: 5 stations × 1 value. Warn on missing, sign flips, or
+    values outside the plausible θc band."""
+    page = _ct_page_from_csv_name(path.name)
+    theta = _CT_THETA_PER_PAGE.get(page) if page else None
+    out = []
+    for key, raw in row.items():
+        if not key.startswith("r/R"):
+            continue
+        v, status = _ct_parse_cell(raw)
+        if status == "empty":
+            out.append(f"{key}: MISSING")
+        elif status == "unparseable":
+            out.append(f"{key}: cannot parse {raw!r}")
+        elif status == "ok" and theta is not None and v is not None:
+            if theta > 0 and v < 0:
+                out.append(f"{key}: NEGATIVE {v:+.4f} "
+                           f"(theta_c={theta} should give positive lift)")
+            else:
+                lo, hi = _CT_CL_RANGE.get(theta, (-1.0, 1.0))
+                if not (lo <= v <= hi):
+                    out.append(
+                        f"{key}: OUT-OF-RANGE {v:+.4f} "
+                        f"(theta_c={theta}: expected {lo:+.2f}..{hi:+.2f})")
+    return out
+
+
+def validate_ct_cp(_path: Path, row: dict[str, str]) -> list[str]:
+    """Upper/lower surface −Cp row: 5 (x/c, r/R=*) pairs.
+    Warn if x/c outside [0,1] or |−Cp| > 3 (way outside physical range)."""
+    out = []
+    keys = list(row.keys())
+    # Pair (x/c, r/R=*) by adjacency.
+    for i in range(0, len(keys) - 1, 2):
+        xc_key, cp_key = keys[i], keys[i + 1]
+        if not xc_key.startswith("x/c"):
+            continue
+        xc, xc_status = _ct_parse_cell(row.get(xc_key, ""))
+        cp, cp_status = _ct_parse_cell(row.get(cp_key, ""))
+        if xc_status == "ok" and xc is not None and not (-0.01 <= xc <= 1.01):
+            out.append(f"{xc_key}/{cp_key}: x/c out of [0,1]: {xc}")
+        if cp_status == "ok" and cp is not None and abs(cp) > 3.0:
+            out.append(f"{xc_key}/{cp_key}: |-Cp| implausibly large: {cp}")
+    return out
+
+
 def validate_csv(path: Path) -> list[str]:
-    """Apply validation rules to a CSV file, return list of error strings."""
-    errors = []
-    validator = None
+    """Apply validation rules to a CSV file, return list of warning strings."""
+    errors: list[str] = []
+
+    # CaradonnaTung-specific structural checks dispatched by filename suffix.
+    rel = str(path.relative_to(CSV_ROOT)).replace("\\", "/")
+    ct_validator: Callable[[Path, dict[str, str]], list[str]] | None = None
+    if rel.startswith("CaradonnaTung/"):
+        if rel.endswith("__cl.csv"):
+            ct_validator = validate_ct_cl
+        elif rel.endswith(("__upper_surface_cp.csv", "__lower_surface_cp.csv")):
+            ct_validator = validate_ct_cp
+
+    # Per-table rules (FM, etc.).
+    row_validator = None
     for key, func in VALIDATION_RULES.items():
         if key in path.name:
-            validator = func
+            row_validator = func
             break
-    if not validator:
+
+    if not (ct_validator or row_validator):
         return []
 
     try:
         with path.open("r", encoding="ascii") as f:
             reader = csv.DictReader(f)
             for i, row in enumerate(reader, start=2):
-                error = validator(row)
-                if error:
-                    errors.append(f"{path.relative_to(CSV_ROOT)}:{i}: {error} in row {row}")
+                if row_validator:
+                    e = row_validator(row)
+                    if e:
+                        errors.append(f"{path.relative_to(CSV_ROOT)}:{i}: {e} in row {row}")
+                if ct_validator:
+                    for w in ct_validator(path, row):
+                        errors.append(f"{path.relative_to(CSV_ROOT)}:{i}: {w}")
     except Exception as e:
         errors.append(f"Could not validate {path.relative_to(CSV_ROOT)}: {e}")
     return errors
@@ -355,6 +471,12 @@ def main(argv: list[str]) -> int:
     print()
     print(f"processed {n_md_with_tables} md files, "
           f"{total_tables} tables, wrote {total_csvs} CSVs")
+
+    # Always run validation after a regeneration so warnings get surfaced.
+    print()
+    n_warnings = run_validation()
+    if n_warnings:
+        print(f"\n{n_warnings} validation warnings — review the cells above against the source images.")
     return 0
 
 

@@ -1,4 +1,4 @@
-# Table 11 — θc=5°, Ω=1500 rpm
+# Table 11 — θc=5°, Ω=1500 rpm, M_tip=0.520
 
 ## Upper surface (−Cp)
 

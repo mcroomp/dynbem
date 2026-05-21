@@ -1,4 +1,4 @@
-# Table — θc=8°, Ω=1250 rpm
+# Table 17 — θc=8°, Ω=1250 rpm, M_tip=0.439
 
 ## Upper surface (−Cp)
 
