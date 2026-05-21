@@ -9,9 +9,13 @@ blind-comparison.
 
 | File | Reference | What's in it |
 |---|---|---|
-| `TP-500-29955_test-configurations.pdf` | Hand, Simms, Fingersh, Jager, Cotrell, Schreck, Larwood (Dec 2001). NREL/TP-500-29955. | The canonical test-configurations / instrumentation document, 310 pages. Includes rotor geometry, instrumentation, sequence definitions, file-by-file data inventory. |
-| `TP-500-43508_IEA-Annex-XX-final.pdf` | IEA Wind Annex XX Final Report (Dec 2008). NREL/TP-500-43508. | The blind-comparison report, 91 pages. Tabulated measured power, torque, and blade-element Cn at multiple radial stations for Sequence S and others. **The most directly usable artifact for BEM validation.** |
-| `SR-440-6918_S809-polar.pdf` | Somers (1997). NREL/SR-440-6918, *Design and Experimental Results for the S809 Airfoil*. | Wind-tunnel polar paper for the S809 airfoil used on the Phase VI rotor, 103 pages. Coordinates, pressure distributions, lift/drag/moment polars at Re = 1.0e6 - 3.0e6. |
+| `TP-500-29955/source.pdf` | Hand, Simms, Fingersh, Jager, Cotrell, Schreck, Larwood (Dec 2001). NREL/TP-500-29955. | The canonical test-configurations / instrumentation document, 310 pages. Includes rotor geometry, instrumentation, sequence definitions, file-by-file data inventory. |
+| `TP-500-43508/source.pdf` | IEA Wind Annex XX Final Report (Dec 2008). NREL/TP-500-43508. | The blind-comparison report, 91 pages. Tabulated measured power, torque, and blade-element Cn at multiple radial stations for Sequence S and others. **The most directly usable artifact for BEM validation.** |
+| `SR-440-6918/source.pdf` | Somers (1997). NREL/SR-440-6918, *Design and Experimental Results for the S809 Airfoil*. | Wind-tunnel polar paper for the S809 airfoil used on the Phase VI rotor, 103 pages. Coordinates, pressure distributions, lift/drag/moment polars at Re = 1.0e6 - 3.0e6. |
+
+Each subdirectory holds the corresponding source PDF (`source.pdf`),
+the extracted page PNGs (named by **printed** page number), and any
+data MDs derived from this paper.
 
 ## Data archive status
 
