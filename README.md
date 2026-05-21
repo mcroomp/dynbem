@@ -3,27 +3,35 @@
 **Dynamic blade-element momentum rotor aerodynamics — helicopter and
 wind-turbine modes in one code path.**
 
-`dynbem` is a Python rotor-aerodynamics library built around a multi-element
+`dynbem` is a rotor-aerodynamics library built around a multi-element
 blade-element-momentum (BEM) solver coupled to dynamic-inflow models. It is
 designed to be numerically valid across the **full operating envelope** —
 helicopter hover, axial climb, axial descent, vortex-ring state (VRS),
 windmill-brake state (WBS), autorotation, and wind-turbine power extraction
 — without switching equations or sign conventions between regimes.
 
+The math core is a pure-Rust crate ([`dynbem_rs/`](dynbem_rs/), no pyo3 /
+numpy / file IO) wrapped by a thin PyO3 + maturin binding crate
+([`dynbem/`](dynbem/)) which is the publishable Python package. The
+original pure-Python implementation is archived read-only under
+[`dynbem_old/`](dynbem_old/) for reference.
+
 Two dynamic-inflow models are provided:
 
-- **Pitt-Peters** (three-state global ν₀/ν_s/ν_c) — Numba-JIT-compiled,
-  with the Peters L-matrix, Glauert wake-skew via the off-diagonal
-  coupling, and the Leishman empirical VRS polynomial baked into the
-  uniform-inflow state.
+- **Pitt-Peters** (three-state global ν₀/ν_s/ν_c) — with the Peters
+  L-matrix, Glauert wake-skew via the off-diagonal coupling, and the
+  Leishman empirical VRS polynomial baked into the uniform-inflow state.
 - **Øye 2-stage annular** — per-annulus filtered momentum inflow (the
   OpenFAST DBEMT formulation), independent across radii and numerically
   stable at high advance ratios where Pitt-Peters becomes stiff.
 
 Both models share a tabulated polar interpolator and a common BEM ψ-loop
-kernel, and they plug into the same `AeroBase` interface. The package also
-includes a flight-envelope sweep driver (`envelope/compute_map.py`), a
-cyclic-trim solver, and a point-mass + cyclic-pitch attitude simulator.
+kernel ([`dynbem_rs/src/bem_common.rs`](dynbem_rs/src/bem_common.rs)) and
+plug into the same `AeroModel` trait (Rust) / `AeroBase` ABC (Python).
+The repo also includes a flight-envelope sweep driver
+(`envelope/compute_map.py`), a cyclic-trim solver
+([`dynbem_rs/src/trim.rs`](dynbem_rs/src/trim.rs)), and a point-mass +
+cyclic-pitch attitude simulator.
 For empirical validation against published rotor data (Castles-Gray
 TN-2474 vertical descent, Caradonna-Tung TM-81232 hover CT and
 spanwise CL, Harrington TN-2318 full-scale hover, Wheatley & Hood
@@ -35,17 +43,20 @@ Coordinates are NED throughout; rotor rotation is CCW-from-above
 
 ## Install
 
-The package is set up with a standard `pyproject.toml` and can be installed
-into any environment:
+The repo is a uv workspace + Cargo workspace. The Rust extension is built
+automatically (via maturin) by `uv sync`:
 
 ```
-pip install -e .
+uv sync                 # builds dynbem (Rust extension) editable
+uv sync --group dev     # also installs pytest, maturin, build, twine
+uv run pytest tests/    # run the test suite
 ```
 
-For the bundled `.venv` on Windows, run `setup.cmd` from the repo root —
-it creates `.venv\`, upgrades pip, and installs `requirements.txt`.
-Activate with `.venv\Scripts\activate`, or invoke directly via
-`.venv\Scripts\python` / `.venv\Scripts\pytest`.
+The publishable Python package is [`dynbem/`](dynbem/) (Rust-backed via
+PyO3). Inside a non-uv environment you can still `pip install -e dynbem/`
+— maturin will pick up `dynbem/pyproject.toml` and compile the extension
+against the sibling [`dynbem_rs/`](dynbem_rs/) crate. Requires a working
+Rust toolchain (`rustup` stable).
 
 ## Usage
 
@@ -54,7 +65,9 @@ import numpy as np
 import dynbem
 
 defn   = dynbem.rotor_definition.load("rotors/castles_gray_6ft/rotor.yaml")
-model  = dynbem.create_aero(defn, model="pitt_peters_jit")  # or "pitt_peters", "oye", "bem"
+model  = dynbem.create_aero(defn, model="pitt_peters")  # or "oye", "bem"
+# ("pitt_peters_jit" is accepted as a legacy alias for "pitt_peters" --
+#  the Rust core is already compiled; there is no separate JIT model)
 state  = model.initial_rotor_state()
 
 inputs = dynbem.RotorInputs(
@@ -70,14 +83,18 @@ result, derivative = model.compute_forces(inputs, state)
 # derivative is a RotorState with d/dt of every state field
 ```
 
-`dynbem/__init__.py` lists the full public surface — models (`BEMModel`,
-`PittPetersModel`, `PittPetersModelJIT`, the `create_aero` factory),
-inputs/outputs (`RotorInputs`, `AeroResult`), state types
-(`QuasiStaticRotorState`, `PittPetersRotorState`), polars (`AirfoilPolar`,
-`LinearPolar`), rotor-definition types (`RotorDefinition`,
-`BladeGeometry`, `AirfoilProperties`, `ControlProperties`, etc.), and the
-`vrs_lambda1` helper. Cyclic mapping (`tilt_lon`/`tilt_lat` →
-blade-pitch coefficients) lives in [dynbem/cyclic.py](dynbem/cyclic.py).
+[`dynbem/python/dynbem/__init__.py`](dynbem/python/dynbem/__init__.py)
+lists the full public surface — models (`BEMModel`, `PittPetersModel`,
+`OyeBEMModel`, the `create_aero` factory), inputs/outputs
+(`RotorInputs`, `AeroResult`), state types (`QuasiStaticRotorState`,
+`PittPetersRotorState`, `OyeRotorState`), polars (`AirfoilPolar`,
+`LinearPolar`, `TabulatedPolar`), rotor-definition types
+(`RotorDefinition`, `BladeGeometry`, `AirfoilProperties`,
+`ControlProperties`, etc.), and the `vrs_lambda1` / `cyclic_coeffs`
+helpers. Cyclic mapping (`tilt_lon`/`tilt_lat` → blade-pitch
+coefficients) is implemented in
+[dynbem_rs/src/cyclic.rs](dynbem_rs/src/cyclic.rs) and exposed as
+`dynbem.cyclic_coeffs`.
 
 ## Flight envelope sweep
 
@@ -90,7 +107,7 @@ python -m envelope.compute_map --help
 ## Tests
 
 ```
-.venv\Scripts\pytest
+uv run pytest tests/ -q
 ```
 
 The `tests/` directory contains unit tests, validation scripts against
@@ -167,8 +184,9 @@ drop-in upgrade behind the same `AeroBase` interface.
 
 ### Level 2 — Pitt-Peters 3-state dynamic inflow ✅ DONE
 
-- `PittPetersModel` (numpy) and `PittPetersModelJIT` (Numba-compiled, same
-  physics) in `dynbem/pitt_peters.py` / `dynbem/pitt_peters_jit.py`
+- `PittPetersModel` implemented in Rust at
+  [`dynbem_rs/src/pitt_peters.rs`](dynbem_rs/src/pitt_peters.rs), exposed
+  to Python via the maturin extension in [`dynbem/`](dynbem/)
 - Prescribed-inflow blade element loop with per-element Prandtl tip + hub
   loss; blade sees `λ_total = λ_0 + v_climb/ΩR` (induced state +
   freestream), so WBS and autorotation work correctly
@@ -189,7 +207,8 @@ drop-in upgrade behind the same `AeroBase` interface.
 - Cyclic input (`tilt_lon`, `tilt_lat`) wired through both models:
   blade pitch `θ(ψ) = collective + θ_1c·cos(ψ) + θ_1s·sin(ψ)` with
   helicopter-standard signs (`tilt_lon > 0` → nose-down,
-  `tilt_lat > 0` → roll right). See `dynbem/cyclic.py` and CLAUDE.md.
+  `tilt_lat > 0` → roll right). See
+  [`dynbem_rs/src/cyclic.rs`](dynbem_rs/src/cyclic.rs) and CLAUDE.md.
 - In-plane hub moments returned via `AeroResult.M_orbital`
   (`Mx_hub, My_hub` accumulated in the ψ-loop) — needed for cyclic to
   produce vehicle attitude response in the outer loop.
@@ -221,7 +240,8 @@ drop-in upgrade behind the same `AeroBase` interface.
 
 ### Level 2 alt — Øye 2-stage annular dynamic inflow ✅ DONE
 
-- `OyeBEMModel` in `dynbem/oye.py` (Numba-compiled ψ-loop)
+- `OyeBEMModel` in [`dynbem_rs/src/oye.rs`](dynbem_rs/src/oye.rs)
+  (pure-Rust ψ-loop), exposed to Python via the maturin extension
 - **Annulus-local** inflow: each radial annulus has its own pair of
   first-order lag filters `(W_int, W)` chasing the quasi-steady
   momentum target `W_qs`.  No global L-matrix; no λ_c/λ_s harmonic
@@ -340,7 +360,7 @@ both modes). With `hub_axis_ned = [0, 0, 1]` for a level rotor:
 
 ---
 
-## Pitt-Peters design notes (`dynbem/pitt_peters.py`)
+## Pitt-Peters design notes (`dynbem_rs/src/pitt_peters.rs`)
 
 ### State interpretation
 
@@ -387,7 +407,7 @@ of all momentum-based VRS models.
 
 ---
 
-## Øye design notes (`dynbem/oye.py`)
+## Øye design notes (`dynbem_rs/src/oye.rs`)
 
 ### State interpretation
 

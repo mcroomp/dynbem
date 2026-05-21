@@ -75,7 +75,8 @@ the sign of ω.
 
 Inputs `RotorInputs.tilt_lon`, `RotorInputs.tilt_lat` are **swashplate
 tilt angles** (rad). The mapping to blade pitch lives in
-`dynbem/cyclic.py:cyclic_coeffs()` and goes through the rotor's
+`dynbem_rs/src/cyclic.rs::cyclic_coeffs()` (Rust core; exposed to
+Python as `dynbem.cyclic_coeffs`) and goes through the rotor's
 `ControlProperties.swashplate_pitch_gain_rad` (gain) and
 `swashplate_phase_deg` (phase φ):
 
@@ -189,28 +190,29 @@ paper). The L-matrix STRUCTURE matches Peters exactly; only the scalar
 scaling differs. Swapping to Peters' V would need validation against
 hover data — defer until needed.
 
-### Shared BEM infrastructure (`dynbem/_bem_common.py`)
+### Shared BEM infrastructure (`dynbem_rs/src/bem_common.rs`)
 
-Both `PittPetersModel(JIT)` and `OyeBEMModel` import from
-`dynbem/_bem_common.py`:
+Both `PittPetersModel` and `OyeBEMModel` (in `dynbem_rs/src/pitt_peters.rs`
+and `dynbem_rs/src/oye.rs`) use the shared types in
+`dynbem_rs/src/bem_common.rs`:
 
-- `vrs_lambda1` — Leishman VRS empirical polynomial
-- `_interp_polar` — JIT polar lookup (`@njit`, called from inside both
-  models' ψ-loop kernels)
-- `build_polar_arrays` — one-time tabulation of any `AirfoilPolar` onto
-  contiguous numba arrays
-- `radial_grid` — one-time radial geometry caching
+- `PolarTable` — contiguous-array polar tabulation used by the
+  per-element polar lookup in the ψ-loop
+- `RadialGrid` — one-time radial geometry caching
+- `vrs_lambda1` (in `dynbem_rs/src/common.rs`) — Leishman VRS
+  empirical polynomial
 
 Hot-path kinematics (`Omega_R`, `hub_axis`, `v_climb`, `v_edge`,
 `v_inplane_hub`) and `AeroResult` assembly are **deliberately inline**
-in each model's `compute_forces` to avoid Python function-call
-overhead in the per-step loop. Each is ~10 lines and identical
-across models — duplicate it deliberately rather than abstract.
+in each model's `compute_forces` to keep LLVM autovectorization
+visible. Each is ~10 lines and identical across models — duplicate
+it deliberately rather than abstract.
 
 If you find yourself wanting to share more across models: the ψ-loop
 kernels are the largest duplicated structure, but they have
-model-specific `lam_local(r, ψ)` formulas and numba's `@njit`
-doesn't compose closures cleanly. Don't try to unify them.
+model-specific `lam_local(r, ψ)` formulas and the per-model trait
+implementations are easier to autovectorize when not hidden behind
+closures. Don't try to unify them.
 
 ### Wind-axis rotation — NOT applied (limitation)
 
@@ -230,7 +232,7 @@ Implicit Euler on the λ states alone (now applied in
 loop's λ_c sensitivity also needs damping before the rotation can be
 re-introduced.
 
-## Øye 2-stage annular dynamic inflow (`dynbem/oye.py`)
+## Øye 2-stage annular dynamic inflow (`dynbem_rs/src/oye.rs`)
 
 `OyeBEMModel` is the **annulus-local** alternative to Pitt-Peters
 implemented for the same project, with a deliberately different
@@ -252,8 +254,8 @@ across each outer step — DBEMT_Mod=1 equivalent.
 
 with rotor-mean `µ_T = √(µ² + (λ_climb + v_0_mean)²) / Ω_R`. The
 pure axial-momentum form `4·x·λ_r·W = dCT/dx` was tried first and
-was unstable in forward flight — see the docstring in
-`dynbem.oye._solve_W_qs`.
+was unstable in forward flight — see the comment block above
+`solve_w_qs` in `dynbem_rs/src/oye.rs`.
 
 ### Why this exists alongside Pitt-Peters
 
@@ -305,17 +307,24 @@ This rule has bitten before — see [memory feedback-no-silent-reverts].
 
 ## Workflow
 
-- **Python**: use the venv at `.venv\`. Activate with
-  `.venv\Scripts\activate` (Windows), or invoke directly via
-  `.venv\Scripts\python` / `.venv\Scripts\pytest`. Don't install packages
-  globally or create a new venv.
-- **Shell**: always use the Bash tool with `.venv/Scripts/python` (forward
-  slashes work fine on this Windows checkout). Do not switch to the
-  PowerShell tool -- its quoting and Unicode handling have bitten this
-  project's output (em-dashes render as the replacement glyph,
-  `Select-Object` piping breaks on array args, etc.). If a one-liner is
-  awkward in bash, write a short script under the appropriate dir and
-  run it through bash instead.
+- **Python**: this repo is a uv workspace + Cargo workspace. `uv sync`
+  from the repo root builds the Rust extension (via maturin) and
+  installs `dynbem` editable; `uv sync --group dev` also pulls pytest +
+  maturin + build + twine. Run anything Python through `uv run` (e.g.
+  `uv run pytest tests/ -q`, `uv run python -m envelope.compute_map`).
+  Don't create a `.venv\` by hand or `pip install` globally -- uv owns
+  the environment.
+- **Rust**: the math core is `dynbem_rs/` (pure Rust, no pyo3 / numpy /
+  file IO). The PyO3 + maturin glue is `dynbem/`. `cargo test
+  --workspace` runs the Rust unit tests; the authoritative regression
+  suite is `uv run pytest tests/ -q`, which exercises the full
+  Rust-backed Python API.
+- **Shell**: always use the Bash tool. Do not switch to the PowerShell
+  tool -- its quoting and Unicode handling have bitten this project's
+  output (em-dashes render as the replacement glyph, `Select-Object`
+  piping breaks on array args, etc.). If a one-liner is awkward in
+  bash, write a short script under the appropriate dir and run it
+  through bash instead.
 - **CRITICAL -- ASCII only in new Python / CSV / Markdown content.** No
   Greek letters, no em-dashes, no degree signs, no smart quotes, no
   subscripts/superscripts, no plus-minus or less-equal glyphs. Use plain
@@ -353,26 +362,31 @@ This rule has bitten before — see [memory feedback-no-silent-reverts].
 
 ## When extending the aero models
 
-- New levels (e.g. Peters-He, polar-grid BEM) plug in behind the
-  `AeroBase` interface in `dynbem/__init__.py`. Don't break existing
-  call sites — keep
-  `compute_forces(inputs, state) -> (AeroResult, RotorState)`.
-- Reuse `dynbem/_bem_common.py` for polar tabulation, radial-grid
-  setup, the VRS polynomial, and the JIT polar interpolator.
+New aero models live in the Rust core (`dynbem_rs/`) and are exposed
+to Python via pyo3 wrappers in `dynbem/src/wrappers.rs`. The full
+recipe is in [`dynbem_rs/CLAUDE.md`](dynbem_rs/CLAUDE.md) ("Adding a
+new aero model"); the short version:
+
+- Implement the `AeroModel` trait in `dynbem_rs/src/aero_model.rs` for
+  the new struct (`fn compute_forces(&self, inputs, state) -> (AeroResult, RotorState)`).
+  Don't break existing call sites.
+- Reuse `dynbem_rs/src/bem_common.rs` (`PolarTable`, `RadialGrid`) and
+  `dynbem_rs/src/common.rs` (`vrs_lambda1`, the numerical floors).
   Hot-path kinematics and result assembly stay inline (see the
   "Shared BEM infrastructure" section above).
-- Add `inflow_taus(inputs, state) -> np.ndarray` returning the time
-  constant for each state component (`np.inf` for mechanical / quasi-
-  static states). The envelope integrator's semi-implicit damping
-  needs this; the default in `AeroBase` returns all-infinity, which
-  is wrong for any dynamic-inflow model.
-- Add a new `RotorState` subclass in `dynbem/rotor_state.py` with
-  `to_array` / `from_array`. Convention: mechanical states `ω, ψ` are
+- Add `inflow_taus(inputs, state) -> Vec<f64>` (via `RotorStateExt`)
+  returning the time constant for each state component (`f64::INFINITY`
+  for mechanical / quasi-static states). The envelope integrator's
+  semi-implicit damping needs this.
+- Add a new `RotorState` variant in `dynbem_rs/src/rotor_state.rs` with
+  `to_vec` / `from_vec`. Convention: mechanical states `ω, ψ` are
   the **last two** entries — `arr[-2] = omega_rad_s`,
   `arr[-1] = spin_angle_rad`. The envelope's clipping and recovery
   code relies on this.
-- Wire the new model into `create_aero` in `dynbem/__init__.py` with a
-  stable string name. Add docs to the factory docstring.
+- Add a `PyFoo` newtype in `dynbem/src/wrappers.rs` and an `AeroAny`
+  variant in `dynbem/src/trim_py.rs`. Wire the new model into
+  `create_aero` in `dynbem/python/dynbem/factory.py` with a stable
+  string name.
 - Validation data lives under `Research/`. Add a
   `tests/test_<model>.py` and, if appropriate, a `val_step*.py`
   script that compares against a specific paper's data.
