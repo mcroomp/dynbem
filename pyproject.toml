@@ -7,6 +7,8 @@ dependencies = [
     # Pulls in dynbem and PyYAML (needed by rotor_definition.load and the
     # repo's verification scripts). Numpy is a transitive dep of dynbem.
     "dynbem[yaml]",
+    # Plot output from envelope.compute_map and the verification scripts.
+    "matplotlib",
 ]
 
 [dependency-groups]
