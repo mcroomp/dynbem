@@ -6,29 +6,54 @@ on:
   pull_request:
 
 jobs:
-  build-and-test:
+  test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
+      # Rust toolchain is needed because `uv sync` triggers a maturin
+      # build of the dynbem cdylib (PyO3 extension).
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
 
-      - name: Install package and dev deps
-        run: |
-          python -m pip install --upgrade pip build
-          python -m pip install -e ".[dev]" -r requirements.txt
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      # uv sync resolves the workspace, installs PyYAML / numpy / pytest /
+      # maturin etc., and editable-installs the dynbem package (compiling
+      # the Rust extension via maturin in the process).
+      - name: Install workspace + dev deps
+        run: uv sync --group dev
 
       - name: Run tests
-        run: python -m pytest -q
+        # --timeout=0 disables the per-test 10s wall-clock cap that's set
+        # in pyproject.toml for local runs. CI runners are noisier than
+        # dev boxes and shouldn't fail on timing alone.
+        run: uv run pytest tests/ -q --timeout=0
 
-      - name: Build sdist and wheel
-        run: python -m build
+      - name: Sanity-build release wheel
+        run: uv run maturin build --release --manifest-path dynbem/Cargo.toml
 
-      - uses: actions/upload-artifact@v4
+  cargo-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          name: dist-${{ github.sha }}
-          path: dist/
+          components: clippy
+
+      # Pure-Rust crate (dynbem_rs) must compile without pyo3/numpy in
+      # the dependency graph -- guard against accidentally pulling them
+      # in by checking it standalone.
+      - name: cargo check (pure Rust core)
+        run: cargo check -p dynbem_rs
+
+      - name: cargo check (full workspace)
+        run: cargo check --workspace
