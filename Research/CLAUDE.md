@@ -20,6 +20,7 @@ empirical correction for a > 0.4. Used for the WBS quadratic in the BEM solver.
 ## Castles_TN2474/
 NACA TN-2474 (Castles & Gray, 1951) — induced velocity measurements in helicopter hover/descent.
 Contains the experimental data underlying the Leishman VRS polynomial used in Pitt-Peters.
+All 8 tables (I–VIII) have been manually validated against the source images and corrected.
 
 ## Harrington/ and Harrington_TN2318/
 NACA TN-2318 (Harrington, 1951) — hover CT vs CP polars for two full-scale rotors.
