@@ -58,9 +58,9 @@ File names match the paper's printed page numbers; the two unnumbered cover page
 | 36             | Table 27 — Cp, θc=12°, Ω=650 rpm, M_tip=0.226; CL: 0.4149(?) (low Mach) |
 | 37             | Table 28 — Cp, θc=12°, Ω=1250 rpm, M_tip=0.433; CL: 0.4151 / 0.5451 / 0.4220 / 0.4230 / 0.5090 |
 | 38             | Table 29 — Cp, θc=12°, Ω=1750 rpm, M_tip=0.330; CL: 0.4260 / 0.5027(?) / 0.4247 / 0.4949 / 0.5947 |
-| 39             | Table 30 — Cp, θc=12°, Ω=1750 rpm, M_tip=0.432; CL: 0.4358 / 0.5274 / 0.4431 / 0.5041 / 0.5245 |
+| 39             | Table 30 — Cp, θc=12°, Ω=1750 rpm, M_tip=0.607; CL: 0.4358 / 0.5274 / 0.4431 / 0.5041 / 0.5245 |
 | 40             | Table 31 — Cp, θc=12°, Ω=2074 rpm, M_tip=0.723; CL: ≈0.45 / 0.52 / 0.4450 / 0.5073 / 0.5149 |
-| 41             | Table 32 — Cp, θc=12°, Ω=2280 rpm, M_tip=0.784 (or similar high RPM); CL: 0.4375 / 0.52 / 0.4640 / 0.5337 / 0.5319 (approx) |
+| 41             | Table 32 — Cp, θc=12°, Ω=2280 rpm, M_tip=0.794; CL: 0.4375 / 0.52 / 0.4640 / 0.5337 / 0.5319 (approx) |
 | 42             | Figure 1 — Test rig: 2 photos (balancing, blade construction) + dimension sketch. Hub scan/valve assembly, hot-wire traverse at 10 in (0.254 m) from hub, wake exhaust duct, overall width 12 ft (3.048 m). |
 | 43             | Figure 2 — Blade symmetry check: Cp vs x/c at r/R=0.8, θc=8°, 5 RPMs (M_tip=0.225→0.877). Left/right blades agree well at low M_tip; small differences emerge near M_tip=0.877 (shock). Confirms measurement reliability. |
 | 44             | **Figure 3** — Cp distributions, θc=**5°**, r/R=0.50/0.68/0.80/0.89/0.96, 3 RPMs. Inboard (r/R≤0.68): barely affected by RPM. Tip (r/R=0.96): shock onset at M_tip=0.784. CT virtually constant (0.00213–0.00218) across RPMs — incompressible BEM should work well at M_tip≤0.6. |

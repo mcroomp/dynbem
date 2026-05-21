@@ -237,8 +237,89 @@ def should_skip(path: Path) -> bool:
     return False
 
 
+def validate_fm(row: dict[str, str]) -> str | None:
+    """Validate Figure of Merit (FM) for hover data."""
+    ct_key = next((k for k in row if "CT" in k), None)
+    cq_key = next((k for k in row if "CQ" in k), None)
+
+    if not ct_key or not cq_key:
+        return f"FM calc failed: missing CT or CQ in row {list(row.keys())}"
+
+    try:
+        ct_str = row[ct_key].strip()
+        cq_str = row[cq_key].strip()
+        
+        if not ct_str or not cq_str or ct_str == '-' or cq_str == '-':
+            return None
+
+        ct = float(ct_str)
+        cq = float(cq_str)
+        
+        if cq <= 0 or ct <= 0:
+            return None
+        fm = (ct**1.5) / (2**0.5 * cq)
+        if not (0.1 < fm < 1.0):
+            return f"FM={fm:.3f} out of range (0.1-1.0)"
+    except (ValueError, KeyError, ZeroDivisionError) as e:
+        return f"FM calc failed: {e}"
+    return None
+
+
+# List of validation functions to run on specific tables.
+# Key is "<paper_dir>/<csv_stem>".
+VALIDATION_RULES: dict[str, Callable[[dict[str, str]], str | None]] = {
+    "Castles_TN2474/page_32_table_i": validate_fm,
+    "Castles_TN2474/page_33_table_ii": validate_fm,
+}
+
+
+def validate_csv(path: Path) -> list[str]:
+    """Apply validation rules to a CSV file, return list of error strings."""
+    errors = []
+    validator = None
+    for key, func in VALIDATION_RULES.items():
+        if key in path.name:
+            validator = func
+            break
+    if not validator:
+        return []
+
+    try:
+        with path.open("r", encoding="ascii") as f:
+            reader = csv.DictReader(f)
+            for i, row in enumerate(reader, start=2):
+                error = validator(row)
+                if error:
+                    errors.append(f"{path.relative_to(CSV_ROOT)}:{i}: {error} in row {row}")
+    except Exception as e:
+        errors.append(f"Could not validate {path.relative_to(CSV_ROOT)}: {e}")
+    return errors
+
+
+def run_validation():
+    """Find all CSVs and run validations."""
+    print("Running validations...")
+    all_errors = []
+    csv_files = sorted(CSV_ROOT.rglob("*.csv"))
+    for csv_file in csv_files:
+        errors = validate_csv(csv_file)
+        if errors:
+            all_errors.extend(errors)
+
+    if all_errors:
+        print("\nValidation errors found:")
+        for error in all_errors:
+            print(error)
+    else:
+        print("\nAll validations passed.")
+    return len(all_errors)
+
+
 def main(argv: list[str]) -> int:
     targets: list[Path]
+    if argv and argv[0] == "validate":
+        return run_validation()
+
     if argv:
         targets = [ROOT / a for a in argv]
     else:
