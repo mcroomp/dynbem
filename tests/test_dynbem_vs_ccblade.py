@@ -31,12 +31,23 @@ construction).
 
 Beaupoil RAWES rotor (TestDynbemVsCCBladeBeaupoil)
 ---------------------------------------------------
-Kept around as a known-open investigation, not a passing target:
-Beaupoil is a helicopter-style rotor (untwisted, constant chord,
-cambered SG6040, zero pitch) being driven by wind -- outside the
-design envelope of standard turbine BEMs.  dynbem puts every blade
-station into stall at the design point; CCBlade does not.  Smoke
-test only (finiteness + thrust-sign + factor-of-10 CT envelope).
+4-blade untwisted helicopter-style rotor (R = 2.5 m, chord 0.2 m,
+SG6040 airfoil) driven by axial wind across 25 operating points
+spanning V_wind = 5..16 m/s and Omega = 100..300 rpm.  Initially
+this was a smoke test because the old fixed-point windmill solver
+collapsed into the stalled basin of attraction on a cambered
+airfoil at zero pitch.  With Brent's-method-on-phi (Ning 2014) on
+the windmill side now finding the clean root, agreement is in line
+with Phase VI:
+
+    CT err: median 1.4 %, mean 1.4 %, RMSE 1.4 %, max 1.8 %
+    CQ err: median 2.7 %, mean 3.3 %, RMSE 3.7 %, max 11.1 %
+
+The 11.1 % CQ max sits at the autorotation crossing
+(V_wind=5 m/s, Omega=192.4 rpm) where |CQ_cc| = 2e-5: the absolute
+error is ~2e-6 N*m/normalisation, but relative error blows up at
+the near-zero denominator.  The CQ envelope test filters those
+near-zero points to avoid spurious failures from that effect.
 """
 from __future__ import annotations
 
@@ -60,8 +71,6 @@ from verification.dynbem_vs_ccblade_nrel_phase_vi import (  # noqa: E402
     ROTOR_YAML as PHASE_VI_YAML,
     run_survey as run_phase_vi_survey,
 )
-
-_SAMPLE_N = 5
 
 
 # ---------------------------------------------------------------------------
@@ -124,30 +133,41 @@ def beaupoil_survey():
         pytest.skip(f"missing CCBlade reference CSV: {BEAUPOIL_CSV}")
     if not BEAUPOIL_YAML.exists():
         pytest.skip(f"missing rotor fixture: {BEAUPOIL_YAML}")
-    return run_beaupoil_survey(sample=_SAMPLE_N)
+    # 25 operating points; full sweep is fast (well under 1s).
+    return run_beaupoil_survey(sample=None)
 
 
 class TestDynbemVsCCBladeBeaupoil:
-    def test_sample_populated(self, beaupoil_survey):
-        assert len(beaupoil_survey.comparisons) >= 3
-
-    def test_results_are_finite(self, beaupoil_survey):
+    def test_results_are_finite_and_signs_agree(self, beaupoil_survey):
+        """No NaN/Inf; both BEMs predict positive thrust at every point."""
         for c in beaupoil_survey.comparisons:
             for name, v in (("CT_db", c.CT_db), ("CQ_db", c.CQ_db),
                             ("T_db_N", c.T_db_N), ("Q_db_Nm", c.Q_db_Nm)):
                 assert math.isfinite(v), (
                     f"non-finite {name}={v} at U={c.U_wind_ms}")
-
-    def test_thrust_sign_agrees(self, beaupoil_survey):
-        for c in beaupoil_survey.comparisons:
             assert c.T_cc_N > 0 and c.T_db_N > 0, (
                 f"thrust sign mismatch at U={c.U_wind_ms} Omega={c.Omega_rpm}")
 
-    def test_ct_within_order_of_magnitude(self, beaupoil_survey):
-        """Beaupoil cross-check is mismatched-by-design (helicopter rotor
-        forced into wind-turbine flow).  Loose factor-of-10 bound only."""
-        for c in beaupoil_survey.comparisons:
-            ratio = c.CT_db / c.CT_cc if c.CT_cc != 0 else float("inf")
-            assert 0.1 < ratio < 10.0, (
-                f"CT ratio {ratio:.2f} outside [0.1, 10] at "
-                f"U={c.U_wind_ms} Omega={c.Omega_rpm}")
+    def test_ct_envelope_within_3pct(self, beaupoil_survey):
+        """Every per-point CT error stays within +/-3 %.  Current
+        full-sweep figure is max 1.8 %."""
+        offenders = [c for c in beaupoil_survey.comparisons if c.ct_err >= 0.03]
+        assert not offenders, (
+            "CT err > 3 %:\n" + "\n".join(
+                f"  V={c.U_wind_ms} Omega={c.Omega_rpm} "
+                f"CT_cc={c.CT_cc:.4f} CT_db={c.CT_db:.4f} "
+                f"err={c.ct_err:.1%}" for c in offenders))
+
+    def test_cq_envelope_excluding_near_zero(self, beaupoil_survey):
+        """Per-point CQ error stays within +/-15 % at points where
+        |CQ_cc| >= 1e-4 (i.e. not at the autorotation crossing where
+        denominators go to zero).  Current full-sweep figure is max
+        ~5 % away from the crossing."""
+        offenders = [c for c in beaupoil_survey.comparisons
+                     if abs(c.CQ_cc) >= 1e-4 and c.cq_err >= 0.15]
+        assert not offenders, (
+            "CQ err > 15 % (excluding |CQ_cc| < 1e-4 near-zero rows):\n" +
+            "\n".join(
+                f"  V={c.U_wind_ms} Omega={c.Omega_rpm} "
+                f"CQ_cc={c.CQ_cc:+.5f} CQ_db={c.CQ_db:+.5f} "
+                f"err={c.cq_err:.1%}" for c in offenders))

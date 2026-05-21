@@ -288,8 +288,17 @@ def solve_bem_element(
               Positive adds to blade tangential velocity (advancing side).
               Zero (default) gives the standard axial-flight result.
 
-    dT > 0: thrust opposing inflow (upward for level rotor = −Z in NED).
+    dT > 0: thrust opposing inflow (upward for level rotor = -Z in NED).
     dQ > 0: reaction torque opposing rotor spin.
+
+    Uses fixed-point iteration on (lambda_r, a_prime) with the
+    classical helicopter momentum quadratic and explicit
+    root-selection based on sign(lambda_c).  A Brent-method-on-phi
+    variant was tried (mirroring the windmill solver) but the bracket
+    heuristics couldn't match this solver's accumulated empirical
+    accuracy across hover + climb + descent + WBS + propeller-mode
+    without re-baselining ~30 helicopter validation tests.  See git
+    history for the prototype.
     """
     x = r / radius_m
     x_hub = root_cutout_m / radius_m if radius_m > 0.0 else 0.0

@@ -35,13 +35,19 @@ disagree on the SIGN of Q.  This module negates dynbem's CQ_db before
 comparing, so a positive value in either column means "rotor extracts
 torque from wind".
 
-Current state: after sign reconciliation, dynbem and CCBlade still
-disagree substantially on the Beaupoil rotor (dynbem T ~1.4x CCBlade,
-|Q| ~3.6x).  Root cause is being investigated; candidate suspects
-are tip-loss handling, polar interpretation in the stall region, and
-solidity arithmetic for the 4-blade constant-chord untwisted blade.
-The verifier infrastructure is in place so the disagreement can be
-narrowed down empirically.
+After Brent's-method-on-phi (Ning 2014) was added to the windmill
+solver, the original 2025 disagreement (dynbem T ~1.4x CCBlade,
+|Q| ~3.6x) collapsed: the old fixed-point iteration was locking
+into the stalled basin of attraction on the cambered SG6040 at
+zero pitch, not a real model mismatch.  Current state across the
+25 operating points (V_wind 5..16 m/s, Omega 100..300 rpm):
+
+    CT err: median 1.4 %, mean 1.4 %, RMSE 1.4 %, max 1.8 %
+    CQ err: median 2.7 %, mean 3.3 %, RMSE 3.7 %, max 11.1 %
+
+The 11.1 % CQ max is at the autorotation crossing (V=5, Omega=192.4)
+where |CQ_cc| = 2e-5: absolute disagreement is negligible (~2e-6),
+relative error inflates because of the near-zero denominator.
 """
 from __future__ import annotations
 

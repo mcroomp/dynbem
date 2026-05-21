@@ -539,24 +539,28 @@ Convention reconciliation (handled inside the verifier):
   CCBlade CQ > 0 in the same situation; dynbem CQ is negated before
   comparison.
 
-### Beaupoil RAWES rotor -- known mismatch, smoke test only
+### Beaupoil RAWES rotor
 
 Verifier:
 [`verification/dynbem_vs_ccblade_beaupoil.py`](verification/dynbem_vs_ccblade_beaupoil.py).
-This cross-check is **mismatched by design**: Beaupoil is a
-helicopter-style rotor (4-blade untwisted, constant chord, cambered
-SG6040 with CL0 = +0.39, zero pitch) being forced into the
-wind-turbine flow CCBlade was built for. dynbem's per-element
-diagnostics at the design point show every blade station deep in
-stall (AoA = 18..41 deg, well past SG6040's 13 deg stall) -- the
-zero-pitch cambered geometry locks both BEMs into post-stall
-behaviour that the helicopter and turbine conventions interpret
-differently. Smoke test only (finiteness, thrust-sign, factor-of-10
-CT envelope). Kept in the repo as a documented example of when a
-naive BEM cross-check produces incompatible numbers; resolving it
-would require treating Beaupoil as the helicopter rotor it is
-(autorotation balance via the existing dynbem helicopter path)
-rather than as a turbine.
+4-blade untwisted helicopter-style rotor (R = 2.5 m, chord 0.2 m,
+SG6040 airfoil) swept across 25 operating points
+(V_wind 5..16 m/s, Omega 100..300 rpm).  Originally documented as
+"mismatched by design" because the fixed-point windmill solver
+locked into the stalled basin on a cambered airfoil at zero pitch;
+once Brent's-method-on-phi started finding the clean basin, the
+disagreement collapsed:
+
+| Quantity | Median | Mean | RMSE | Max |
+|---|---|---|---|---|
+| CT err | 1.4 % | 1.4 % | 1.4 % | 1.8 % |
+| CQ err | 2.7 % | 3.3 % | 3.7 % | 11.1 % |
+
+The 11.1 % CQ max is at the autorotation crossing
+(V_wind=5 m/s, Omega=192.4 rpm) where |CQ_cc| ~ 2e-5 (absolute
+agreement is excellent, relative error inflates near zero).  The
+spot test asserts per-point CT < 3 % and per-point CQ < 15 % outside
+that crossing.
 
 ### Regenerating CCBlade reference CSVs
 
