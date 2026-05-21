@@ -95,22 +95,64 @@ def run(cfg: dict) -> list[dict]:
     return rows
 
 
+def run_per_element(cfg: dict) -> list[dict]:
+    """Per-blade-element diagnostics via CCBlade.distributedAeroLoads.
+
+    Returns one row per (operating-point, radial station) with the
+    converged induction factors, AoA, polar values, and per-element
+    normal / tangential loads (per unit length).
+    """
+    model = build_model(cfg)
+    stations = sorted(cfg["blade_stations"], key=lambda s: s["r_m"])
+    r_arr = np.array([s["r_m"] for s in stations])
+    chord_arr = np.array([s["chord_m"] for s in stations])
+    twist_arr = np.array([s["twist_deg"] for s in stations])
+    rows: list[dict] = []
+    for op in cfg["operating_points"]:
+        U = float(op["U_wind_ms"])
+        Omega = float(op["Omega_rpm"])
+        pitch = float(op["pitch_deg"])
+        # distributedAeroLoads returns dict of per-station arrays.
+        loads, _ = model.distributedAeroLoads(U, Omega, pitch, azimuth=0.0)
+        n = len(r_arr)
+        for i in range(n):
+            rows.append({
+                "U_wind_ms": U, "Omega_rpm": Omega, "pitch_deg": pitch,
+                "r_m":      float(r_arr[i]),
+                "chord_m":  float(chord_arr[i]),
+                "twist_deg":float(twist_arr[i]),
+                "a":        float(loads["a"][i]),
+                "ap":       float(loads["ap"][i]),
+                "alpha_deg":float(loads["alpha"][i]),
+                "cl":       float(loads["Cl"][i]),
+                "cd":       float(loads["Cd"][i]),
+                "W_ms":     float(loads["W"][i]),
+                "Np_per_m": float(loads["Np"][i]),
+                "Tp_per_m": float(loads["Tp"][i]),
+            })
+    return rows
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0] if __doc__ else "")
     ap.add_argument("--config", required=True,
                     help="path to YAML config (typically /in/<name>.yaml)")
     ap.add_argument("--out-dir", default="/out",
                     help="directory to write the CSV into (default /out)")
+    ap.add_argument("--per-element", action="store_true",
+                    help="emit per-blade-element diagnostics via "
+                         "distributedAeroLoads instead of integrated CT/CQ")
     args = ap.parse_args()
 
     cfg_path = Path(args.config)
     cfg = yaml.safe_load(cfg_path.read_text())
     name = cfg.get("name") or cfg_path.stem
-    rows = run(cfg)
+    rows = run_per_element(cfg) if args.per_element else run(cfg)
 
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"{name}.csv"
+    suffix = "_per_element" if args.per_element else ""
+    out_path = out_dir / f"{name}{suffix}.csv"
     with out_path.open("w", encoding="ascii", newline="") as f:
         w = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
         w.writeheader()

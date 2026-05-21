@@ -154,149 +154,111 @@ def _solve_bem_element_windmill(
     x_hub = root_cutout_m / radius_m if radius_m > 0.0 else 0.0
     sigma_r = n_blades * chord / (2.0 * math.pi * r)
     theta = collective_rad + twist_rad  # helicopter convention
+    lam_local = omega * r / U  # local TSR
 
-    a = 0.3       # typical windmill starting point
-    a_prime = 0.0
-    F_final = 1.0
-
-    for _ in range(_MAX_BEM_ITER):
-        # NED conventions: v_a points in +Z direction (downward).  Axial
-        # wind is upflow, so v_a at disk is negative.  (1 - a) is the
-        # induction-reduced axial speed; we apply the NED sign by
-        # multiplying by -U.
-        v_a = -(1.0 - a) * U
-        v_t = (1.0 + a_prime) * omega * r
-        if v_t < 1e-9:
+    # --- Ning 2014 Brent-method-on-phi solve --------------------
+    # Define everything as an explicit function of `phi`.  The
+    # residual is the consistency equation
+    #   sin(phi) * (1 + a')(phi) * lam + cos(phi) * (1 - a)(phi) = 0
+    # where a(phi), a'(phi) come from the blade-element equations
+    # (classical for a < 0.4, Buhl quadratic for 0.4 < a < 1).  With
+    # phi in (-pi/2, 0) (helicopter convention for axial upflow) the
+    # residual is a smooth 1D function and Brent's method finds the
+    # physical root cleanly, including the high-load stations where
+    # a simple fixed-point on (a, a') drops into the stalled basin.
+    def _ind_at_phi(phi_q: float):
+        """Return (a, ap, F, cn, ct, cl, cd) at this phi, or None if
+        the blade-element equations have no valid windmill root."""
+        sin_phi = math.sin(phi_q)
+        cos_phi = math.cos(phi_q)
+        if abs(sin_phi) < 1e-12:
             return None
-
-        phi = math.atan2(v_a, v_t)  # negative for windmill (v_a < 0)
-        alpha = theta - phi          # helicopter convention
-        cl, cd = polar.cl_cd(alpha)
-
-        # No pre-stall AoA guard: the windmill momentum equation depends
-        # only on Cn (not on dCn/dalpha), so as long as Cn > 0 and the
-        # iteration converges, the polar's post-stall plateau is fine.
-        # Helicopter autorotation operates routinely above stall (high
-        # AoA, high Cl, high Cd) and we want the windmill solver to own
-        # those cases too.
-
+        alpha_q = theta - phi_q
+        cl_q, cd_q = polar.cl_cd(alpha_q)
+        cn_q = cl_q * cos_phi - cd_q * sin_phi
+        ct_q = cl_q * sin_phi + cd_q * cos_phi
         if use_tip_loss:
-            F = (prandtl_tip_loss(n_blades, x, phi)
-                 * prandtl_hub_loss(n_blades, x, x_hub, phi))
+            F_q = (prandtl_tip_loss(n_blades, x, phi_q)
+                   * prandtl_hub_loss(n_blades, x, x_hub, phi_q))
         else:
-            F = 1.0
-        F = max(F, 1e-4)
-        F_final = F
-
-        # Helicopter Cn/Ct convention.  At negative phi, cos(phi) =
-        # cos(|phi|) and sin(phi) = -sin(|phi|), so the formula matches
-        # the textbook turbine `Cn = Cl cos|phi| + Cd sin|phi|` exactly.
-        cn = cl * math.cos(phi) - cd * math.sin(phi)
-        ct = cl * math.sin(phi) + cd * math.cos(phi)
-
-        sin2 = math.sin(phi) ** 2
-        if cn <= 1e-9 or sin2 < 1e-12:
+            F_q = 1.0
+        F_q = max(F_q, 1e-4)
+        sin2 = sin_phi * sin_phi
+        if cn_q <= 1e-9:
             return None
-
-        # Classical windmill momentum for a <= 0.4 reduces algebraically
-        # to:
-        #   a / (1 - a) = sigma_r Cn / (4 F sin^2 phi)
-        # (the (1-a)^2 factor on the blade-element side and the
-        # 4F a (1-a) on the momentum side cancel one (1-a) cleanly).
-        denom_a = 4.0 * F * sin2 / (sigma_r * cn) + 1.0
-        a_new = 1.0 / denom_a
-
-        if a_new > 0.4:
-            # Buhl (NREL/TP-500-36834 Eq 18) replaces the classical
-            # 4F a (1-a) momentum side with an empirical quadratic that
-            # bridges 0.4 < a < ~1.  The blade-element side stays
-            # C_T_BE = sigma_r Cn (1-a)^2 / sin^2(phi), so at
-            # convergence:
-            #   8/9 + (4F - 40/9) a + (50/9 - 4F) a^2 = K (1-a)^2
-            # with K = sigma_r Cn / sin^2(phi).  Rearranged in a:
-            #   (50/9 - 4F - K) a^2 + (4F - 40/9 + 2K) a + (8/9 - K) = 0
-            # We use the current iterate's K (it depends on phi which
-            # depends on a, so the whole thing is a fixed-point).
-            #
-            # The Glauert / Buhl pieces match at a = 0.4 in both value
-            # and first derivative, so transitions between the
-            # classical branch above and the Buhl branch here are
-            # smooth.
-            K = sigma_r * cn / sin2
-            A = 50.0 / 9.0 - 4.0 * F - K
-            B = 4.0 * F - 40.0 / 9.0 + 2.0 * K
-            C = 8.0 / 9.0 - K
-            disc = B * B - 4.0 * A * C
-            if disc < 0.0 or abs(A) < 1e-12:
+        K_axial = sigma_r * cn_q / (4.0 * F_q * sin2)
+        a_q = K_axial / (1.0 + K_axial)
+        if a_q > 0.4:
+            # Buhl quadratic in the turbulent-wake state.
+            K = sigma_r * cn_q / sin2
+            A_ = 50.0 / 9.0 - 4.0 * F_q - K
+            B_ = 4.0 * F_q - 40.0 / 9.0 + 2.0 * K
+            C_ = 8.0 / 9.0 - K
+            disc_ = B_ * B_ - 4.0 * A_ * C_
+            if disc_ < 0.0 or abs(A_) < 1e-12:
                 return None
-            sq = math.sqrt(disc)
-            a_lower = (-B - sq) / (2.0 * A)
-            a_upper = (-B + sq) / (2.0 * A)
-            # Pick the physical root in [0.4, 1.0].
-            candidates = [
-                cand for cand in (a_lower, a_upper)
-                if 0.4 <= cand <= 1.0
+            sq_ = math.sqrt(disc_)
+            roots = [
+                cand for cand in (
+                    (-B_ - sq_) / (2.0 * A_), (-B_ + sq_) / (2.0 * A_),
+                ) if 0.4 <= cand <= 1.0
             ]
-            if not candidates:
+            if not roots:
                 return None
-            # If both roots are in range, take the smaller (closer to
-            # the classical branch).
-            a_new = min(candidates)
-
-        # Tangential induction: a' / (1+a') = sigma_r Ct / (4 F sin phi cos phi)
-        sin_cos = math.sin(phi) * math.cos(phi)
-        if abs(ct) > 1e-9 and abs(sin_cos) > 1e-9:
-            denom_ap = 4.0 * F * sin_cos / (sigma_r * ct) - 1.0
-            a_prime_new = 1.0 / denom_ap if abs(denom_ap) > 1e-8 else 0.0
+            a_q = min(roots)
+        sc = sin_phi * cos_phi
+        if abs(ct_q) > 1e-9 and abs(sc) > 1e-9:
+            K_tan = sigma_r * ct_q / (4.0 * F_q * sc)
+            ap_q = K_tan / (1.0 - K_tan) if abs(1.0 - K_tan) > 1e-9 else 0.0
+            ap_q = max(-0.5, min(0.5, ap_q))
         else:
-            a_prime_new = 0.0
+            ap_q = 0.0
+        return a_q, ap_q, F_q, cn_q, ct_q, cl_q, cd_q
 
-        # Buhl is calibrated up to a ~ 1; beyond that (flow reversal at
-        # the disk) the helicopter quadratic's empirical fit is the
-        # right tool.
-        if not (0.0 <= a_new <= 1.0):
-            return None
-        a_prime_new = max(-0.5, min(0.5, a_prime_new))
+    def _residual(phi_q: float) -> float:
+        out = _ind_at_phi(phi_q)
+        if out is None:
+            # Push Brent away from infeasible regions by returning a
+            # large positive value (it'll keep bracketing inside the
+            # feasible window).
+            return 1e3
+        a_q, ap_q, _F, _cn, _ct, _cl, _cd = out
+        return (math.sin(phi_q) * (1.0 + ap_q) * lam_local
+                + math.cos(phi_q) * (1.0 - a_q))
 
-        converged = (abs(a_new - a) < _BEM_TOL
-                     and abs(a_prime_new - a_prime) < _BEM_TOL)
-        a = 0.5 * a + 0.5 * a_new
-        a_prime = 0.5 * a_prime + 0.5 * a_prime_new
-        if converged:
-            break
-    else:
-        return None  # did not converge
+    # Bracket: phi in (-pi/2, 0); residual sign:
+    #   phi -> 0      -> R -> +cos(0)*(1-a) > 0
+    #   phi -> -pi/2  -> R -> -1*(1+ap)*lam < 0
+    phi_lo, phi_hi = -math.pi / 2.0 + 1e-4, -1e-4
+    R_lo = _residual(phi_lo)
+    R_hi = _residual(phi_hi)
+    if R_lo * R_hi >= 0.0 or not (math.isfinite(R_lo) and math.isfinite(R_hi)):
+        # No sign change in the bracket -- defer to helicopter quadratic
+        return None
+    try:
+        from scipy.optimize import brentq  # imported lazily
+        phi_star = brentq(_residual, phi_lo, phi_hi,
+                          xtol=1e-8, rtol=1e-10, maxiter=80, disp=False)
+    except Exception:
+        return None
 
-    # Final state and forces.
+    final = _ind_at_phi(phi_star)
+    if final is None:
+        return None
+    a, a_prime, F_final, cn_f, ct_f, _cl_f, _cd_f = final
+    if cn_f <= 0.0:
+        return None
+    if not (0.0 <= a <= 1.0):
+        return None
+
     v_a_f = -(1.0 - a) * U
     v_t_f = (1.0 + a_prime) * omega * r
     v_rel = math.sqrt(v_a_f ** 2 + v_t_f ** 2)
-    phi_f = math.atan2(v_a_f, v_t_f)
-    alpha_f = theta - phi_f
-    cl_f, cd_f = polar.cl_cd(alpha_f)
-    cn_f = cl_f * math.cos(phi_f) - cd_f * math.sin(phi_f)
-    ct_f = cl_f * math.sin(phi_f) + cd_f * math.cos(phi_f)
-    if cn_f <= 0.0:
-        return None
-
     q_dyn = 0.5 * rho * v_rel ** 2 * chord * dr * n_blades
-    # dT, dQ in helicopter convention -- exactly the same expressions
-    # the helicopter branch uses.  Sign emerges naturally from cn_f /
-    # ct_f at phi < 0:
-    #   cn_f = cl cos(phi) - cd sin(phi)  -> positive in upflow
-    #     (lift normal to rotor plane, in -NED-Z = same direction as
-    #     reaction thrust the rotor feels from the wind).
-    #   ct_f = cl sin(phi) + cd cos(phi)  -> negative at phi < 0 when
-    #     lift dominates: lift's tangential component drives the rotor
-    #     (extraction), so dQ < 0 in dynbem convention as expected.
     dT = q_dyn * cn_f
     dQ = q_dyn * ct_f * r
-
-    # Map a -> lambda_r in dynbem NED convention.
     lambda_r = v_a_f / Omega_R
-    # Track momentum residual for diagnostics (always ~0 at windmill
-    # convergence by construction).
-    _ = F_final  # tip-loss factor preserved only for diagnostic prints
+    _ = F_final
     return BEMElementResult(lambda_r, a_prime, dT, dQ, 0.0)
 
 

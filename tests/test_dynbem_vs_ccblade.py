@@ -20,12 +20,14 @@ over.  No fixture flag -- the regime is read from the flow state.
 Full-sweep numbers from running the verifier with no --sample (21
 operating points):
 
-    CT err: median 2 %, mean 2 %, RMSE 2 %, max 6 %
-    CQ err: median 2 %, mean 3 %, RMSE 3 %, max 8 %
+    CT err: median 2.0 %, mean 1.9 %, RMSE 1.9 %, max 2.3 %
+    CQ err: median 2.4 %, mean 2.4 %, RMSE 2.4 %, max 2.9 %
 
-Both BEMs now agree within ~8 % at every operating point.  The Buhl
-quadratic + Glauert pieces match in value and first derivative at
-a = 0.4, so the dispatch through that boundary is smooth.
+Both BEMs now agree within ~3 % at every operating point.  The
+windmill solver uses Brent's-method-on-phi (Ning 2014) to find the
+physical inflow angle robustly, with Buhl's quadratic taking over
+from classical momentum theory at a = 0.4 (smooth transition by
+construction).
 
 Beaupoil RAWES rotor (TestDynbemVsCCBladeBeaupoil)
 ---------------------------------------------------
@@ -42,7 +44,6 @@ import math
 import sys
 from pathlib import Path
 
-import numpy as np
 import pytest
 
 _ROOT = Path(__file__).resolve().parent.parent
@@ -94,38 +95,21 @@ class TestDynbemVsCCBladePhaseVI:
                 f"U={c.U_wind_ms}: CCBlade Q={c.Q_cc_Nm:+.1f}, "
                 f"dynbem Q={c.Q_db_Nm:+.1f}")
 
-    def test_ct_median_within_5pct(self, phase_vi_survey):
-        """Median CT error <= 5 % across the V_wind = 5..25 m/s sweep.
-        Current full-sweep figure is ~2 %."""
-        ct = phase_vi_survey.ct_errors()
-        med = float(np.median(ct))
-        assert med < 0.05, (
-            f"median CT error {med:.1%} exceeds 5 % "
-            f"(was ~2 % at last full-sweep run)")
-
-    def test_ct_envelope(self, phase_vi_survey):
-        """Every per-point CT error stays within +/-10 % across the
-        whole sweep."""
-        offenders = [c for c in phase_vi_survey.comparisons if c.ct_err >= 0.10]
+    def test_ct_envelope_within_3pct(self, phase_vi_survey):
+        """Every per-point CT error stays within +/-3 % across the
+        whole sweep.  Current full-sweep figure is max 2.3 %."""
+        offenders = [c for c in phase_vi_survey.comparisons if c.ct_err >= 0.03]
         assert not offenders, (
-            "CT err > 10 %:\n" + "\n".join(
+            "CT err > 3 %:\n" + "\n".join(
                 f"  V={c.U_wind_ms} CT_cc={c.CT_cc:.4f} CT_db={c.CT_db:.4f} "
                 f"err={c.ct_err:.1%}" for c in offenders))
 
-    def test_cq_median_within_5pct(self, phase_vi_survey):
-        """Median CQ error <= 5 % across the sweep.  Current figure
-        is ~2.4 %."""
-        cq = phase_vi_survey.cq_errors()
-        med = float(np.median(cq))
-        assert med < 0.05, (
-            f"median CQ error {med:.1%} exceeds 5 % "
-            f"(was ~2.4 % at last full-sweep run)")
-
-    def test_cq_envelope(self, phase_vi_survey):
-        """Per-point CQ error stays within +/-10 % everywhere."""
-        offenders = [c for c in phase_vi_survey.comparisons if c.cq_err >= 0.10]
+    def test_cq_envelope_within_4pct(self, phase_vi_survey):
+        """Per-point CQ error stays within +/-4 % everywhere.
+        Current full-sweep figure is max 2.9 %."""
+        offenders = [c for c in phase_vi_survey.comparisons if c.cq_err >= 0.04]
         assert not offenders, (
-            "CQ err > 10 %:\n" + "\n".join(
+            "CQ err > 4 %:\n" + "\n".join(
                 f"  V={c.U_wind_ms} CQ_cc={c.CQ_cc:+.5f} CQ_db={c.CQ_db:+.5f} "
                 f"err={c.cq_err:.1%}" for c in offenders))
 

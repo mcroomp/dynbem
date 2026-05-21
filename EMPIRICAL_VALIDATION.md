@@ -507,24 +507,24 @@ CCBlade was calibrated for; dynbem's `BladeGeometry` was extended with
 BEMs see the same twisted/tapered geometry.
 
 dynbem.bem dispatches axial-flow operating points dynamically:
-when `v_climb < 0` it tries the wind-turbine windmill iteration
-first (classical momentum theory for `a < 0.4`, Buhl's empirical
-quadratic for `0.4 < a < 1`); if a valid windmill state exists it
-uses that, otherwise it falls back to the helicopter momentum
-quadratic. The regime is read from the flow state -- no fixture
-flag.
+when `v_climb < 0` it tries the wind-turbine windmill solver first,
+which uses Brent's-method-on-phi (Ning 2014) to find the inflow
+angle robustly -- classical momentum theory for `a < 0.4`, Buhl's
+empirical quadratic for `0.4 < a < 1`. If no windmill root exists,
+it falls back to the helicopter momentum quadratic.  The regime is
+read from the flow state -- no fixture flag.
 
 Full-sweep numbers (21 operating points):
 
 | Quantity | Median | Mean | RMSE | Max |
 |---|---|---|---|---|
-| CT err | 2 % | 2 % | 2 % | 6 % |
-| CQ err | 2 % | 3 % | 3 % | 8 % |
+| CT err | 2.0 % | 1.9 % | 1.9 % | 2.3 % |
+| CQ err | 2.4 % | 2.4 % | 2.4 % | 2.9 % |
 
-The spot test asserts median CT < 5 %, every per-point CT < 10 %,
-median CQ < 5 %, every per-point CQ < 10 %, and both BEMs predicting
-positive thrust + positive (turbine-extraction) torque at every
-operating point.
+Both BEMs agree within ~3 % at every operating point.  The spot test
+asserts every per-point CT < 3 %, every per-point CQ < 4 %, and both
+BEMs predicting positive thrust + positive (turbine-extraction)
+torque everywhere.
 
 Convention reconciliation (handled inside the verifier):
 

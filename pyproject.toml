@@ -10,6 +10,7 @@ requires-python = ">=3.11"
 dependencies = [
     "numpy>=1.24",
     "numba>=0.58",
+    "scipy>=1.10",
 ]
 keywords = ["rotor", "aerodynamics", "BEM", "blade-element-momentum", "dynamic-inflow", "Pitt-Peters", "Oye", "helicopter", "wind-turbine", "autorotation", "VRS"]
 classifiers = [
