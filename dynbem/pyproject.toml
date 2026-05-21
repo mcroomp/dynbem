@@ -1,0 +1,39 @@
+[build-system]
+requires = ["maturin>=1.7,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "dynbem"
+version = "0.1.0"
+description = "Rust BEM / Pitt-Peters / Oye dynamic-inflow rotor models (formerly dynbem_rs; supersedes the pure-Python dynbem now archived as dynbem_old)"
+requires-python = ">=3.10"
+license = "MIT"
+authors = [{ name = "Kristof" }]
+classifiers = [
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Physics",
+]
+keywords = ["rotor", "aerodynamics", "BEM", "blade-element-momentum",
+            "dynamic-inflow", "Pitt-Peters", "Oye", "helicopter",
+            "wind-turbine", "autorotation", "VRS"]
+dependencies = [
+    "numpy>=1.24",
+]
+
+[project.optional-dependencies]
+yaml = ["PyYAML>=6"]
+
+[project.urls]
+Homepage = "https://github.com/mcroomp/dynbem"
+Repository = "https://github.com/mcroomp/dynbem"
+Issues = "https://github.com/mcroomp/dynbem/issues"
+
+[tool.maturin]
+features = ["pyo3/extension-module"]
+module-name = "dynbem._dynbem"
+python-source = "python"

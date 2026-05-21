@@ -419,12 +419,22 @@ def _defn_with_phase(base_defn: RotorDefinition, phase_deg: float) -> RotorDefin
     Gain is unity so tilt_lon, tilt_lat map directly to blade pitch amplitudes
     (with the helicopter-standard sign convention from cyclic_coeffs).
     """
-    from dataclasses import replace
     ctrl = ControlProperties(
         swashplate_pitch_gain_rad=1.0,
         swashplate_phase_deg=phase_deg,
     )
-    return replace(base_defn, control=ctrl)
+    # The Rust pyclass isn't a @dataclass, so dataclasses.replace() doesn't
+    # work -- construct a new RotorDefinition explicitly with the same
+    # parts and the swapped control.
+    return RotorDefinition(
+        blade=base_defn.blade,
+        airfoil=base_defn.airfoil,
+        control=ctrl,
+        inertia=base_defn.inertia,
+        autorotation=base_defn.autorotation,
+        name=base_defn.name,
+        description=base_defn.description,
+    )
 
 
 class TestSwashplateMapping:

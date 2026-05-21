@@ -35,6 +35,18 @@ Thumbs.db
 out/
 *.npz
 
+# Rust build artifacts (workspace target dir at root; the per-crate
+# target/ dirs only appear if someone runs cargo from inside a crate).
+target/
+
+# Cargo lockfile: this workspace publishes a library crate (dynbem),
+# so we let downstream consumers resolve their own lock per Cargo
+# convention.
+Cargo.lock
+
+# Editor scratch
+Untitled.md
+
 # One-off / scratch scripts (kept on disk, not tracked)
 oneoff/
 

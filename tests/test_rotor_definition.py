@@ -100,7 +100,7 @@ class TestRotorDefinition:
 
     def test_inertia_defaults(self, defn):
         assert defn.inertia.mass_kg is None
-        assert defn.inertia.I_body_kgm2 == ()
+        assert list(defn.inertia.I_body_kgm2) == []
 
     def test_autorotation_defaults(self, defn):
         assert defn.autorotation.omega_eq_rad_s is None

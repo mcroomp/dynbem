@@ -1,0 +1,13 @@
+[package]
+name = "dynbem_rs"
+description = "Pure-Rust BEM / Pitt-Peters / Oye dynamic-inflow rotor models. No pyo3 / numpy."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[lib]
+name = "dynbem_rs"
+path = "src/lib.rs"

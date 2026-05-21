@@ -1,46 +1,38 @@
-[build-system]
-requires = ["setuptools>=77", "setuptools-scm>=8"]
-build-backend = "setuptools.build_meta"
-
 [project]
-name = "dynbem"
-dynamic = ["version"]
-description = "Blade-element momentum rotor aerodynamics with dynamic inflow (Pitt-Peters and Øye), covering the full operating envelope from helicopter hover through climb, descent, VRS, autorotation, and wind-turbine extraction in a single code path."
+name = "aero-workspace"
+version = "0.1.0"
+description = "Repo-wide development environment for dynbem + dynbem_rs. Not published to PyPI; the publishable package is `dynbem/` (Rust-backed)."
 requires-python = ">=3.11"
 dependencies = [
-    "numpy>=1.24",
-    "numba>=0.58",
-    "scipy>=1.10",
+    # Pulls in dynbem and PyYAML (needed by rotor_definition.load and the
+    # repo's verification scripts). Numpy is a transitive dep of dynbem.
+    "dynbem[yaml]",
 ]
-keywords = ["rotor", "aerodynamics", "BEM", "blade-element-momentum", "dynamic-inflow", "Pitt-Peters", "Oye", "helicopter", "wind-turbine", "autorotation", "VRS"]
-classifiers = [
-    "Development Status :: 4 - Beta",
-    "Intended Audience :: Science/Research",
-    "Operating System :: OS Independent",
-    "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
-    "Topic :: Scientific/Engineering :: Physics",
+
+[dependency-groups]
+dev = [
+    "pytest>=7",
+    "pytest-timeout>=2",
+    "maturin>=1.7,<2.0",
+    "build",
+    "twine",
 ]
-license = "MIT"
-license-files = ["LICENSE"]
-readme = "README.md"
-authors = [{ name = "Kristof" }]
 
-[project.urls]
-Homepage = "https://github.com/mcroomp/dynbem"
-Repository = "https://github.com/mcroomp/dynbem"
-Issues = "https://github.com/mcroomp/dynbem/issues"
+# ---------------------------------------------------------------------------
+# uv workspace. `uv sync` from the repo root installs dynbem in editable
+# mode (which builds the Rust extension via maturin) plus PyYAML; add
+# `--group dev` to also pull pytest et al.
+#
+# `dynbem_old/` is reference Python source and intentionally NOT a member
+# (no pyproject.toml, not pip-installable). `dynbem_rs/` is a pure-Rust
+# crate in the Cargo workspace at ./Cargo.toml.
+# ---------------------------------------------------------------------------
+[tool.uv.workspace]
+members = ["dynbem"]
 
-[project.optional-dependencies]
-yaml = ["PyYAML>=6"]
-dev = ["pytest", "pytest-timeout", "PyYAML>=6", "build", "twine"]
-
-[tool.setuptools]
-packages = ["dynbem"]
-
-[tool.setuptools_scm]
-fallback_version = "0.0.0"
+[tool.uv.sources]
+dynbem = { workspace = true }
 
 [tool.pytest.ini_options]
 timeout = 10
+testpaths = ["tests"]

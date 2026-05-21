@@ -410,5 +410,12 @@ This rule has bitten before — see [memory feedback-no-silent-reverts].
   formulation** (L matrix, M matrix, V mass-flow, forcing sign
   convention) from David Peters' Nikolsky lecture. Read this before
   touching any Pitt-Peters signs or coefficients.
+- `dynbem/CLAUDE.md` — public `dynbem` Python package (PyO3 glue + Python
+  compat shim). Drop-in replacement for the legacy pure-Python dynbem.
+- `dynbem_rs/CLAUDE.md` — pure-Rust math core (no pyo3 / numpy / file IO).
+  Module map, hot-path conventions, numerical floors.
+- `dynbem_old/` — read-only reference copy of the legacy pure-Python
+  implementation. **Do not import or depend on it in new code.** It exists
+  so the original algorithms remain readable side-by-side with the Rust port.
 
 Defer to those when working inside the respective directories.
