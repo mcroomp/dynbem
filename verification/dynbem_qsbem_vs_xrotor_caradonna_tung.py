@@ -22,6 +22,7 @@ so we can see where each code lands relative to the others.
 """
 from __future__ import annotations
 
+import argparse
 import csv
 import math
 import sys
@@ -41,8 +42,8 @@ from dynbem.rotor_definition import (                                    # noqa:
 )
 from dynbem.polar import TabulatedPolar                                 # noqa: E402
 
-XROTOR_CSV = ROOT / "verification" / "data" / "caradonna_tung_hover_xrotor.csv"
-YAML_PATH  = ROOT / "verification" / "xrotor_docker" / "inputs" / "caradonna_tung_hover.yaml"
+DEFAULT_YAML  = ROOT / "verification" / "xrotor_docker" / "inputs" / "caradonna_tung_hover.yaml"
+DEFAULT_XCSV  = ROOT / "verification" / "data" / "caradonna_tung_hover_xrotor.csv"
 
 # Published CT from Caradonna-Tung TM-81232 (paper figures 3,4,5):
 #   pitch 5 deg  -> CT in 0.00213..0.00218 -> midpoint 0.00215
@@ -106,21 +107,28 @@ def dynbem_hover_thrust(model: BEMModel, pitch_deg: float,
 
 
 def main() -> int:
-    if not XROTOR_CSV.exists():
-        print(f"Missing XROTOR reference: {XROTOR_CSV}", file=sys.stderr)
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--yaml", type=Path, default=DEFAULT_YAML,
+                    help="rotor + polar YAML (same one fed to XROTOR)")
+    ap.add_argument("--xrotor-csv", type=Path, default=DEFAULT_XCSV,
+                    help="XROTOR results CSV (from verification/data/)")
+    args = ap.parse_args()
+
+    if not args.xrotor_csv.exists():
+        print(f"Missing XROTOR reference: {args.xrotor_csv}", file=sys.stderr)
         print("Generate it first:", file=sys.stderr)
         print("  cd verification/xrotor_docker", file=sys.stderr)
-        print("  docker compose run --rm xrotor --config /in/caradonna_tung_hover.yaml",
+        print(f"  docker compose run --rm xrotor --config /in/{args.yaml.name}",
               file=sys.stderr)
         return 1
 
-    with YAML_PATH.open() as fh:
+    with args.yaml.open() as fh:
         cfg = yaml.safe_load(fh)
     model = build_dynbem_model(cfg)
     R = model.defn.blade.radius_m
     A = math.pi * R * R
 
-    with XROTOR_CSV.open() as fh:
+    with args.xrotor_csv.open() as fh:
         xr_rows = {float(r["pitch_deg"]): r for r in csv.DictReader(fh)}
 
     print(f"Caradonna-Tung hover  --  dynbem.QuasiStaticBEM vs XROTOR vs paper")
@@ -162,7 +170,9 @@ def main() -> int:
             "Q_dynbem_Nm":   Q_db,
         })
 
-    out_path = ROOT / "verification" / "data" / "dynbem_qsbem_vs_xrotor_caradonna_tung.csv"
+    # Name the output after the YAML stem so coarse-polar vs xfoil-polar
+    # runs don't clobber each other.
+    out_path = ROOT / "verification" / "data" / f"dynbem_qsbem_vs_xrotor_{args.yaml.stem}.csv"
     with out_path.open("w", newline="") as fh:
         w = csv.DictWriter(fh, fieldnames=list(rows_out[0].keys()))
         w.writeheader()
