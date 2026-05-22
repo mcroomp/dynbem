@@ -299,6 +299,25 @@ the trade-off OpenFAST's DBEMT made.
   `λ_total[i] = λ_climb + W[i]` matches Pitt-Peters'
   `λ_climb + λ_0`.
 
+## Kaman servo-flap modeling (Beaupoil rotor)
+
+The Beaupoil 2026 rotor (`rotors/beaupoil_2026/rotor.yaml`) is a
+Kaman-style servo-flap-controlled rotor. The `KamanFlap` struct in
+`dynbem_rs/src/rotor_definition.rs` and the `kaman_flap:` YAML block
+exist as data containers, **but the flap is currently inert in the
+aerodynamics** -- no model reads it, `element_force` ignores it. A
+state-of-the-art modeling proposal (Theodorsen flap increments +
+per-blade torsion DOF + first-order actuator lag, with Tier 1
+quasi-static and Tier 2 dynamic variants) lives in
+[design/kaman_servo_flap_proposal.md](design/kaman_servo_flap_proposal.md),
+together with the open-source research landscape (Falls 2010 UMD,
+Shen-Chopra 2003, Bandyopadhyay 2015, Fulton-Ormiston 1997 NASA) and a
+validation plan against published experimental data. Read that doc
+before adding any flap-related physics; the key trap it covers is the
+**"elevon reversal" sign**: a naive sectional DeltaC_L flap model
+gets the lift direction *wrong* relative to a real Kaman rotor,
+because the blade torsion DOF inverts it.
+
 ## Do not revert work without explicit instructions
 
 If a test fails, a build breaks, or run_map blows up, **do not respond
