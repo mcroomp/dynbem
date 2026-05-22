@@ -1,7 +1,9 @@
 import math
+
+import numpy as np
 import pytest
 
-from dynbem.polar import LinearPolar
+from dynbem.polar import LinearPolar, TabulatedPolar
 
 
 @pytest.fixture
@@ -63,3 +65,60 @@ class TestLinearPolar:
         assert p.CL_alpha_per_rad == pytest.approx(5.5)
         assert p.CD0 == pytest.approx(0.015)
         assert p.alpha_stall_rad == pytest.approx(math.radians(14.0))
+
+
+class TestTabulatedPolar:
+    """TabulatedPolar must implement numpy.interp's semantics exactly:
+    linear between knots, clamp at endpoints, no periodic wrap. The full
+    S809 cross-check lives in verification/dynbem_polar_interp_check.py
+    and verification/dynbem_polar_vs_aerodyn_nrel_phase_vi.py; this is the
+    minimal in-tree spec-compliance test."""
+
+    @pytest.fixture
+    def small_polar(self):
+        alpha = np.array([-0.2, -0.1, 0.0, 0.1, 0.2], dtype=np.float64)
+        cl    = np.array([-1.0, -0.4, 0.05, 0.55, 1.05], dtype=np.float64)
+        cd    = np.array([0.05, 0.02, 0.012, 0.018, 0.04], dtype=np.float64)
+        return alpha, cl, cd, TabulatedPolar(alpha_rad=alpha, cl=cl, cd=cd)
+
+    def test_exact_at_knots(self, small_polar):
+        alpha, cl, cd, p = small_polar
+        for i in range(len(alpha)):
+            got_cl, got_cd = p.cl_cd(float(alpha[i]))
+            assert got_cl == pytest.approx(cl[i], abs=0.0, rel=1e-15)
+            assert got_cd == pytest.approx(cd[i], abs=0.0, rel=1e-15)
+
+    def test_linear_between_knots(self, small_polar):
+        alpha, cl, cd, p = small_polar
+        # Mid-point between knots 1 and 2 (-0.05 rad) -> linear average
+        a = (alpha[1] + alpha[2]) / 2
+        got_cl, got_cd = p.cl_cd(a)
+        expected_cl = (cl[1] + cl[2]) / 2
+        expected_cd = (cd[1] + cd[2]) / 2
+        assert got_cl == pytest.approx(expected_cl, abs=1e-14)
+        assert got_cd == pytest.approx(expected_cd, abs=1e-14)
+
+    def test_clamp_below(self, small_polar):
+        alpha, cl, cd, p = small_polar
+        got_cl, got_cd = p.cl_cd(alpha[0] - 10.0)
+        assert got_cl == pytest.approx(cl[0])
+        assert got_cd == pytest.approx(cd[0])
+
+    def test_clamp_above(self, small_polar):
+        alpha, cl, cd, p = small_polar
+        got_cl, got_cd = p.cl_cd(alpha[-1] + 10.0)
+        assert got_cl == pytest.approx(cl[-1])
+        assert got_cd == pytest.approx(cd[-1])
+
+    def test_matches_numpy_interp(self, small_polar):
+        """The whole point of this implementation: bit-for-bit np.interp."""
+        alpha, cl, cd, p = small_polar
+        rng = np.random.default_rng(seed=7)
+        test = rng.uniform(alpha[0] - 0.05, alpha[-1] + 0.05, size=200)
+        got_cl = np.array([p.cl_cd(a)[0] for a in test])
+        got_cd = np.array([p.cl_cd(a)[1] for a in test])
+        ref_cl = np.interp(test, alpha, cl)
+        ref_cd = np.interp(test, alpha, cd)
+        # f64 division reformulation: a few ULPs is acceptable
+        assert np.abs(got_cl - ref_cl).max() < 1e-13
+        assert np.abs(got_cd - ref_cd).max() < 1e-13

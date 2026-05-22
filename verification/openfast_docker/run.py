@@ -231,9 +231,12 @@ True                   SumPrint    - Print summary file
 "RtVAvgxh"
 END of input file (the word "END" must appear in the first 3 columns of this last OutList line)
 ====== Outputs for all blade stations (same ending as above for B1N1.... =========================== [optional section]
-0                      BldNd_BladesOut
+1                      BldNd_BladesOut
 "All"                  BldNd_BlOutNd
                        OutListAD
+"Alpha"
+"Cl"
+"Cd"
 END
 ---------------------------------------------------------------------------------------
 """
@@ -407,10 +410,43 @@ def average_last_revolution(
 # ---------------------------------------------------------------------------
 
 
+def extract_per_element_rows(
+    cols: list[str], avg: dict[str, float], case_idx: int, n_elements: int,
+) -> list[dict[str, float]]:
+    """Pull `B1N{i}Alpha`, `B1N{i}Cl`, `B1N{i}Cd` for i = 1..n_elements
+    from the averaged channel dict and emit one row per element. Returns
+    [] if the per-blade-node output section isn't present in the .out
+    file. Validates dynbem's polar interpolation downstream.
+    """
+    # AeroDyn 3.5.x channel naming: "AB1N001Alpha", "AB1N016Cl" (zero-
+    # padded to 3 digits, 'A' prefix for the per-node section).
+    out = []
+    for i in range(1, n_elements + 1):
+        key_alpha = f"AB1N{i:03d}Alpha"
+        key_cl    = f"AB1N{i:03d}Cl"
+        key_cd    = f"AB1N{i:03d}Cd"
+        if not (key_alpha in avg and key_cl in avg and key_cd in avg):
+            return []
+        out.append({
+            "case": case_idx,
+            "element_idx": i,
+            "alpha_deg": avg[key_alpha],
+            "cl": avg[key_cl],
+            "cd": avg[key_cd],
+        })
+    _ = cols
+    return out
+
+
 def run_case(
     cfg: dict, op: dict, workdir: Path, case_idx: int,
-) -> dict[str, float]:
-    """Generate inputs, run aerodyn_driver, parse output for one OP."""
+) -> tuple[dict[str, float], list[dict[str, float]]]:
+    """Generate inputs, run aerodyn_driver, parse output for one OP.
+
+    Returns (aggregate_row, per_element_rows). The per-element rows are
+    one (alpha_deg, cl, cd) triple per radial node of blade 1, captured
+    from the optional BldNd output section of the AeroDyn .out file.
+    """
     n_blades = int(cfg["rotor"]["n_blades"])
     r_hub    = float(cfg["rotor"]["R_hub_m"])
     r_tip    = float(cfg["rotor"]["R_tip_m"])
@@ -484,11 +520,18 @@ def run_case(
 
     cols, data = parse_out_text(out_path)
     avg = average_last_revolution(cols, data, omega, settle)
+    n_elements = len(cfg["blade_stations"])
+    per_element = extract_per_element_rows(cols, avg, case_idx, n_elements)
+    # Drop the per-element keys from `avg` so the aggregate CSV stays
+    # tidy. Keep only rotor-level RtAero* + case-identifying scalars.
+    for k in list(avg.keys()):
+        if k.startswith(("AB1N", "AB2N", "AB3N", "B1N", "B2N", "B3N")):
+            del avg[k]
     avg["case"] = case_idx
     avg["U_wind_ms"] = wind
     avg["Omega_rpm"] = omega
     avg["pitch_deg"] = pitch
-    return avg
+    return avg, per_element
 
 
 # ---------------------------------------------------------------------------
@@ -521,23 +564,24 @@ def main() -> int:
     print(f"Workdir: {workdir}")
     print(f"Cases: {len(cfg['operating_points'])}")
 
-    rows = []
+    rows: list[dict[str, float]] = []
+    per_elem_rows: list[dict[str, float]] = []
     try:
         for i, op in enumerate(cfg["operating_points"]):
             print(f"  [{i+1}/{len(cfg['operating_points'])}] "
                   f"U={op['U_wind_ms']} Omega={op['Omega_rpm']} pitch={op['pitch_deg']}",
                   flush=True)
-            row = run_case(cfg, op, workdir, i)
+            row, per_elem = run_case(cfg, op, workdir, i)
             rows.append(row)
+            per_elem_rows.extend(per_elem)
     finally:
         if not keep_workdir:
             shutil.rmtree(workdir, ignore_errors=True)
 
-    # Write CSV
+    # Write rotor-aggregate CSV
     out_path = out_dir / f"{name}_openfast.csv"
     if rows:
         cols = sorted({k for r in rows for k in r.keys()})
-        # Sort so case/op columns come first
         head = ["case", "U_wind_ms", "Omega_rpm", "pitch_deg"]
         cols = head + [c for c in cols if c not in head]
         with out_path.open("w", newline="") as fh:
@@ -548,6 +592,18 @@ def main() -> int:
     else:
         print("No rows produced.")
         return 1
+
+    # Write per-element CSV (one row per (case, element_idx) with alpha,
+    # Cl, Cd from AeroDyn's polar lookup). Empty for runs that don't
+    # enable BldNd output -- legacy behaviour preserved.
+    if per_elem_rows:
+        per_elem_path = out_dir / f"{name}_openfast_per_element.csv"
+        cols = ["case", "element_idx", "alpha_deg", "cl", "cd"]
+        with per_elem_path.open("w", newline="") as fh:
+            w = csv.DictWriter(fh, fieldnames=cols)
+            w.writeheader()
+            w.writerows(per_elem_rows)
+        print(f"Wrote {per_elem_path}")
     return 0
 
 
