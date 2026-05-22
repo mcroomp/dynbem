@@ -1,0 +1,18 @@
+services:
+  # One-time setup:
+  #   1. Download QBladeCE_2.0.9.7_unix.zip from https://qblade.org/downloads/
+  #      (the site requires you to click through reCAPTCHA, so this can't
+  #      be automated). Place the zip in this directory.
+  #   2. docker compose build
+  #
+  # Interactive use:
+  #   docker compose run --rm qblade
+  #   # ... drops to bash in /opt/QBladeCE_2.0.9.7/SIL_Interface
+  #   # python3 sampleScript.py    # runs the bundled NREL_5MW sample
+  qblade:
+    build: .
+    image: aero/qblade:2.0.9.7
+    volumes:
+      - ./out:/out
+    stdin_open: true
+    tty: true

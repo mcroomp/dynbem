@@ -1,0 +1,7 @@
+# The QBlade binary download is 60 MB and license-restricted; users
+# fetch it themselves from https://qblade.org/downloads/ before the
+# Dockerfile can build. See README.md.
+QBladeCE_*_unix.zip
+
+# Bind-mount target for whatever the container writes to /out.
+out/
