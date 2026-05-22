@@ -6,7 +6,8 @@ use std::f64::consts::PI;
 use crate::aero_io::{AeroResult, RotorInputs};
 use crate::aero_model::AeroModel;
 use crate::bem_common::{
-    assemble_result, kinematics, run_psi_loop, vrs_regime, PsiKernel, RadialGrid,
+    assemble_result, element_force, kinematics, v_t_disk, vrs_regime, ElementCtx, PsiKernel,
+    RadialGrid, SweepCtx,
 };
 use crate::common::{vrs_lambda1, EPS_OMEGA_R, VRS_DESCENT_THRESHOLD, V_T_HOVER_FLOOR_FRAC};
 use crate::cyclic::cyclic_coeffs;
@@ -31,10 +32,11 @@ const W_QS_CLAMP: f64 = 1.0;
 
 /// Oye psi-loop kernel.
 ///
-/// Local inflow is per-annulus and azimuth-independent:
-///     lam_local = lambda_climb + W[i].
-/// Side effect via on_element: accumulates the azimuth-averaged dT into
-/// `dt_avg[i]`, which the W_qs solver consumes downstream.
+/// Local inflow is per-annulus and azimuth-independent
+/// (`lambda_climb + W[i]`), and we accumulate the azimuth-averaged dT
+/// into `dt_avg[i]` for the W_qs solver. Both happen in one `element`
+/// override -- splitting them into separate trait methods would force
+/// `dt` to be recomputed or carried by side state, with no benefit.
 struct OyeKernel<'a> {
     lambda_climb: f64,
     w: &'a [f64],
@@ -43,13 +45,12 @@ struct OyeKernel<'a> {
 
 impl<'a> PsiKernel for OyeKernel<'a> {
     #[inline(always)]
-    fn lam_local(&self, i: usize, _cos_psi: f64, _sin_psi: f64) -> f64 {
-        self.lambda_climb + self.w[i]
-    }
-
-    #[inline(always)]
-    fn on_element(&mut self, i: usize, dt: f64, inv_n_psi: f64) {
-        self.dt_avg[i] += dt * inv_n_psi;
+    fn element(&mut self, sweep: &SweepCtx<'_>, ctx: &ElementCtx) -> (f64, f64) {
+        let lam = self.lambda_climb + self.w[ctx.i];
+        let v_a = lam * sweep.omega_r;
+        let (dt, dq) = element_force(v_a, sweep, ctx);
+        self.dt_avg[ctx.i] += dt / (sweep.n_psi as f64);
+        (dt, dq)
     }
 }
 
@@ -139,9 +140,7 @@ impl AeroModel for OyeBEMModel {
         } else {
             0.0
         };
-        let v_inf = (v_edge * v_edge + (v_climb + w_mean * omega_r).powi(2))
-            .sqrt()
-            .max(V_T_HOVER_FLOOR_FRAC * omega_r.max(1.0));
+        let v_inf = v_t_disk(v_edge, v_climb, w_mean * omega_r, omega_r);
         let a_avg = if v_inf > VRS_DESCENT_THRESHOLD {
             w_mean * omega_r / v_inf
         } else {
@@ -190,21 +189,21 @@ impl AeroModel for OyeBEMModel {
                 w: &state.W,
                 dt_avg: &mut dt_avg,
             };
-            run_psi_loop(
-                &mut kernel,
-                &self.grid,
-                inputs.collective_rad,
+            let sweep = SweepCtx {
+                grid: &self.grid,
+                polar: &self.polar,
+                col: inputs.collective_rad,
                 omega,
                 omega_r,
                 rho,
-                blade.n_blades,
-                self.n_psi_elements,
-                v_inplane_hub[0],
-                v_inplane_hub[1],
+                n_b: blade.n_blades,
+                n_psi: self.n_psi_elements,
+                v_in_hub_x: v_inplane_hub[0],
+                v_in_hub_y: v_inplane_hub[1],
                 theta_1c,
                 theta_1s,
-                &self.polar,
-            )
+            };
+            sweep.run(&mut kernel)
         } else {
             (0.0, 0.0, 0.0, 0.0)
         };
@@ -216,10 +215,8 @@ impl AeroModel for OyeBEMModel {
             0.0
         };
         let v0_mean = w_mean * omega_r;
-        let v_t_disk = (v_edge * v_edge + (v_climb + v0_mean).powi(2))
-            .sqrt()
-            .max(V_T_HOVER_FLOOR_FRAC * omega_r.max(1.0));
-        let mu_t = v_t_disk / omega_r.max(EPS_OMEGA_R);
+        let vt_disk = v_t_disk(v_edge, v_climb, v0_mean, omega_r);
+        let mu_t = vt_disk / omega_r.max(EPS_OMEGA_R);
 
         let area = PI * r_tip * r_tip;
         let vrs = vrs_regime(t_total, v_climb, rho, area);
@@ -240,12 +237,12 @@ impl AeroModel for OyeBEMModel {
         };
 
         // Oye 2-stage filter ODE (Mod=1: dW_qs/dt = 0 across the outer step).
-        let a_avg = if v_t_disk > VRS_DESCENT_THRESHOLD {
-            w_mean * omega_r / v_t_disk
+        let a_avg = if vt_disk > VRS_DESCENT_THRESHOLD {
+            w_mean * omega_r / vt_disk
         } else {
             0.0
         };
-        let (_tau1_scalar, tau2_arr) = oye_taus(r_tip, &self.grid.x_mid, v_t_disk, a_avg);
+        let (_tau1_scalar, tau2_arr) = oye_taus(r_tip, &self.grid.x_mid, vt_disk, a_avg);
         let tau1_scalar = _tau1_scalar;
 
         let mut d_w_int = Vec::with_capacity(n);

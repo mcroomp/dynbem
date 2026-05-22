@@ -107,7 +107,11 @@ pub trait AeroModel {
 
     /// Time constants per state DOF (infinite for mechanical / quasi-static
     /// states). Used by the semi-implicit damping in the trim integrator.
-    fn inflow_taus(&self, inputs: &RotorInputs, state: &Self::State) -> Vec<f64>;
+    /// Default = all-infinity (no dynamic-inflow lags); dynamic-inflow
+    /// models override this with their per-state lag formulas.
+    fn inflow_taus(&self, _inputs: &RotorInputs, state: &Self::State) -> Vec<f64> {
+        vec![f64::INFINITY; state.n_dof()]
+    }
 
     /// Zero state at the right shape for this model.
     fn initial_state(&self) -> Self::State;

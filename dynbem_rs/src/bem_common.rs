@@ -2,7 +2,7 @@
 // See ../CLAUDE.md "Shared BEM infrastructure".
 
 use crate::aero_io::{AeroResult, Mat3, RotorInputs, Vec3};
-use crate::common::{EPS_OMEGA_R, VRS_DESCENT_THRESHOLD};
+use crate::common::{EPS_OMEGA_R, VRS_DESCENT_THRESHOLD, V_T_HOVER_FLOOR_FRAC};
 use crate::polar::{Polar, PolarKind};
 use crate::rotor_definition::BladeGeometry;
 use std::f64::consts::PI;
@@ -169,6 +169,20 @@ pub struct VrsRegime {
     pub in_vrs: bool,
 }
 
+/// Mass-flow speed at the disk (the Glauert V_T scalar).
+///
+///     V_T = sqrt(v_edge^2 + (v_climb + v0_axial)^2)
+///
+/// `v0_axial` is the axial (induced) component in m/s. Floored at
+/// `V_T_HOVER_FLOOR_FRAC * max(omega_r, 1)` to keep the Pitt-Peters / Oye
+/// time constants finite at hover / zero thrust.
+#[inline]
+pub fn v_t_disk(v_edge: f64, v_climb: f64, v0_axial: f64, omega_r: f64) -> f64 {
+    (v_edge * v_edge + (v_climb + v0_axial).powi(2))
+        .sqrt()
+        .max(V_T_HOVER_FLOOR_FRAC * omega_r.max(1.0))
+}
+
 #[inline]
 pub fn vrs_regime(t_total: f64, v_climb: f64, rho: f64, area: f64) -> VrsRegime {
     let t_pos = t_total.max(0.0);
@@ -214,39 +228,27 @@ pub fn assemble_result(
 }
 
 // ---------------------------------------------------------------------------
-// Per-element BEM integrand: given an axial / tangential velocity pair at
-// (r, psi), return the element's thrust and torque contributions.
+// Per-element BEM integrand: given the prescribed axial velocity `v_a` plus
+// the (sweep, element) contexts, return the element's (dT, dQ).
 //
-// Identical inner-loop body in PittPeters::{axial_forces, fwd_forces} and
-// Oye::psi_loop. #[inline(always)] preserves the autovectorization the
-// per-model loop had before extraction -- LLVM sees the same arithmetic
-// it always saw, just routed through one function. The opaque polar.cl_cd
-// call is the same vectorization barrier it was before.
+// `#[inline(always)]` preserves the autovectorization the per-model loops
+// had before extraction -- LLVM sees the same arithmetic, just routed
+// through one function. The opaque polar.cl_cd call is the same
+// vectorization barrier it was before.
 // ---------------------------------------------------------------------------
 
-#[allow(clippy::too_many_arguments)]
 #[inline(always)]
-pub fn element_force(
-    v_a: f64,
-    v_t: f64,
-    col_psi: f64,
-    twist: f64,
-    r: f64,
-    chord: f64,
-    dr: f64,
-    rho: f64,
-    n_bf: f64,
-    polar: &PolarKind,
-) -> (f64, f64) {
+pub fn element_force(v_a: f64, sweep: &SweepCtx<'_>, ctx: &ElementCtx) -> (f64, f64) {
+    let v_t = ctx.v_t;
     let phi = v_a.atan2(v_t);
-    let alpha = col_psi + twist - phi;
-    let (cl, cd) = polar.cl_cd(alpha);
+    let alpha = ctx.col_psi + ctx.twist - phi;
+    let (cl, cd) = sweep.polar.cl_cd(alpha);
     let cos_p = phi.cos();
     let sin_p = phi.sin();
     let cn = cl * cos_p - cd * sin_p;
     let ct = cl * sin_p + cd * cos_p;
-    let q = 0.5 * rho * (v_a * v_a + v_t * v_t) * chord * dr * n_bf;
-    (q * cn, q * ct * r)
+    let q = 0.5 * sweep.rho * (v_a * v_a + v_t * v_t) * ctx.chord * ctx.dr * (sweep.n_b as f64);
+    (q * cn, q * ct * ctx.r)
 }
 
 // ---------------------------------------------------------------------------
@@ -255,94 +257,137 @@ pub fn element_force(
 // is bit-identical to the prior per-model hand-rolled loops -- the trait is
 // used as a *static interface* (generic K), not runtime dispatch.
 //
-// What's model-specific:
-//   - lam_local(i, cos_psi, sin_psi): the local inflow ratio formula
+// Two override points, with sensible defaults:
+//   - element(ctx): compute (dT, dQ) for one element. Default = the
+//     prescribed-inflow path used by Pitt-Peters and Oye -- evaluate
+//     lam_local, then run element_force. BEM overrides this to call its
+//     iterative solve_bem_element instead.
+//   - lam_local(i, cos_psi, sin_psi): the local inflow formula
 //     (Pitt-Peters: lambda_total + x*(lam_c*cos psi + lam_s*sin psi);
-//      Oye: lambda_climb + W[i]).
-//   - on_element(i, dt, inv_n_psi): per-element callback (no-op for PP;
-//     Oye accumulates the azimuth-averaged dT/dx that the W_qs solver
-//     needs downstream).
+//      Oye: lambda_climb + W[i]). Unused if element() is overridden.
+//   - on_element(i, dt, inv_n_psi): per-element side effect (no-op for
+//     PP/BEM; Oye uses it to accumulate the azimuth-averaged dT/dx the
+//     W_qs solver needs downstream).
 // ---------------------------------------------------------------------------
 
-pub trait PsiKernel {
-    /// Local axial inflow ratio at element i, azimuth (cos_psi, sin_psi).
-    fn lam_local(&self, i: usize, cos_psi: f64, sin_psi: f64) -> f64;
-
-    /// Per-element thrust callback. Default no-op so models that don't
-    /// need it (Pitt-Peters) opt out at zero cost.
-    #[inline(always)]
-    #[allow(unused_variables)]
-    fn on_element(&mut self, i: usize, dt: f64, inv_n_psi: f64) {}
+/// Per-element transients passed to a PsiKernel. Call-invariants
+/// (omega_r, rho, n_b, polar) live in `SweepCtx` instead -- the kernel
+/// receives both contexts and reads each field from its natural home.
+pub struct ElementCtx {
+    pub i: usize,
+    pub cos_psi: f64,
+    pub sin_psi: f64,
+    pub r: f64,
+    pub chord: f64,
+    pub twist: f64,
+    pub dr: f64,
+    pub col_psi: f64,
+    /// Tangential velocity at this (r, psi): `omega * r + v_t_extra`.
+    pub v_t: f64,
 }
 
-/// One full psi x radial sweep. Returns the azimuth-averaged
-/// (T, Q, Mx_hub, My_hub) over the rotor disk.
-///
-/// `omega > 0` is assumed (caller filters out the not-spinning case before
-/// invoking). Reverse-flow region (`v_t <= 0`) is skipped per-element.
-#[allow(clippy::too_many_arguments)]
-#[inline(always)]
-pub fn run_psi_loop<K: PsiKernel>(
-    kernel: &mut K,
-    grid: &RadialGrid,
-    col: f64,
-    omega: f64,
-    omega_r: f64,
-    rho: f64,
-    n_b: usize,
-    n_psi: usize,
-    v_in_hub_x: f64,
-    v_in_hub_y: f64,
-    theta_1c: f64,
-    theta_1s: f64,
-    polar: &PolarKind,
-) -> (f64, f64, f64, f64) {
-    let mut t_acc = 0.0;
-    let mut q_acc = 0.0;
-    let mut mx_acc = 0.0;
-    let mut my_acc = 0.0;
-    let n_bf = n_b as f64;
-    let inv_n_psi = 1.0 / (n_psi as f64);
-    let n_r = grid.r_mid.len();
-    for i_psi in 0..n_psi {
-        let psi = 2.0 * PI * (i_psi as f64) * inv_n_psi;
-        let cos_psi = psi.cos();
-        let sin_psi = psi.sin();
-        let v_t_extra = v_in_hub_x * sin_psi + v_in_hub_y * cos_psi;
-        let col_psi = col + theta_1c * cos_psi + theta_1s * sin_psi;
-        let mut rdt_sum = 0.0;
-        for i in 0..n_r {
-            let r = grid.r_mid[i];
-            let v_t = omega * r + v_t_extra;
-            if v_t <= 0.0 {
-                continue;
-            }
-            let lam_local = kernel.lam_local(i, cos_psi, sin_psi);
-            let v_a = lam_local * omega_r;
-            let (dt, dq) = element_force(
-                v_a,
-                v_t,
-                col_psi,
-                grid.twist_rad[i],
-                r,
-                grid.chord[i],
-                grid.dr,
-                rho,
-                n_bf,
-                polar,
-            );
-            t_acc += dt;
-            q_acc += dq;
-            rdt_sum += r * dt;
-            kernel.on_element(i, dt, inv_n_psi);
-        }
-        mx_acc += rdt_sum * sin_psi;
-        my_acc += rdt_sum * cos_psi;
+pub trait PsiKernel {
+    /// Element-level force computation. Default = prescribed-inflow path
+    /// for Pitt-Peters (and any future model that just needs to define a
+    /// `lam_local` formula). Override for models that need their own
+    /// solver per element (BEM) or that need a per-element side effect
+    /// (Oye accumulating azimuth-averaged dT/dx alongside the force
+    /// computation -- a separate callback would just force the kernel
+    /// to recompute `dt` or split state setup, so we collapse both into
+    /// one override point).
+    #[inline(always)]
+    fn element(&mut self, sweep: &SweepCtx<'_>, ctx: &ElementCtx) -> (f64, f64) {
+        let lam = self.lam_local(ctx.i, ctx.cos_psi, ctx.sin_psi);
+        let v_a = lam * sweep.omega_r;
+        element_force(v_a, sweep, ctx)
     }
-    (
-        t_acc * inv_n_psi,
-        q_acc * inv_n_psi,
-        mx_acc * inv_n_psi,
-        my_acc * inv_n_psi,
-    )
+
+    /// Local axial inflow ratio at element i, azimuth (cos_psi, sin_psi).
+    /// Unused when the kernel overrides `element` directly; provide a
+    /// stub default so override-everything kernels (BEM, Oye) don't have
+    /// to implement it.
+    #[inline(always)]
+    #[allow(unused_variables)]
+    fn lam_local(&self, i: usize, cos_psi: f64, sin_psi: f64) -> f64 {
+        0.0
+    }
+}
+
+/// Whole-sweep configuration: the call-invariant inputs that describe one
+/// psi x radial pass over the rotor disk. Built once by each model's
+/// compute_forces, then handed to run_psi_loop, which derives per-element
+/// `ElementCtx` values from these fields each iteration. Symmetric with
+/// `ElementCtx` (which describes one element rather than one sweep).
+pub struct SweepCtx<'a> {
+    pub grid: &'a RadialGrid,
+    pub polar: &'a PolarKind,
+    /// Base collective pitch (rad). Per-azimuth pitch is `col + theta_1c*cos psi + theta_1s*sin psi`.
+    pub col: f64,
+    pub omega: f64,
+    pub omega_r: f64,
+    pub rho: f64,
+    pub n_b: usize,
+    pub n_psi: usize,
+    /// In-plane wind in hub frame; `v_t_extra = v_in_hub_x*sin psi + v_in_hub_y*cos psi`.
+    pub v_in_hub_x: f64,
+    pub v_in_hub_y: f64,
+    pub theta_1c: f64,
+    pub theta_1s: f64,
+}
+
+impl<'a> SweepCtx<'a> {
+    /// Run one full psi x radial sweep with the given kernel. Returns the
+    /// azimuth-averaged (T, Q, Mx_hub, My_hub) over the rotor disk.
+    ///
+    /// `self.omega > 0` is assumed (caller filters out the not-spinning case
+    /// before invoking). Reverse-flow region (`v_t <= 0`) is skipped
+    /// per-element.
+    #[inline(always)]
+    pub fn run<K: PsiKernel>(&self, kernel: &mut K) -> (f64, f64, f64, f64) {
+        let mut t_acc = 0.0;
+        let mut q_acc = 0.0;
+        let mut mx_acc = 0.0;
+        let mut my_acc = 0.0;
+        let inv_n_psi = 1.0 / (self.n_psi as f64);
+        let grid = self.grid;
+        let n_r = grid.r_mid.len();
+        for i_psi in 0..self.n_psi {
+            let psi = 2.0 * PI * (i_psi as f64) * inv_n_psi;
+            let cos_psi = psi.cos();
+            let sin_psi = psi.sin();
+            let v_t_extra = self.v_in_hub_x * sin_psi + self.v_in_hub_y * cos_psi;
+            let col_psi = self.col + self.theta_1c * cos_psi + self.theta_1s * sin_psi;
+            let mut rdt_sum = 0.0;
+            for i in 0..n_r {
+                let r = grid.r_mid[i];
+                let v_t = self.omega * r + v_t_extra;
+                if v_t <= 0.0 {
+                    continue;
+                }
+                let ctx = ElementCtx {
+                    i,
+                    cos_psi,
+                    sin_psi,
+                    r,
+                    chord: grid.chord[i],
+                    twist: grid.twist_rad[i],
+                    dr: grid.dr,
+                    col_psi,
+                    v_t,
+                };
+                let (dt, dq) = kernel.element(self, &ctx);
+                t_acc += dt;
+                q_acc += dq;
+                rdt_sum += r * dt;
+            }
+            mx_acc += rdt_sum * sin_psi;
+            my_acc += rdt_sum * cos_psi;
+        }
+        (
+            t_acc * inv_n_psi,
+            q_acc * inv_n_psi,
+            mx_acc * inv_n_psi,
+            my_acc * inv_n_psi,
+        )
+    }
 }

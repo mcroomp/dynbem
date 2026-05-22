@@ -73,26 +73,26 @@ def create_aero(
     """Build an aero model for a RotorDefinition.
 
     model
-      "bem"               BEMModel (Level 1, quasi-static inflow)
-      "pitt_peters"       PittPetersModel (Level 2, Pitt-Peters L-matrix)
-      "pitt_peters_jit"   alias for pitt_peters (Rust is already compiled)
-      "oye" / "oye_bem"   OyeBEMModel (Level 2, Oye 2-stage annular inflow)
+      "quasi_static" / "bem"   QuasiStaticBEM (Level 1, no dynamic inflow)
+      "pitt_peters"            PittPetersModel (Level 2, Pitt-Peters L-matrix)
+      "pitt_peters_jit"        alias for pitt_peters (Rust is already compiled)
+      "oye" / "oye_bem"        OyeBEMModel (Level 2, Oye 2-stage annular inflow)
     """
     if polar is None:
         polar = build_polar(defn.airfoil)
-    # Lazy import: the public BEMModel/PittPetersModel/OyeBEMModel are Python
-    # subclasses defined in dynbem/__init__.py after this module is imported,
-    # so we resolve them at call time rather than module-load time.
-    from . import BEMModel, OyeBEMModel, PittPetersModel  # noqa: WPS433
-    if model == "bem":
-        return BEMModel(defn, polar, n_psi_elements=n_psi_elements)
+    # Lazy import: the public QuasiStaticBEM/PittPetersModel/OyeBEMModel are
+    # Python subclasses defined in dynbem/__init__.py after this module is
+    # imported, so we resolve them at call time rather than module-load time.
+    from . import OyeBEMModel, PittPetersModel, QuasiStaticBEM  # noqa: WPS433
+    if model in ("quasi_static", "bem"):
+        return QuasiStaticBEM(defn, polar, n_psi_elements=n_psi_elements)
     if model in ("pitt_peters", "pitt_peters_jit", "jit", "pitt_peters_numpy"):
         return PittPetersModel(defn, polar, n_psi_elements=n_psi_elements)
     if model in ("oye", "oye_bem"):
         return OyeBEMModel(defn, polar, n_psi_elements=n_psi_elements)
     raise ValueError(
         f"Unknown aero model {model!r}. "
-        "Choose 'bem', 'pitt_peters', 'pitt_peters_jit', or 'oye'."
+        "Choose 'quasi_static' (alias 'bem'), 'pitt_peters', or 'oye'."
     )
 
 

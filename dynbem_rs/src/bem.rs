@@ -3,9 +3,11 @@
 
 use std::f64::consts::PI;
 
-use crate::aero_io::{AeroResult, RotorInputs, Vec3};
+use crate::aero_io::{AeroResult, RotorInputs};
 use crate::aero_model::AeroModel;
-use crate::bem_common::{assemble_result, kinematics, RadialGrid};
+use crate::bem_common::{
+    assemble_result, kinematics, ElementCtx, PsiKernel, RadialGrid, SweepCtx,
+};
 use crate::common::{EPS_DENOM, EPS_OMEGA_R, MIN_LOSS_FACTOR};
 use crate::cyclic::cyclic_coeffs;
 use crate::polar::{Polar, PolarKind};
@@ -469,18 +471,63 @@ fn solve_bem_element_windmill(
 }
 
 // ---------------------------------------------------------------------------
-// BEMModel: pyclass holding cached radial grid + polar
+// BEM PsiKernel: overrides element() entirely so the shared psi-loop runs
+// solve_bem_element (iterative quadratic) per (psi, r) instead of the
+// prescribed-inflow path PP and Oye use.
+// ---------------------------------------------------------------------------
+
+/// BEM-specific state for the shared psi-loop. Holds only what's *not*
+/// already in SweepCtx or ElementCtx -- so no per-call constant is
+/// duplicated. Everything here is either a model parameter (r_tip,
+/// root_cutout_m, use_tip_loss) or a flight-state value that no other
+/// model reads through the kernel interface (v_climb).
+struct BemKernel {
+    v_climb: f64,
+    r_tip: f64,
+    root_cutout_m: f64,
+    use_tip_loss: bool,
+}
+
+impl PsiKernel for BemKernel {
+    #[inline(always)]
+    fn element(&mut self, sweep: &SweepCtx<'_>, ctx: &ElementCtx) -> (f64, f64) {
+        // run_psi_loop already filtered v_t > 0; reconstruct v_t_extra from
+        // the convention v_t = omega*r + v_t_extra so we don't add another
+        // parameter to ElementCtx just for the BEM solver.
+        let v_t_extra = ctx.v_t - sweep.omega * ctx.r;
+        let elem = solve_bem_element(
+            ctx.r,
+            ctx.dr,
+            ctx.chord,
+            ctx.twist,
+            ctx.col_psi,
+            sweep.omega,
+            self.v_climb,
+            sweep.rho,
+            sweep.n_b,
+            self.r_tip,
+            sweep.polar,
+            self.use_tip_loss,
+            v_t_extra,
+            self.root_cutout_m,
+        );
+        (elem.d_t, elem.d_q)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// QuasiStaticBEM: pyclass holding cached radial grid + polar
 // ---------------------------------------------------------------------------
 
 #[derive(Clone)]
-pub struct BEMModel {
+pub struct QuasiStaticBEM {
     pub defn: RotorDefinition,
     pub n_psi_elements: usize,
     pub polar: PolarKind,
     pub grid: RadialGrid,
 }
 
-impl BEMModel {
+impl QuasiStaticBEM {
     pub fn build(defn: RotorDefinition, n_psi_elements: usize, polar: PolarKind) -> Self {
         let grid = RadialGrid::from_blade(&defn.blade);
         Self {
@@ -492,17 +539,15 @@ impl BEMModel {
     }
 }
 
-impl AeroModel for BEMModel {
+impl AeroModel for QuasiStaticBEM {
     type State = QuasiStaticRotorState;
 
     fn initial_state(&self) -> Self::State {
         QuasiStaticRotorState::default()
     }
 
-    fn inflow_taus(&self, _inputs: &RotorInputs, state: &Self::State) -> Vec<f64> {
-        // Quasi-static: every state is mechanical, no dynamic-inflow lags.
-        vec![f64::INFINITY; <Self::State as crate::aero_model::RotorStateExt>::n_dof(state)]
-    }
+    // inflow_taus: trait default (all-infinity) is correct for the
+    // quasi-static BEM model; no override needed.
 
     fn compute_forces(
         &self,
@@ -518,9 +563,10 @@ impl AeroModel for BEMModel {
         let grid = &self.grid;
 
         let kin = kinematics(inputs, omega, r_tip);
+        let omega_r = kin.omega_r;
         let hub_axis = kin.hub_axis;
         let v_climb = kin.v_climb;
-        let v_inplane = kin.v_inplane;
+        let v_inplane_hub = kin.v_inplane_hub;
         let mu = kin.mu;
 
         let n = blade.n_elements;
@@ -540,50 +586,33 @@ impl AeroModel for BEMModel {
         let mut my_hub: f64 = 0.0;
 
         if (mu > 0.01 || has_cyclic) && omega > 1.0 {
-            // psi-loop with reverse-flow skip and per-azimuth cyclic.
-            let n_psi = self.n_psi_elements;
-            for i_psi in 0..n_psi {
-                let psi = 2.0 * PI * (i_psi as f64) / (n_psi as f64);
-                let sin_psi = psi.sin();
-                let cos_psi = psi.cos();
-                // t_hat in hub frame = [-sin psi, -cos psi, 0]
-                let t_hat_hub = Vec3::new(-sin_psi, -cos_psi, 0.0);
-                let t_hat_ned = inputs.R_hub * t_hat_hub;
-                let v_t_extra = -v_inplane.dot(t_hat_ned);
-                let col_psi = inputs.collective_rad + theta_1c * cos_psi + theta_1s * sin_psi;
-
-                for i_r in 0..n {
-                    let r = r_arr[i_r];
-                    if omega * r + v_t_extra <= 0.0 {
-                        continue;
-                    }
-                    let elem = solve_bem_element(
-                        r,
-                        dr,
-                        chord[i_r],
-                        twist[i_r],
-                        col_psi,
-                        omega,
-                        v_climb,
-                        rho,
-                        n_blades,
-                        r_tip,
-                        &self.polar,
-                        use_tip_loss,
-                        v_t_extra,
-                        blade.root_cutout_m,
-                    );
-                    t_total += elem.d_t;
-                    q_total += elem.d_q;
-                    mx_hub += r * elem.d_t * sin_psi;
-                    my_hub += r * elem.d_t * cos_psi;
-                }
-            }
-            let inv = 1.0 / (self.n_psi_elements as f64);
-            t_total *= inv;
-            q_total *= inv;
-            mx_hub *= inv;
-            my_hub *= inv;
+            // Forward / cyclic: shared psi-loop with the iterative solver
+            // injected via BemKernel::element override.
+            let mut kernel = BemKernel {
+                v_climb,
+                r_tip,
+                root_cutout_m: blade.root_cutout_m,
+                use_tip_loss,
+            };
+            let sweep = SweepCtx {
+                grid,
+                polar: &self.polar,
+                col: inputs.collective_rad,
+                omega,
+                omega_r,
+                rho,
+                n_b: n_blades,
+                n_psi: self.n_psi_elements,
+                v_in_hub_x: v_inplane_hub[0],
+                v_in_hub_y: v_inplane_hub[1],
+                theta_1c,
+                theta_1s,
+            };
+            let (t, q, mx, my) = sweep.run(&mut kernel);
+            t_total = t;
+            q_total = q;
+            mx_hub = mx;
+            my_hub = my;
         } else {
             // Axial: try wind-turbine windmill solver first when v_climb < 0,
             // fall back to helicopter quadratic per element.

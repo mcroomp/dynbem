@@ -27,7 +27,7 @@ from ._dynbem import (  # noqa: F401
     AeroResult,
     TrimResult,
 )
-from ._dynbem import BEMModel as _BEMModel  # noqa: F401
+from ._dynbem import QuasiStaticBEM as _QuasiStaticBEM  # noqa: F401
 from ._dynbem import PittPetersModel as _PittPetersModel  # noqa: F401
 from ._dynbem import OyeBEMModel as _OyeBEMModel  # noqa: F401
 from .factory import create_aero, build_polar, load_tabulated_polar  # noqa: F401
@@ -37,16 +37,23 @@ from .trim import solve_trim_cyclic, relax_inflow  # noqa: F401
 # ---------------------------------------------------------------------------
 # Python subclasses of the Rust model pyclasses that auto-build a polar
 # from the rotor's AirfoilProperties when none is given. This restores the
-# legacy `BEMModel(defn=...)` ergonomics, including loading the tabulated
-# polar from the YAML's polar_csv (which Rust's auto-default LinearPolar
-# can't do because it doesn't read files).
+# legacy `QuasiStaticBEM(defn=...)` ergonomics, including loading the
+# tabulated polar from the YAML's polar_csv (which Rust's auto-default
+# LinearPolar can't do because it doesn't read files).
 # ---------------------------------------------------------------------------
 
-class BEMModel(_BEMModel):
+class QuasiStaticBEM(_QuasiStaticBEM):
     def __new__(cls, defn, polar=None, n_psi_elements=36):
         if polar is None:
             polar = build_polar(defn.airfoil)
-        return _BEMModel.__new__(cls, defn, polar, n_psi_elements)
+        return _QuasiStaticBEM.__new__(cls, defn, polar, n_psi_elements)
+
+
+# Backwards-compat alias. The model used to be named `BEMModel`, but
+# "BEM" is the family that PittPetersModel and OyeBEMModel also belong
+# to -- the distinguishing feature of this one is quasi-static inflow.
+# Existing callers and YAML configs that reference `BEMModel` keep working.
+BEMModel = QuasiStaticBEM
 
 
 class PittPetersModel(_PittPetersModel):
@@ -85,10 +92,10 @@ RotorState.register(OyeRotorState)
 
 class AeroBase(ABC):
     """Virtual base for aero models. The three concrete model classes
-    (BEMModel, PittPetersModel, OyeBEMModel) are registered at import."""
+    (QuasiStaticBEM, PittPetersModel, OyeBEMModel) are registered at import."""
 
 
-AeroBase.register(BEMModel)
+AeroBase.register(QuasiStaticBEM)
 AeroBase.register(PittPetersModel)
 AeroBase.register(OyeBEMModel)
 
@@ -111,7 +118,7 @@ __all__ = [
     "RotorDefinition",
     "QuasiStaticRotorState", "PittPetersRotorState", "OyeRotorState",
     "RotorInputs", "AeroResult",
-    "BEMModel", "PittPetersModel", "OyeBEMModel",
+    "QuasiStaticBEM", "BEMModel", "PittPetersModel", "OyeBEMModel",
     "TrimResult",
     # virtual ABCs
     "AeroBase", "RotorState",

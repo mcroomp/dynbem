@@ -6,19 +6,19 @@ use std::f64::consts::PI;
 use crate::aero_io::{AeroResult, RotorInputs};
 use crate::aero_model::AeroModel;
 use crate::bem_common::{
-    assemble_result, element_force, kinematics, run_psi_loop, vrs_regime, PsiKernel, RadialGrid,
+    assemble_result, element_force, kinematics, v_t_disk, vrs_regime, ElementCtx, PsiKernel,
+    RadialGrid, SweepCtx,
 };
-use crate::common::{
-    vrs_lambda1, EPS_DENOM, EPS_OMEGA_R, MU_T_FLOOR, V_T_HOVER_FLOOR_FRAC,
-};
+use crate::common::{vrs_lambda1, EPS_DENOM, EPS_OMEGA_R, MU_T_FLOOR};
 use crate::cyclic::cyclic_coeffs;
 use crate::polar::PolarKind;
 use crate::rotor_definition::RotorDefinition;
 use crate::rotor_state::PittPetersRotorState;
 
 /// Sum thrust and torque over radial elements in axial flight (mu = 0).
-/// Plain scalar loop; LLVM auto-vectorizes the arithmetic between the
-/// transcendentals.
+/// Fast path bypassing the full psi-loop -- builds a single SweepCtx
+/// (n_psi=1, zero cyclic, zero in-plane wind) and calls element_force
+/// directly with the prescribed v_a = lambda_total * omega_r.
 #[allow(clippy::too_many_arguments)]
 fn axial_forces(
     grid: &RadialGrid,
@@ -30,28 +30,41 @@ fn axial_forces(
     n_b: usize,
     polar: &PolarKind,
 ) -> (f64, f64) {
+    let sweep = SweepCtx {
+        grid,
+        polar,
+        col,
+        omega,
+        omega_r,
+        rho,
+        n_b,
+        n_psi: 1,
+        v_in_hub_x: 0.0,
+        v_in_hub_y: 0.0,
+        theta_1c: 0.0,
+        theta_1s: 0.0,
+    };
     let mut t_acc = 0.0;
     let mut q_acc = 0.0;
     let v_a = lambda_total * omega_r;
-    let n_bf = n_b as f64;
     for i in 0..grid.r_mid.len() {
         let r = grid.r_mid[i];
         let v_t = omega * r;
         if v_t < EPS_DENOM {
             continue;
         }
-        let (dt, dq) = element_force(
-            v_a,
-            v_t,
-            col,
-            grid.twist_rad[i],
+        let ctx = ElementCtx {
+            i,
+            cos_psi: 1.0,
+            sin_psi: 0.0,
             r,
-            grid.chord[i],
-            grid.dr,
-            rho,
-            n_bf,
-            polar,
-        );
+            chord: grid.chord[i],
+            twist: grid.twist_rad[i],
+            dr: grid.dr,
+            col_psi: col,
+            v_t,
+        };
+        let (dt, dq) = element_force(v_a, &sweep, &ctx);
         t_acc += dt;
         q_acc += dq;
     }
@@ -109,11 +122,9 @@ impl AeroModel for PittPetersModel {
         let r_tip = self.defn.blade.radius_m;
         let kin = kinematics(inputs, state.omega_rad_s, r_tip);
         let v0 = state.lambda_0 * kin.omega_r;
-        let v_t_disk = (kin.v_edge * kin.v_edge + (kin.v_climb + v0).powi(2))
-            .sqrt()
-            .max(V_T_HOVER_FLOOR_FRAC * kin.omega_r.max(1.0));
-        let tau_0 = (8.0 * r_tip) / (3.0 * PI * v_t_disk);
-        let tau_cs = (16.0 * r_tip) / (45.0 * PI * v_t_disk);
+        let vt = v_t_disk(kin.v_edge, kin.v_climb, v0, kin.omega_r);
+        let tau_0 = (8.0 * r_tip) / (3.0 * PI * vt);
+        let tau_cs = (16.0 * r_tip) / (45.0 * PI * vt);
         vec![tau_0, tau_cs, tau_cs, f64::INFINITY, f64::INFINITY]
     }
 
@@ -162,21 +173,21 @@ impl AeroModel for PittPetersModel {
                     lam_s,
                     x_mid: &self.grid.x_mid,
                 };
-                let (t, q, mx, my) = run_psi_loop(
-                    &mut kernel,
-                    &self.grid,
-                    inputs.collective_rad,
+                let sweep = SweepCtx {
+                    grid: &self.grid,
+                    polar: &self.polar,
+                    col: inputs.collective_rad,
                     omega,
                     omega_r,
                     rho,
-                    blade.n_blades,
-                    self.n_psi_elements,
-                    v_inplane_hub[0],
-                    v_inplane_hub[1],
+                    n_b: blade.n_blades,
+                    n_psi: self.n_psi_elements,
+                    v_in_hub_x: v_inplane_hub[0],
+                    v_in_hub_y: v_inplane_hub[1],
                     theta_1c,
                     theta_1s,
-                    &self.polar,
-                );
+                };
+                let (t, q, mx, my) = sweep.run(&mut kernel);
                 t_total = t;
                 q_total = q;
                 mx_hub = mx;
@@ -203,12 +214,10 @@ impl AeroModel for PittPetersModel {
         let vrs = vrs_regime(t_total, v_climb, rho, area);
 
         let v0 = lam0 * omega_r;
-        let v_t_disk = (v_edge * v_edge + (v_climb + v0).powi(2))
-            .sqrt()
-            .max(V_T_HOVER_FLOOR_FRAC * omega_r.max(1.0));
+        let vt_disk = v_t_disk(v_edge, v_climb, v0, omega_r);
 
         let mu_t_eff = (if omega_r > EPS_OMEGA_R {
-            v_t_disk / omega_r
+            vt_disk / omega_r
         } else {
             0.0
         })
@@ -223,7 +232,7 @@ impl AeroModel for PittPetersModel {
         let l_cc = 4.0 * cos_chi / (1.0 + cos_chi);
         let l_ss = 4.0 / (1.0 + cos_chi);
 
-        let norm = rho * area * omega_r * r_tip * v_t_disk;
+        let norm = rho * area * omega_r * r_tip * vt_disk;
         let c_l_hub = if norm > EPS_DENOM { mx_hub / norm } else { 0.0 };
         let c_m_hub = if norm > EPS_DENOM { my_hub / norm } else { 0.0 };
 
@@ -234,7 +243,7 @@ impl AeroModel for PittPetersModel {
                 0.0
             }
         } else if omega_r > EPS_OMEGA_R {
-            t_total / (2.0 * rho * area * v_t_disk * omega_r) + l_off * c_m_hub / mu_t_eff
+            t_total / (2.0 * rho * area * vt_disk * omega_r) + l_off * c_m_hub / mu_t_eff
         } else {
             0.0
         };
@@ -247,8 +256,8 @@ impl AeroModel for PittPetersModel {
         let lam_c_ss = (-l_off * c_t + l_cc * c_m_hub) / mu_t_eff;
         let lam_s_ss = (l_ss * c_l_hub) / mu_t_eff;
 
-        let tau_0 = (8.0 * r_tip) / (3.0 * PI * v_t_disk);
-        let tau_cs = (16.0 * r_tip) / (45.0 * PI * v_t_disk);
+        let tau_0 = (8.0 * r_tip) / (3.0 * PI * vt_disk);
+        let tau_cs = (16.0 * r_tip) / (45.0 * PI * vt_disk);
 
         let d_lam0 = (lam0_ss - lam0) / tau_0;
         let d_lam_c = (lam_c_ss - lam_c) / tau_cs;

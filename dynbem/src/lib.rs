@@ -137,7 +137,7 @@ fn _dynbem(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyOyeRotorState>()?;
     m.add_class::<PyRotorInputs>()?;
     m.add_class::<PyAeroResult>()?;
-    m.add_class::<PyBEMModel>()?;
+    m.add_class::<PyQuasiStaticBEM>()?;
     m.add_class::<PyPittPetersModel>()?;
     m.add_class::<PyOyeBEMModel>()?;
     m.add_class::<PyTrimResult>()?;

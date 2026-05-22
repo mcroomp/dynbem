@@ -1185,12 +1185,12 @@ impl PyAeroResult {
 
 use dynbem_rs::aero_model::AeroModel as _;
 
-#[pyclass(name = "BEMModel", module = "dynbem._dynbem", subclass)]
+#[pyclass(name = "QuasiStaticBEM", module = "dynbem._dynbem", subclass)]
 #[derive(Clone)]
-pub struct PyBEMModel(pub core_::bem::BEMModel);
+pub struct PyQuasiStaticBEM(pub core_::bem::QuasiStaticBEM);
 
 #[pymethods]
-impl PyBEMModel {
+impl PyQuasiStaticBEM {
     #[new]
     #[pyo3(signature = (defn, polar = None, n_psi_elements = 36))]
     fn new(
@@ -1199,7 +1199,7 @@ impl PyBEMModel {
         n_psi_elements: usize,
     ) -> PyResult<Self> {
         let polar = resolve_polar(polar, &defn.0)?;
-        Ok(PyBEMModel(core_::bem::BEMModel::build(
+        Ok(PyQuasiStaticBEM(core_::bem::QuasiStaticBEM::build(
             defn.0,
             n_psi_elements,
             polar,

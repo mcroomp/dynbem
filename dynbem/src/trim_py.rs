@@ -2,7 +2,7 @@
 // The actual trim math is in dynbem_rs::trim, generic over AeroModel.
 
 use crate::wrappers::{
-    PyBEMModel, PyOyeBEMModel, PyOyeRotorState, PyPittPetersModel, PyPittPetersRotorState,
+    PyOyeBEMModel, PyOyeRotorState, PyPittPetersModel, PyPittPetersRotorState, PyQuasiStaticBEM,
     PyQuasiStaticRotorState, PyRotorInputs,
 };
 use dynbem_rs::trim::{relax_inflow, solve_trim_cyclic};
@@ -10,15 +10,15 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
 enum AeroAny {
-    Bem(dynbem_rs::bem::BEMModel),
+    QuasiStaticBEM(dynbem_rs::bem::QuasiStaticBEM),
     PittPeters(dynbem_rs::pitt_peters::PittPetersModel),
     Oye(dynbem_rs::oye::OyeBEMModel),
 }
 
 impl AeroAny {
     fn from_py(obj: &Bound<'_, PyAny>) -> PyResult<Self> {
-        if let Ok(m) = obj.extract::<PyBEMModel>() {
-            return Ok(AeroAny::Bem(m.0));
+        if let Ok(m) = obj.extract::<PyQuasiStaticBEM>() {
+            return Ok(AeroAny::QuasiStaticBEM(m.0));
         }
         if let Ok(m) = obj.extract::<PyPittPetersModel>() {
             return Ok(AeroAny::PittPeters(m.0));
@@ -27,7 +27,7 @@ impl AeroAny {
             return Ok(AeroAny::Oye(m.0));
         }
         Err(PyValueError::new_err(
-            "aero must be BEMModel, PittPetersModel, or OyeBEMModel",
+            "aero must be QuasiStaticBEM, PittPetersModel, or OyeBEMModel",
         ))
     }
 }
@@ -102,7 +102,7 @@ pub fn solve_trim_cyclic_py(
 ) -> PyResult<PyTrimResult> {
     let model = AeroAny::from_py(aero)?;
     match model {
-        AeroAny::Bem(m) => {
+        AeroAny::QuasiStaticBEM(m) => {
             let s = state.extract::<PyQuasiStaticRotorState>()?.0;
             let out = solve_trim_cyclic(
                 &m,
@@ -208,7 +208,7 @@ pub fn relax_inflow_py(
 ) -> PyResult<PyObject> {
     let model = AeroAny::from_py(aero)?;
     match model {
-        AeroAny::Bem(m) => {
+        AeroAny::QuasiStaticBEM(m) => {
             let s = state.extract::<PyQuasiStaticRotorState>()?.0;
             let out = relax_inflow(&m, s, &inputs.0, n_steps, dt, fix_omega);
             Ok(PyQuasiStaticRotorState(out).into_py(py))
