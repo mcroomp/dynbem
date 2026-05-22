@@ -1,0 +1,10 @@
+services:
+  # Build with:   docker compose build
+  # Run default:  docker compose run --rm xrotor
+  # Run custom:   docker compose run --rm xrotor --config /in/<other>.yaml
+  xrotor:
+    build: .
+    image: aero/xrotor:1.3.1
+    volumes:
+      - ./inputs:/in:ro
+      - ../data:/out

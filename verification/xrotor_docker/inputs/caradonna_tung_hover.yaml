@@ -1,0 +1,69 @@
+# Caradonna & Tung (1981) NASA TM-81232 hover rotor.
+#
+# Geometry: 2 blades, NACA 0012, untwisted untapered, R = 1.143 m,
+# chord = 0.1905 m. Paper reports CT at three collective pitches
+# (5/8/12 deg) at several rotor speeds; CT is roughly constant with
+# RPM in the incompressible regime (M_tip <~ 0.6).
+#
+# This is the cross-check that AeroDyn could not run cleanly (its BEM
+# iterates on a = v_a/V_inf which is undefined at V_inf = 0).  XRotor's
+# free-tip potential formulation handles static-thrust hover natively.
+
+name: caradonna_tung_hover
+
+rotor:
+  n_blades: 2
+  R_hub_m: 0.20            # aerodynamic start of blade (~17% R, conservative)
+  R_tip_m: 1.143
+
+air:
+  rho: 1.225
+  mu:  1.81206e-5
+  a:   340.0
+
+# Constant-chord untwisted; 15 evenly spaced radial stations.
+blade_stations:
+  - {r_m: 0.221, chord_m: 0.1905, twist_deg: 0.0}
+  - {r_m: 0.288, chord_m: 0.1905, twist_deg: 0.0}
+  - {r_m: 0.355, chord_m: 0.1905, twist_deg: 0.0}
+  - {r_m: 0.422, chord_m: 0.1905, twist_deg: 0.0}
+  - {r_m: 0.489, chord_m: 0.1905, twist_deg: 0.0}
+  - {r_m: 0.557, chord_m: 0.1905, twist_deg: 0.0}
+  - {r_m: 0.624, chord_m: 0.1905, twist_deg: 0.0}
+  - {r_m: 0.691, chord_m: 0.1905, twist_deg: 0.0}
+  - {r_m: 0.758, chord_m: 0.1905, twist_deg: 0.0}
+  - {r_m: 0.825, chord_m: 0.1905, twist_deg: 0.0}
+  - {r_m: 0.892, chord_m: 0.1905, twist_deg: 0.0}
+  - {r_m: 0.959, chord_m: 0.1905, twist_deg: 0.0}
+  - {r_m: 1.026, chord_m: 0.1905, twist_deg: 0.0}
+  - {r_m: 1.093, chord_m: 0.1905, twist_deg: 0.0}
+  - {r_m: 1.135, chord_m: 0.1905, twist_deg: 0.0}
+
+# NACA 0012 polar, same coarse table as the openfast YAML.  Includes
+# Cm column (XRotor uses 4-column polars: alpha, Cl, Cd, Cm).
+airfoil_polar:
+  Re: 1.5e6
+  points:
+    - {alpha_deg: -180.0, cl:  0.000, cd: 0.030, cm:  0.000}
+    - {alpha_deg:  -25.0, cl: -1.000, cd: 0.300, cm:  0.000}
+    - {alpha_deg:  -15.0, cl: -1.300, cd: 0.025, cm:  0.000}
+    - {alpha_deg:  -12.0, cl: -1.250, cd: 0.020, cm:  0.000}
+    - {alpha_deg:   -8.0, cl: -0.880, cd: 0.012, cm:  0.000}
+    - {alpha_deg:   -4.0, cl: -0.440, cd: 0.0085, cm: 0.000}
+    - {alpha_deg:   -2.0, cl: -0.220, cd: 0.0080, cm: 0.000}
+    - {alpha_deg:    0.0, cl:  0.000, cd: 0.0080, cm: 0.000}
+    - {alpha_deg:    2.0, cl:  0.220, cd: 0.0080, cm: 0.000}
+    - {alpha_deg:    4.0, cl:  0.440, cd: 0.0085, cm: 0.000}
+    - {alpha_deg:    6.0, cl:  0.660, cd: 0.0095, cm: 0.000}
+    - {alpha_deg:    8.0, cl:  0.880, cd: 0.012, cm:  0.000}
+    - {alpha_deg:   10.0, cl:  1.100, cd: 0.016, cm:  0.000}
+    - {alpha_deg:   12.0, cl:  1.250, cd: 0.020, cm:  0.000}
+    - {alpha_deg:   15.0, cl:  1.300, cd: 0.025, cm:  0.000}
+    - {alpha_deg:   25.0, cl:  1.000, cd: 0.300, cm:  0.000}
+    - {alpha_deg:  180.0, cl:  0.000, cd: 0.030, cm:  0.000}
+
+# Hover at 1250 rpm, three pitch settings to match the paper figures.
+operating_points:
+  - {U_wind_ms: 0.0, Omega_rpm: 1250.0, pitch_deg:  5.0}
+  - {U_wind_ms: 0.0, Omega_rpm: 1250.0, pitch_deg:  8.0}
+  - {U_wind_ms: 0.0, Omega_rpm: 1250.0, pitch_deg: 12.0}
