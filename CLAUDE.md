@@ -192,27 +192,38 @@ hover data — defer until needed.
 
 ### Shared BEM infrastructure (`dynbem_rs/src/bem_common.rs`)
 
-Both `PittPetersModel` and `OyeBEMModel` (in `dynbem_rs/src/pitt_peters.rs`
-and `dynbem_rs/src/oye.rs`) use the shared types in
+`BEMModel`, `PittPetersModel`, and `OyeBEMModel` (in `dynbem_rs/src/bem.rs`,
+`pitt_peters.rs`, `oye.rs`) all delegate to the helpers in
 `dynbem_rs/src/bem_common.rs`:
 
-- `PolarTable` — contiguous-array polar tabulation used by the
-  per-element polar lookup in the ψ-loop
-- `RadialGrid` — one-time radial geometry caching
-- `vrs_lambda1` (in `dynbem_rs/src/common.rs`) — Leishman VRS
-  empirical polynomial
+- `PolarTable` — contiguous-array polar tabulation.
+- `RadialGrid` — one-time radial geometry caching (r_mid, x_mid, chord,
+  twist per station).
+- `vrs_lambda1` (in `dynbem_rs/src/common.rs`) — Leishman VRS polynomial.
+- `kinematics()` → `Kinematics` — once-per-call hub-frame setup
+  (`omega_r`, `hub_axis`, `v_climb`, `v_inplane`, `v_edge`,
+  `v_inplane_hub`, `mu`). Identical across all three models.
+- `vrs_regime()` → `VrsRegime` — `(v_h, lam2, in_vrs)` from
+  `(T, v_climb, ρ, A)`. Shared by Pitt-Peters and Øye.
+- `assemble_result()` — builds `AeroResult` (F_world, M_orbital, Q_spin,
+  M_spin) from `(T, Q, Mx_hub, My_hub)` + hub axes. Used by all three.
+- `element_force()` — `#[inline(always)]` per-element BEM integrand
+  returning `(dT, dQ)` given `(v_a, v_t, col_psi, twist, …, polar)`.
+  Used by every radial inner loop.
+- `PsiKernel` trait + `run_psi_loop()` — the single ψ × r kernel used
+  by Pitt-Peters and Øye. Each model implements `PsiKernel` for its own
+  `lam_local(i, cos ψ, sin ψ)` formula and (optionally) the
+  `on_element` per-element callback. Monomorphized over `K: PsiKernel`
+  with `#[inline(always)]` on the trait methods, so codegen is
+  identical to a hand-rolled loop — there is no `dyn` here, the trait
+  is used as a *static interface*.
 
-Hot-path kinematics (`Omega_R`, `hub_axis`, `v_climb`, `v_edge`,
-`v_inplane_hub`) and `AeroResult` assembly are **deliberately inline**
-in each model's `compute_forces` to keep LLVM autovectorization
-visible. Each is ~10 lines and identical across models — duplicate
-it deliberately rather than abstract.
-
-If you find yourself wanting to share more across models: the ψ-loop
-kernels are the largest duplicated structure, but they have
-model-specific `lam_local(r, ψ)` formulas and the per-model trait
-implementations are easier to autovectorize when not hidden behind
-closures. Don't try to unify them.
+Reach for these helpers when adding a new model rather than duplicating
+the math. The earlier guidance in this section ("don't unify the
+ψ-loop kernels") was written before the helpers existed and reflected
+a worry about JIT/closure overhead that doesn't apply to monomorphized
+Rust generics — empirical timing (see `dynbem/benchmarks/bench_rust_only.py`)
+confirms zero perf cost from the trait abstraction.
 
 ### Wind-axis rotation — NOT applied (limitation)
 

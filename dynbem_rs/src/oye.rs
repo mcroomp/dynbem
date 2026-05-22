@@ -3,14 +3,14 @@
 
 use std::f64::consts::PI;
 
-use crate::aero_io::{AeroResult, RotorInputs, Vec3};
+use crate::aero_io::{AeroResult, RotorInputs};
 use crate::aero_model::AeroModel;
-use crate::bem_common::RadialGrid;
-use crate::common::{
-    vrs_lambda1, EPS_DENOM, EPS_OMEGA_R, VRS_DESCENT_THRESHOLD, V_T_HOVER_FLOOR_FRAC,
+use crate::bem_common::{
+    assemble_result, kinematics, run_psi_loop, vrs_regime, PsiKernel, RadialGrid,
 };
+use crate::common::{vrs_lambda1, EPS_OMEGA_R, VRS_DESCENT_THRESHOLD, V_T_HOVER_FLOOR_FRAC};
 use crate::cyclic::cyclic_coeffs;
-use crate::polar::{Polar, PolarKind};
+use crate::polar::PolarKind;
 use crate::rotor_definition::RotorDefinition;
 use crate::rotor_state::OyeRotorState;
 
@@ -29,80 +29,28 @@ const A_AVG_CLAMP: f64 = 0.5;
 /// without poisoning later steps.
 const W_QS_CLAMP: f64 = 1.0;
 
-/// psi-loop kernel with per-annulus inflow W[i] (no harmonic decomposition).
+/// Oye psi-loop kernel.
 ///
-/// Side effect: writes per-annulus azimuth-averaged dT into out_dt_avg
-/// (caller pre-allocates) -- needed downstream for W_qs and the
-/// per-annulus filter ODE. Mirrors PittPetersModel's fwd_forces but the
-/// local inflow at (r, psi) is just lambda_climb + W[i], not the
-/// lambda_0 + x*(lam_c cos psi + lam_s sin psi) Pitt-Peters expansion.
-#[allow(clippy::too_many_arguments)]
-fn psi_loop(
-    grid: &RadialGrid,
-    col: f64,
-    omega: f64,
-    omega_r: f64,
+/// Local inflow is per-annulus and azimuth-independent:
+///     lam_local = lambda_climb + W[i].
+/// Side effect via on_element: accumulates the azimuth-averaged dT into
+/// `dt_avg[i]`, which the W_qs solver consumes downstream.
+struct OyeKernel<'a> {
     lambda_climb: f64,
-    w: &[f64],
-    rho: f64,
-    n_b: usize,
-    n_psi: usize,
-    v_in_hub_x: f64,
-    v_in_hub_y: f64,
-    theta_1c: f64,
-    theta_1s: f64,
-    polar: &PolarKind,
-    out_dt_avg: &mut [f64],
-) -> (f64, f64, f64, f64) {
-    let n_r = grid.r_mid.len();
-    for v in out_dt_avg.iter_mut().take(n_r) {
-        *v = 0.0;
-    }
-    let n_bf = n_b as f64;
-    let inv_n_psi = 1.0 / (n_psi as f64);
-    let mut t_acc = 0.0;
-    let mut q_acc = 0.0;
-    let mut mx_acc = 0.0;
-    let mut my_acc = 0.0;
+    w: &'a [f64],
+    dt_avg: &'a mut [f64],
+}
 
-    for i_psi in 0..n_psi {
-        let psi = 2.0 * PI * (i_psi as f64) * inv_n_psi;
-        let cos_psi = psi.cos();
-        let sin_psi = psi.sin();
-        let v_t_extra = v_in_hub_x * sin_psi + v_in_hub_y * cos_psi;
-        let col_psi = col + theta_1c * cos_psi + theta_1s * sin_psi;
-        let mut rdt_sum = 0.0;
-        for i in 0..n_r {
-            let r = grid.r_mid[i];
-            let v_t = omega * r + v_t_extra;
-            if v_t <= 0.0 {
-                continue;
-            }
-            let lam_local = lambda_climb + w[i];
-            let v_a = lam_local * omega_r;
-            let phi = v_a.atan2(v_t);
-            let alpha = col_psi + grid.twist_rad[i] - phi;
-            let (cl, cd) = polar.cl_cd(alpha);
-            let cos_p = phi.cos();
-            let sin_p = phi.sin();
-            let cn = cl * cos_p - cd * sin_p;
-            let ct = cl * sin_p + cd * cos_p;
-            let q = 0.5 * rho * (v_a * v_a + v_t * v_t) * grid.chord[i] * grid.dr * n_bf;
-            let dt = q * cn;
-            t_acc += dt;
-            q_acc += q * ct * r;
-            rdt_sum += r * dt;
-            out_dt_avg[i] += dt * inv_n_psi;
-        }
-        mx_acc += rdt_sum * sin_psi;
-        my_acc += rdt_sum * cos_psi;
+impl<'a> PsiKernel for OyeKernel<'a> {
+    #[inline(always)]
+    fn lam_local(&self, i: usize, _cos_psi: f64, _sin_psi: f64) -> f64 {
+        self.lambda_climb + self.w[i]
     }
-    (
-        t_acc * inv_n_psi,
-        q_acc * inv_n_psi,
-        mx_acc * inv_n_psi,
-        my_acc * inv_n_psi,
-    )
+
+    #[inline(always)]
+    fn on_element(&mut self, i: usize, dt: f64, inv_n_psi: f64) {
+        self.dt_avg[i] += dt * inv_n_psi;
+    }
 }
 
 /// Quasi-steady annulus inflow from Glauert mass-flow momentum balance.
@@ -177,18 +125,15 @@ impl AeroModel for OyeBEMModel {
     }
 
     fn inflow_taus(&self, inputs: &RotorInputs, state: &Self::State) -> Vec<f64> {
-        let omega = state.omega_rad_s;
         let r_tip = self.defn.blade.radius_m;
         let n = self.defn.blade.n_elements;
-        let omega_r = omega * r_tip;
+        let kin = kinematics(inputs, state.omega_rad_s, r_tip);
+        let omega_r = kin.omega_r;
         if omega_r < EPS_OMEGA_R {
             return vec![f64::INFINITY; 2 * n + 2];
         }
-        let z_hub = Vec3::new(0.0, 0.0, 1.0);
-        let hub_axis = inputs.R_hub * z_hub;
-        let v_rel = inputs.wind_world - inputs.v_hub_world;
-        let v_climb = v_rel.dot(hub_axis);
-        let v_edge = (v_rel - hub_axis * v_climb).norm();
+        let v_climb = kin.v_climb;
+        let v_edge = kin.v_edge;
         let w_mean: f64 = if n > 0 {
             state.W.iter().sum::<f64>() / (n as f64)
         } else {
@@ -222,14 +167,12 @@ impl AeroModel for OyeBEMModel {
         let r_tip = blade.radius_m;
         let n = blade.n_elements;
 
-        let omega_r = omega * r_tip;
-        let z_hub = Vec3::new(0.0, 0.0, 1.0);
-        let hub_axis = inputs.R_hub * z_hub;
-        let v_rel = inputs.wind_world - inputs.v_hub_world;
-        let v_climb = v_rel.dot(hub_axis);
-        let v_inplane = v_rel - hub_axis * v_climb;
-        let v_edge = v_inplane.norm();
-        let v_inplane_hub = inputs.R_hub.transpose() * v_inplane;
+        let kin = kinematics(inputs, omega, r_tip);
+        let omega_r = kin.omega_r;
+        let hub_axis = kin.hub_axis;
+        let v_climb = kin.v_climb;
+        let v_edge = kin.v_edge;
+        let v_inplane_hub = kin.v_inplane_hub;
 
         let gains = self.defn.control_gains();
         let (theta_1c, theta_1s) = cyclic_coeffs(inputs.tilt_lon, inputs.tilt_lat, gains);
@@ -242,13 +185,17 @@ impl AeroModel for OyeBEMModel {
         };
         let mut dt_avg = vec![0.0f64; n];
         let (t_total, q_total, mx_hub, my_hub) = if omega_r > EPS_OMEGA_R && omega > 1.0 {
-            psi_loop(
+            let mut kernel = OyeKernel {
+                lambda_climb,
+                w: &state.W,
+                dt_avg: &mut dt_avg,
+            };
+            run_psi_loop(
+                &mut kernel,
                 &self.grid,
                 inputs.collective_rad,
                 omega,
                 omega_r,
-                lambda_climb,
-                &state.W,
                 rho,
                 blade.n_blades,
                 self.n_psi_elements,
@@ -257,7 +204,6 @@ impl AeroModel for OyeBEMModel {
                 theta_1c,
                 theta_1s,
                 &self.polar,
-                &mut dt_avg,
             )
         } else {
             (0.0, 0.0, 0.0, 0.0)
@@ -275,26 +221,11 @@ impl AeroModel for OyeBEMModel {
             .max(V_T_HOVER_FLOOR_FRAC * omega_r.max(1.0));
         let mu_t = v_t_disk / omega_r.max(EPS_OMEGA_R);
 
-        let rho_a = rho * PI * r_tip * r_tip;
-        let t_pos = t_total.max(0.0);
-        let v_h = if t_pos > EPS_OMEGA_R {
-            (t_pos / (2.0 * rho_a)).sqrt()
-        } else {
-            0.0
-        };
-        let v_c = (-v_climb).max(0.0);
-        let lam2 = if v_h > VRS_DESCENT_THRESHOLD {
-            v_c / v_h
-        } else {
-            0.0
-        };
+        let area = PI * r_tip * r_tip;
+        let vrs = vrs_regime(t_total, v_climb, rho, area);
 
-        let w_qs: Vec<f64> = if v_climb < -VRS_DESCENT_THRESHOLD
-            && lam2 > 0.0
-            && lam2 < 2.0
-            && omega_r > EPS_OMEGA_R
-        {
-            let w_uniform = vrs_lambda1(lam2) * v_h / omega_r;
+        let w_qs: Vec<f64> = if vrs.in_vrs && omega_r > EPS_OMEGA_R {
+            let w_uniform = vrs_lambda1(vrs.lam2) * vrs.v_h / omega_r;
             vec![w_uniform; n]
         } else {
             solve_w_qs(
@@ -328,17 +259,7 @@ impl AeroModel for OyeBEMModel {
         let d_omega = (-q_total + inputs.motor_torque_Nm) / i_ode;
         let d_psi = omega;
 
-        let f_world = hub_axis * (-t_total);
-        let mxyz_hub = Vec3::new(mx_hub, my_hub, 0.0);
-        let m_orbital = inputs.R_hub * mxyz_hub;
-        let m_spin = hub_axis * q_total;
-
-        let result = AeroResult {
-            F_world: f_world,
-            M_orbital: m_orbital,
-            Q_spin: q_total,
-            M_spin: m_spin,
-        };
+        let result = assemble_result(t_total, q_total, mx_hub, my_hub, hub_axis, &inputs.R_hub);
         let derivative = OyeRotorState {
             W_int: d_w_int,
             W: d_w,

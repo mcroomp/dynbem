@@ -5,7 +5,7 @@ use std::f64::consts::PI;
 
 use crate::aero_io::{AeroResult, RotorInputs, Vec3};
 use crate::aero_model::AeroModel;
-use crate::bem_common::RadialGrid;
+use crate::bem_common::{assemble_result, kinematics, RadialGrid};
 use crate::common::{EPS_DENOM, EPS_OMEGA_R, MIN_LOSS_FACTOR};
 use crate::cyclic::cyclic_coeffs;
 use crate::polar::{Polar, PolarKind};
@@ -517,14 +517,11 @@ impl AeroModel for BEMModel {
         let use_tip_loss = self.defn.airfoil.tip_loss;
         let grid = &self.grid;
 
-        let z_hub = Vec3::new(0.0, 0.0, 1.0);
-        let hub_axis = inputs.R_hub * z_hub;
-        let v_rel = inputs.wind_world - inputs.v_hub_world;
-        let v_climb = v_rel.dot(hub_axis);
-        let v_inplane = v_rel - hub_axis * v_climb;
-        let v_edge = v_inplane.norm();
-        let omega_r = (omega * r_tip).max(EPS_OMEGA_R);
-        let mu = v_edge / omega_r;
+        let kin = kinematics(inputs, omega, r_tip);
+        let hub_axis = kin.hub_axis;
+        let v_climb = kin.v_climb;
+        let v_inplane = kin.v_inplane;
+        let mu = kin.mu;
 
         let n = blade.n_elements;
         let r_arr = &grid.r_mid;
@@ -633,21 +630,12 @@ impl AeroModel for BEMModel {
             }
         }
 
-        let f_world = hub_axis * (-t_total);
-        let mxyz_hub = Vec3::new(mx_hub, my_hub, 0.0);
-        let m_orbital = inputs.R_hub * mxyz_hub;
-        let m_spin = hub_axis * q_total;
+        let result = assemble_result(t_total, q_total, mx_hub, my_hub, hub_axis, &inputs.R_hub);
 
         let i_ode = self.defn.autorotation.I_ode_kgm2.unwrap_or(1.0);
         let d_omega = (-q_total + inputs.motor_torque_Nm) / i_ode;
         let d_spin_angle = omega;
 
-        let result = AeroResult {
-            F_world: f_world,
-            M_orbital: m_orbital,
-            Q_spin: q_total,
-            M_spin: m_spin,
-        };
         let derivative = QuasiStaticRotorState {
             omega_rad_s: d_omega,
             spin_angle_rad: d_spin_angle,

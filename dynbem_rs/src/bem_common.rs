@@ -1,6 +1,8 @@
 // Shared infrastructure for the BEM models.
 // See ../CLAUDE.md "Shared BEM infrastructure".
 
+use crate::aero_io::{AeroResult, Mat3, RotorInputs, Vec3};
+use crate::common::{EPS_OMEGA_R, VRS_DESCENT_THRESHOLD};
 use crate::polar::{Polar, PolarKind};
 use crate::rotor_definition::BladeGeometry;
 use std::f64::consts::PI;
@@ -114,4 +116,233 @@ impl PolarTable {
         let cd = self.cd[lo] + t * (self.cd[hi] - self.cd[lo]);
         (cl, cd)
     }
+}
+
+// ---------------------------------------------------------------------------
+// Once-per-call kinematics. Identical across BEM / Pitt-Peters / Oye; runs
+// outside any inner loop, so abstracting it has no autovectorization cost.
+// ---------------------------------------------------------------------------
+
+#[derive(Clone, Copy, Debug)]
+pub struct Kinematics {
+    pub omega_r: f64,
+    pub hub_axis: Vec3,
+    pub v_climb: f64,
+    pub v_inplane: Vec3,
+    pub v_edge: f64,
+    pub v_inplane_hub: Vec3,
+    /// Advance ratio mu = v_edge / max(omega_r, EPS_OMEGA_R).
+    pub mu: f64,
+}
+
+#[inline]
+pub fn kinematics(inputs: &RotorInputs, omega: f64, r_tip: f64) -> Kinematics {
+    let omega_r = omega * r_tip;
+    let hub_axis = inputs.R_hub * Vec3::new(0.0, 0.0, 1.0);
+    let v_rel = inputs.wind_world - inputs.v_hub_world;
+    let v_climb = v_rel.dot(hub_axis);
+    let v_inplane = v_rel - hub_axis * v_climb;
+    let v_edge = v_inplane.norm();
+    let v_inplane_hub = inputs.R_hub.transpose() * v_inplane;
+    let mu = v_edge / omega_r.max(EPS_OMEGA_R);
+    Kinematics {
+        omega_r,
+        hub_axis,
+        v_climb,
+        v_inplane,
+        v_edge,
+        v_inplane_hub,
+        mu,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// VRS regime detection. v_h is the hover induced velocity (positive sqrt
+// of T/(2 rho A)); lam2 = V_descent / V_h is the descent-positive ratio used
+// in Leishman's polynomial. in_vrs picks out 0 < lam2 < 2 while in descent.
+// ---------------------------------------------------------------------------
+
+#[derive(Clone, Copy, Debug)]
+pub struct VrsRegime {
+    pub v_h: f64,
+    pub lam2: f64,
+    pub in_vrs: bool,
+}
+
+#[inline]
+pub fn vrs_regime(t_total: f64, v_climb: f64, rho: f64, area: f64) -> VrsRegime {
+    let t_pos = t_total.max(0.0);
+    let v_h = if t_pos > EPS_OMEGA_R {
+        (t_pos / (2.0 * rho * area)).sqrt()
+    } else {
+        0.0
+    };
+    let v_c = (-v_climb).max(0.0);
+    let lam2 = if v_h > VRS_DESCENT_THRESHOLD {
+        v_c / v_h
+    } else {
+        0.0
+    };
+    let in_vrs = v_climb < -VRS_DESCENT_THRESHOLD && lam2 > 0.0 && lam2 < 2.0;
+    VrsRegime { v_h, lam2, in_vrs }
+}
+
+// ---------------------------------------------------------------------------
+// AeroResult assembly. Same translation from (T, Q, Mx_hub, My_hub) to the
+// world-frame outputs for every model.
+// ---------------------------------------------------------------------------
+
+#[inline]
+pub fn assemble_result(
+    t_total: f64,
+    q_total: f64,
+    mx_hub: f64,
+    my_hub: f64,
+    hub_axis: Vec3,
+    r_hub: &Mat3,
+) -> AeroResult {
+    let f_world = hub_axis * (-t_total);
+    let mxyz_hub = Vec3::new(mx_hub, my_hub, 0.0);
+    let m_orbital = *r_hub * mxyz_hub;
+    let m_spin = hub_axis * q_total;
+    AeroResult {
+        F_world: f_world,
+        M_orbital: m_orbital,
+        Q_spin: q_total,
+        M_spin: m_spin,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Per-element BEM integrand: given an axial / tangential velocity pair at
+// (r, psi), return the element's thrust and torque contributions.
+//
+// Identical inner-loop body in PittPeters::{axial_forces, fwd_forces} and
+// Oye::psi_loop. #[inline(always)] preserves the autovectorization the
+// per-model loop had before extraction -- LLVM sees the same arithmetic
+// it always saw, just routed through one function. The opaque polar.cl_cd
+// call is the same vectorization barrier it was before.
+// ---------------------------------------------------------------------------
+
+#[allow(clippy::too_many_arguments)]
+#[inline(always)]
+pub fn element_force(
+    v_a: f64,
+    v_t: f64,
+    col_psi: f64,
+    twist: f64,
+    r: f64,
+    chord: f64,
+    dr: f64,
+    rho: f64,
+    n_bf: f64,
+    polar: &PolarKind,
+) -> (f64, f64) {
+    let phi = v_a.atan2(v_t);
+    let alpha = col_psi + twist - phi;
+    let (cl, cd) = polar.cl_cd(alpha);
+    let cos_p = phi.cos();
+    let sin_p = phi.sin();
+    let cn = cl * cos_p - cd * sin_p;
+    let ct = cl * sin_p + cd * cos_p;
+    let q = 0.5 * rho * (v_a * v_a + v_t * v_t) * chord * dr * n_bf;
+    (q * cn, q * ct * r)
+}
+
+// ---------------------------------------------------------------------------
+// Shared psi-loop kernel: monomorphized via the PsiKernel trait so each model
+// gets its own specialised copy, with #[inline(always)] callbacks. Codegen
+// is bit-identical to the prior per-model hand-rolled loops -- the trait is
+// used as a *static interface* (generic K), not runtime dispatch.
+//
+// What's model-specific:
+//   - lam_local(i, cos_psi, sin_psi): the local inflow ratio formula
+//     (Pitt-Peters: lambda_total + x*(lam_c*cos psi + lam_s*sin psi);
+//      Oye: lambda_climb + W[i]).
+//   - on_element(i, dt, inv_n_psi): per-element callback (no-op for PP;
+//     Oye accumulates the azimuth-averaged dT/dx that the W_qs solver
+//     needs downstream).
+// ---------------------------------------------------------------------------
+
+pub trait PsiKernel {
+    /// Local axial inflow ratio at element i, azimuth (cos_psi, sin_psi).
+    fn lam_local(&self, i: usize, cos_psi: f64, sin_psi: f64) -> f64;
+
+    /// Per-element thrust callback. Default no-op so models that don't
+    /// need it (Pitt-Peters) opt out at zero cost.
+    #[inline(always)]
+    #[allow(unused_variables)]
+    fn on_element(&mut self, i: usize, dt: f64, inv_n_psi: f64) {}
+}
+
+/// One full psi x radial sweep. Returns the azimuth-averaged
+/// (T, Q, Mx_hub, My_hub) over the rotor disk.
+///
+/// `omega > 0` is assumed (caller filters out the not-spinning case before
+/// invoking). Reverse-flow region (`v_t <= 0`) is skipped per-element.
+#[allow(clippy::too_many_arguments)]
+#[inline(always)]
+pub fn run_psi_loop<K: PsiKernel>(
+    kernel: &mut K,
+    grid: &RadialGrid,
+    col: f64,
+    omega: f64,
+    omega_r: f64,
+    rho: f64,
+    n_b: usize,
+    n_psi: usize,
+    v_in_hub_x: f64,
+    v_in_hub_y: f64,
+    theta_1c: f64,
+    theta_1s: f64,
+    polar: &PolarKind,
+) -> (f64, f64, f64, f64) {
+    let mut t_acc = 0.0;
+    let mut q_acc = 0.0;
+    let mut mx_acc = 0.0;
+    let mut my_acc = 0.0;
+    let n_bf = n_b as f64;
+    let inv_n_psi = 1.0 / (n_psi as f64);
+    let n_r = grid.r_mid.len();
+    for i_psi in 0..n_psi {
+        let psi = 2.0 * PI * (i_psi as f64) * inv_n_psi;
+        let cos_psi = psi.cos();
+        let sin_psi = psi.sin();
+        let v_t_extra = v_in_hub_x * sin_psi + v_in_hub_y * cos_psi;
+        let col_psi = col + theta_1c * cos_psi + theta_1s * sin_psi;
+        let mut rdt_sum = 0.0;
+        for i in 0..n_r {
+            let r = grid.r_mid[i];
+            let v_t = omega * r + v_t_extra;
+            if v_t <= 0.0 {
+                continue;
+            }
+            let lam_local = kernel.lam_local(i, cos_psi, sin_psi);
+            let v_a = lam_local * omega_r;
+            let (dt, dq) = element_force(
+                v_a,
+                v_t,
+                col_psi,
+                grid.twist_rad[i],
+                r,
+                grid.chord[i],
+                grid.dr,
+                rho,
+                n_bf,
+                polar,
+            );
+            t_acc += dt;
+            q_acc += dq;
+            rdt_sum += r * dt;
+            kernel.on_element(i, dt, inv_n_psi);
+        }
+        mx_acc += rdt_sum * sin_psi;
+        my_acc += rdt_sum * cos_psi;
+    }
+    (
+        t_acc * inv_n_psi,
+        q_acc * inv_n_psi,
+        mx_acc * inv_n_psi,
+        my_acc * inv_n_psi,
+    )
 }

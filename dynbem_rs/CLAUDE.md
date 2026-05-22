@@ -51,11 +51,19 @@ Oye filter -- all load-bearing physics.
 
 ## Hot-path conventions
 
-- Per-azimuth kinematics (`hub_axis`, `v_climb`, `v_edge`,
-  `v_inplane_hub`) are **deliberately inline** in each model's
-  `compute_forces`, not abstracted to a helper. The polar interp loop
-  and the radial integration loop are the only big duplications;
-  numba/LLVM don't compose closures cleanly across them.
+- The once-per-call kinematics prelude (`omega_r`, `hub_axis`,
+  `v_climb`, `v_edge`, `v_inplane_hub`, `mu`) lives in
+  `bem_common::kinematics`; the AeroResult assembly is
+  `bem_common::assemble_result`; the per-element BEM integrand is
+  `bem_common::element_force` (`#[inline(always)]`). All three models
+  call these.
+- The ψ × r sweep itself is one generic function
+  `bem_common::run_psi_loop<K: PsiKernel>`. Pitt-Peters and Øye each
+  implement `PsiKernel` for their own `lam_local` formula (and Øye's
+  per-element dT-avg callback). Monomorphization + `#[inline(always)]`
+  on the trait methods give the same codegen as a hand-rolled loop;
+  the trait is a static interface, not runtime dispatch. Don't
+  reintroduce hand-rolled per-model copies of this loop.
 - Plain `for` loops over `&[f64]`, no SIMD intrinsics. LLVM autovectorizes
   the if-converted bodies. See user-memory `feedback-rust-autovectorize-first`.
 - Vec3/Mat3 are `Copy` newtypes around plain f64 arrays. Operators

@@ -3,14 +3,16 @@
 
 use std::f64::consts::PI;
 
-use crate::aero_io::{AeroResult, RotorInputs, Vec3};
+use crate::aero_io::{AeroResult, RotorInputs};
 use crate::aero_model::AeroModel;
-use crate::bem_common::RadialGrid;
+use crate::bem_common::{
+    assemble_result, element_force, kinematics, run_psi_loop, vrs_regime, PsiKernel, RadialGrid,
+};
 use crate::common::{
-    vrs_lambda1, EPS_DENOM, EPS_OMEGA_R, MU_T_FLOOR, VRS_DESCENT_THRESHOLD, V_T_HOVER_FLOOR_FRAC,
+    vrs_lambda1, EPS_DENOM, EPS_OMEGA_R, MU_T_FLOOR, V_T_HOVER_FLOOR_FRAC,
 };
 use crate::cyclic::cyclic_coeffs;
-use crate::polar::{Polar, PolarKind};
+use crate::polar::PolarKind;
 use crate::rotor_definition::RotorDefinition;
 use crate::rotor_state::PittPetersRotorState;
 
@@ -38,88 +40,42 @@ fn axial_forces(
         if v_t < EPS_DENOM {
             continue;
         }
-        let phi = v_a.atan2(v_t);
-        let alpha = col + grid.twist_rad[i] - phi;
-        let (cl, cd) = polar.cl_cd(alpha);
-        let cos_p = phi.cos();
-        let sin_p = phi.sin();
-        let cn = cl * cos_p - cd * sin_p;
-        let ct = cl * sin_p + cd * cos_p;
-        let q = 0.5 * rho * (v_a * v_a + v_t * v_t) * grid.chord[i] * grid.dr * n_bf;
-        t_acc += q * cn;
-        q_acc += q * ct * r;
+        let (dt, dq) = element_force(
+            v_a,
+            v_t,
+            col,
+            grid.twist_rad[i],
+            r,
+            grid.chord[i],
+            grid.dr,
+            rho,
+            n_bf,
+            polar,
+        );
+        t_acc += dt;
+        q_acc += dq;
     }
     (t_acc, q_acc)
 }
 
-/// Sum thrust, torque, and in-plane hub moments over (psi, r).
-/// Pitt-Peters local inflow:
+/// Pitt-Peters psi-loop kernel.
+///
+/// Local inflow expands the three harmonic states (lambda_0 in
+/// `lambda_total`, plus lam_c and lam_s) at element i and azimuth psi:
 ///     lam_local = lambda_total + x*(lam_c*cos psi + lam_s*sin psi).
-/// CCW-from-above; v_t_extra = v_in_hub_x*sin psi + v_in_hub_y*cos psi.
-/// Per-element moment: r*dT*[sin psi, cos psi, 0] in hub frame.
-#[allow(clippy::too_many_arguments)]
-fn fwd_forces(
-    grid: &RadialGrid,
-    col: f64,
-    omega: f64,
-    omega_r: f64,
+/// No per-element callback -- PP doesn't need the azimuth-averaged dT/dx.
+struct PpKernel<'a> {
     lambda_total: f64,
     lam_c: f64,
     lam_s: f64,
-    rho: f64,
-    n_b: usize,
-    n_psi: usize,
-    v_in_hub_x: f64,
-    v_in_hub_y: f64,
-    theta_1c: f64,
-    theta_1s: f64,
-    polar: &PolarKind,
-) -> (f64, f64, f64, f64) {
-    let mut t_acc = 0.0;
-    let mut q_acc = 0.0;
-    let mut mx_acc = 0.0;
-    let mut my_acc = 0.0;
-    let n_bf = n_b as f64;
-    let inv_n_psi = 1.0 / (n_psi as f64);
+    x_mid: &'a [f64],
+}
 
-    for i_psi in 0..n_psi {
-        let psi = 2.0 * PI * (i_psi as f64) * inv_n_psi;
-        let cos_psi = psi.cos();
-        let sin_psi = psi.sin();
-        let v_t_extra = v_in_hub_x * sin_psi + v_in_hub_y * cos_psi;
-        let col_psi = col + theta_1c * cos_psi + theta_1s * sin_psi;
-        let mut rdt_sum = 0.0;
-        for i in 0..grid.r_mid.len() {
-            let r = grid.r_mid[i];
-            let v_t = omega * r + v_t_extra;
-            if v_t <= 0.0 {
-                continue;
-            }
-            let x = grid.x_mid[i];
-            let lam_local = lambda_total + x * (lam_c * cos_psi + lam_s * sin_psi);
-            let v_a = lam_local * omega_r;
-            let phi = v_a.atan2(v_t);
-            let alpha = col_psi + grid.twist_rad[i] - phi;
-            let (cl, cd) = polar.cl_cd(alpha);
-            let cos_p = phi.cos();
-            let sin_p = phi.sin();
-            let cn = cl * cos_p - cd * sin_p;
-            let ct = cl * sin_p + cd * cos_p;
-            let q = 0.5 * rho * (v_a * v_a + v_t * v_t) * grid.chord[i] * grid.dr * n_bf;
-            let dt = q * cn;
-            t_acc += dt;
-            q_acc += q * ct * r;
-            rdt_sum += r * dt;
-        }
-        mx_acc += rdt_sum * sin_psi;
-        my_acc += rdt_sum * cos_psi;
+impl<'a> PsiKernel for PpKernel<'a> {
+    #[inline(always)]
+    fn lam_local(&self, i: usize, cos_psi: f64, sin_psi: f64) -> f64 {
+        self.lambda_total + self.x_mid[i] * (self.lam_c * cos_psi + self.lam_s * sin_psi)
     }
-    (
-        t_acc * inv_n_psi,
-        q_acc * inv_n_psi,
-        mx_acc * inv_n_psi,
-        my_acc * inv_n_psi,
-    )
 }
 
 #[derive(Clone)]
@@ -150,18 +106,12 @@ impl AeroModel for PittPetersModel {
     }
 
     fn inflow_taus(&self, inputs: &RotorInputs, state: &Self::State) -> Vec<f64> {
-        let omega = state.omega_rad_s;
         let r_tip = self.defn.blade.radius_m;
-        let omega_r = omega * r_tip;
-        let z_hub = Vec3::new(0.0, 0.0, 1.0);
-        let hub_axis = inputs.R_hub * z_hub;
-        let v_rel = inputs.wind_world - inputs.v_hub_world;
-        let v_climb = v_rel.dot(hub_axis);
-        let v_edge = (v_rel - hub_axis * v_climb).norm();
-        let v0 = state.lambda_0 * omega_r;
-        let v_t_disk = (v_edge * v_edge + (v_climb + v0).powi(2))
+        let kin = kinematics(inputs, state.omega_rad_s, r_tip);
+        let v0 = state.lambda_0 * kin.omega_r;
+        let v_t_disk = (kin.v_edge * kin.v_edge + (kin.v_climb + v0).powi(2))
             .sqrt()
-            .max(V_T_HOVER_FLOOR_FRAC * omega_r.max(1.0));
+            .max(V_T_HOVER_FLOOR_FRAC * kin.omega_r.max(1.0));
         let tau_0 = (8.0 * r_tip) / (3.0 * PI * v_t_disk);
         let tau_cs = (16.0 * r_tip) / (45.0 * PI * v_t_disk);
         vec![tau_0, tau_cs, tau_cs, f64::INFINITY, f64::INFINITY]
@@ -178,15 +128,13 @@ impl AeroModel for PittPetersModel {
         let r_tip = blade.radius_m;
         let area = PI * r_tip * r_tip;
 
-        let omega_r = omega * r_tip;
-        let z_hub = Vec3::new(0.0, 0.0, 1.0);
-        let hub_axis = inputs.R_hub * z_hub;
-        let v_rel = inputs.wind_world - inputs.v_hub_world;
-        let v_climb = v_rel.dot(hub_axis);
-        let v_inplane = v_rel - hub_axis * v_climb;
-        let v_edge = v_inplane.norm();
-        let mu = v_edge / omega_r.max(EPS_OMEGA_R);
-        let v_inplane_hub = inputs.R_hub.transpose() * v_inplane;
+        let kin = kinematics(inputs, omega, r_tip);
+        let omega_r = kin.omega_r;
+        let hub_axis = kin.hub_axis;
+        let v_climb = kin.v_climb;
+        let v_edge = kin.v_edge;
+        let mu = kin.mu;
+        let v_inplane_hub = kin.v_inplane_hub;
 
         let lam0 = state.lambda_0;
         let lam_c = state.lambda_c;
@@ -208,14 +156,18 @@ impl AeroModel for PittPetersModel {
         let (mut t_total, mut q_total, mut mx_hub, mut my_hub) = (0.0, 0.0, 0.0, 0.0);
         if omega_r > EPS_OMEGA_R {
             if (mu > 0.01 || has_cyclic || lam_c.abs() + lam_s.abs() > EPS_DENOM) && omega > 1.0 {
-                let (t, q, mx, my) = fwd_forces(
+                let mut kernel = PpKernel {
+                    lambda_total,
+                    lam_c,
+                    lam_s,
+                    x_mid: &self.grid.x_mid,
+                };
+                let (t, q, mx, my) = run_psi_loop(
+                    &mut kernel,
                     &self.grid,
                     inputs.collective_rad,
                     omega,
                     omega_r,
-                    lambda_total,
-                    lam_c,
-                    lam_s,
                     rho,
                     blade.n_blades,
                     self.n_psi_elements,
@@ -248,24 +200,12 @@ impl AeroModel for PittPetersModel {
         // ------------------------------------------------------------------
         // Pitt-Peters L-matrix steady-state targets + ODE
         // ------------------------------------------------------------------
-        let t_pos = t_total.max(0.0);
-        let v_h = if t_pos > EPS_OMEGA_R {
-            (t_pos / (2.0 * rho * area)).sqrt()
-        } else {
-            0.0
-        };
+        let vrs = vrs_regime(t_total, v_climb, rho, area);
 
         let v0 = lam0 * omega_r;
         let v_t_disk = (v_edge * v_edge + (v_climb + v0).powi(2))
             .sqrt()
             .max(V_T_HOVER_FLOOR_FRAC * omega_r.max(1.0));
-
-        let v_c = (-v_climb).max(0.0);
-        let lam2 = if v_h > VRS_DESCENT_THRESHOLD {
-            v_c / v_h
-        } else {
-            0.0
-        };
 
         let mu_t_eff = (if omega_r > EPS_OMEGA_R {
             v_t_disk / omega_r
@@ -287,9 +227,9 @@ impl AeroModel for PittPetersModel {
         let c_l_hub = if norm > EPS_DENOM { mx_hub / norm } else { 0.0 };
         let c_m_hub = if norm > EPS_DENOM { my_hub / norm } else { 0.0 };
 
-        let lam0_ss = if v_climb < -VRS_DESCENT_THRESHOLD && lam2 > 0.0 && lam2 < 2.0 {
+        let lam0_ss = if vrs.in_vrs {
             if omega_r > EPS_OMEGA_R {
-                vrs_lambda1(lam2) * v_h / omega_r
+                vrs_lambda1(vrs.lam2) * vrs.v_h / omega_r
             } else {
                 0.0
             }
@@ -320,17 +260,7 @@ impl AeroModel for PittPetersModel {
         let d_spin_angle = omega;
 
         // Outputs
-        let f_world = hub_axis * (-t_total);
-        let mxyz_hub = Vec3::new(mx_hub, my_hub, 0.0);
-        let m_orbital = inputs.R_hub * mxyz_hub;
-        let m_spin = hub_axis * q_total;
-
-        let result = AeroResult {
-            F_world: f_world,
-            M_orbital: m_orbital,
-            Q_spin: q_total,
-            M_spin: m_spin,
-        };
+        let result = assemble_result(t_total, q_total, mx_hub, my_hub, hub_axis, &inputs.R_hub);
         let derivative = PittPetersRotorState {
             lambda_0: d_lam0,
             lambda_c: d_lam_c,
