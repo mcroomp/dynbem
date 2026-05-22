@@ -7,8 +7,8 @@
 
 pub mod aero_io;
 pub mod aero_model;
-pub mod bem;
 pub mod bem_common;
+pub mod quasi_static_bem;
 pub mod common;
 pub mod cyclic;
 pub mod oye;

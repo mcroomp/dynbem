@@ -10,7 +10,7 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
 enum AeroAny {
-    QuasiStaticBEM(dynbem_rs::bem::QuasiStaticBEM),
+    QuasiStaticBEM(dynbem_rs::quasi_static_bem::QuasiStaticBEM),
     PittPeters(dynbem_rs::pitt_peters::PittPetersModel),
     Oye(dynbem_rs::oye::OyeBEMModel),
 }

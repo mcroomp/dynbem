@@ -37,12 +37,12 @@ fn cyclic_coeffs(tilt_lon: f64, tilt_lat: f64, control: Option<PyControlProperti
 
 #[pyfunction]
 fn prandtl_tip_loss(n_blades: usize, x: f64, phi_rad: f64) -> f64 {
-    dynbem_rs::bem::prandtl_tip_loss(n_blades, x, phi_rad)
+    dynbem_rs::quasi_static_bem::prandtl_tip_loss(n_blades, x, phi_rad)
 }
 
 #[pyfunction]
 fn prandtl_hub_loss(n_blades: usize, x: f64, x_hub: f64, phi_rad: f64) -> f64 {
-    dynbem_rs::bem::prandtl_hub_loss(n_blades, x, x_hub, phi_rad)
+    dynbem_rs::quasi_static_bem::prandtl_hub_loss(n_blades, x, x_hub, phi_rad)
 }
 
 // ---------------------------------------------------------------------------
@@ -90,7 +90,7 @@ fn solve_bem_element(
     root_cutout_m: f64,
 ) -> PyResult<PyBEMElementResult> {
     let polar = wrappers::extract_polar(polar)?;
-    let res = dynbem_rs::bem::solve_bem_element(
+    let res = dynbem_rs::quasi_static_bem::solve_bem_element(
         r,
         dr,
         chord,

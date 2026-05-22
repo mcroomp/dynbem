@@ -5,11 +5,14 @@ use std::f64::consts::PI;
 
 use crate::aero_io::{AeroResult, RotorInputs};
 use crate::aero_model::AeroModel;
+use crate::quasi_static_bem::{prandtl_hub_loss, prandtl_tip_loss};
 use crate::bem_common::{
     assemble_result, element_force, kinematics, v_t_disk, vrs_regime, ElementCtx, PsiKernel,
     RadialGrid, SweepCtx,
 };
-use crate::common::{vrs_lambda1, EPS_OMEGA_R, VRS_DESCENT_THRESHOLD, V_T_HOVER_FLOOR_FRAC};
+use crate::common::{
+    vrs_lambda1, EPS_OMEGA_R, MIN_LOSS_FACTOR, VRS_DESCENT_THRESHOLD, V_T_HOVER_FLOOR_FRAC,
+};
 use crate::cyclic::cyclic_coeffs;
 use crate::polar::PolarKind;
 use crate::rotor_definition::RotorDefinition;
@@ -56,14 +59,19 @@ impl<'a> PsiKernel for OyeKernel<'a> {
 
 /// Quasi-steady annulus inflow from Glauert mass-flow momentum balance.
 ///
-///     dT = 4*pi*r*dr*rho*V_resultant*v_i
+///     dT = 4*pi*r*F*rho*V_resultant*v_i
 ///
 /// Linearised in W_qs using a rotor-mean mu_T (computed externally from the
-/// converged state). Stays stable in forward flight where the pure
-/// axial-momentum form blows up at low lambda_r (autorotation / VRS).
+/// converged state). `F[i]` is the per-annulus Prandtl tip+hub loss factor
+/// (1.0 inboard, smoothly -> 0 at the tip). Without it the tip region is
+/// over-induced and Oye over-predicts thrust by 10-20% vs reference codes
+/// in the low-V_inf / high-induced-inflow regime. Stays stable in forward
+/// flight where the pure axial-momentum form blows up at low lambda_r
+/// (autorotation / VRS).
 fn solve_w_qs(
     dt_avg: &[f64],
     x_arr: &[f64],
+    f_loss: &[f64],
     _dr: f64,
     r_tip: f64,
     omega_r: f64,
@@ -81,7 +89,8 @@ fn solve_w_qs(
     for i in 0..dt_avg.len() {
         let d_cdx = dt_avg[i] / rho_norm;
         let x = x_arr[i].max(EPS_OMEGA_R);
-        let w = d_cdx / (4.0 * x * mu_t_safe);
+        let f = f_loss[i].max(MIN_LOSS_FACTOR);
+        let w = d_cdx / (4.0 * x * f * mu_t_safe);
         out.push(w.clamp(-W_QS_CLAMP, W_QS_CLAMP));
     }
     out
@@ -221,6 +230,30 @@ impl AeroModel for OyeBEMModel {
         let area = PI * r_tip * r_tip;
         let vrs = vrs_regime(t_total, v_climb, rho, area);
 
+        // Per-annulus Prandtl tip+hub loss for the momentum balance.
+        // Uses representative axial-flight phi from the current lagged
+        // state W -- exact for axial flight, approximation for forward
+        // flight (matches what AeroDyn DBEMT does).
+        let use_tip_loss = self.defn.airfoil.tip_loss;
+        let f_loss: Vec<f64> = if use_tip_loss && omega_r > EPS_OMEGA_R {
+            let n_b = self.defn.blade.n_blades;
+            let x_hub = self.grid.x_hub;
+            (0..n)
+                .map(|i| {
+                    let r = self.grid.r_mid[i];
+                    let lam_local = lambda_climb + state.W[i];
+                    let v_a = lam_local * omega_r;
+                    let v_t = omega * r;
+                    let phi = v_a.atan2(v_t);
+                    let x = self.grid.x_mid[i];
+                    (prandtl_tip_loss(n_b, x, phi) * prandtl_hub_loss(n_b, x, x_hub, phi))
+                        .max(MIN_LOSS_FACTOR)
+                })
+                .collect()
+        } else {
+            vec![1.0; n]
+        };
+
         let w_qs: Vec<f64> = if vrs.in_vrs && omega_r > EPS_OMEGA_R {
             let w_uniform = vrs_lambda1(vrs.lam2) * vrs.v_h / omega_r;
             vec![w_uniform; n]
@@ -228,6 +261,7 @@ impl AeroModel for OyeBEMModel {
             solve_w_qs(
                 &dt_avg,
                 &self.grid.x_mid,
+                &f_loss,
                 self.grid.dr,
                 r_tip,
                 omega_r,

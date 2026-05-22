@@ -143,9 +143,14 @@ class TestOyeHover:
     # lam0_ss and Øye's per-annulus W_qs diverge at small CT (small μ_T
     # hits the 0.05 floor, where the per-annulus vs uniform inflow
     # distinction matters more).  At moderate thrust they agree closely.
+    # Asymmetry: Øye applies Prandtl tip+hub loss in its momentum
+    # balance, Pitt-Peters does not (no natural per-annulus slot in the
+    # L-matrix derivation). That adds ~6% to the divergence at moderate
+    # thrust. Adding tip-loss to PP is follow-up work.
     @pytest.mark.parametrize("theta_deg,rpm,rel_tol", [
-        (8.86, 1200, 0.05),   # Run 5, CT ≈ 0.004 — agree within 5%
-        (5.13, 1600, 0.25),   # Run 9, CT ≈ 0.002 — small CT, looser
+        (8.86, 1200, 0.08),   # Run 5, CT ≈ 0.004 — within 8% (was 5%
+                              # before Øye gained Prandtl tip-loss)
+        (5.13, 1600, 0.30),   # Run 9, CT ≈ 0.002 — looser at small CT
     ])
     def test_hover_ct_matches_pitt_peters(self, oye_model, pp_model, defn,
                                           theta_deg, rpm, rel_tol):
