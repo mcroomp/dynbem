@@ -1,0 +1,10 @@
+services:
+  # Build with:   docker compose build
+  # Run default:  docker compose run --rm openfast
+  # Run custom:   docker compose run --rm openfast --config /in/<other>.yaml
+  openfast:
+    build: .
+    image: aero/openfast-driver:3.5.3
+    volumes:
+      - ./inputs:/in:ro
+      - ../data:/out

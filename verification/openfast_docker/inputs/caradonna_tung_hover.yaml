@@ -1,0 +1,86 @@
+# Caradonna & Tung (1981) NASA TM-81232 hover rotor.
+#
+# Geometry: 2 blades, NACA 0012, untwisted untapered, R = 1.143 m,
+# chord = 0.1905 m. The paper reports CT at three collective pitches
+# (5/8/12 deg) and several rotor speeds; CT is approximately constant
+# with RPM in the incompressible regime (M_tip <~ 0.6).
+#
+# We compare three pitch cases at a single moderate RPM (1250 rpm,
+# M_tip ~= 0.44). The dynbem cross-check fixture
+# (tests/test_caradonna_tung*.py) uses the same operating points.
+#
+# Wake model: DBEMT_Mod=1 (constant tau1) is the closest OpenFAST
+# analogue to dynbem.OyeBEMModel; both implement Oye's two-stage
+# annular dynamic-inflow filter with constant time constant.
+
+name: caradonna_tung_hover
+
+rotor:
+  n_blades: 2
+  R_hub_m: 0.20            # blade aerodynamic start (~17% R, conservative)
+  R_tip_m: 1.143
+
+air:
+  rho: 1.225
+  mu:  1.81206e-5
+  a:   340.0               # speed of sound at standard sea level
+
+# Constant-chord, untwisted blade; 15 evenly spaced radial stations.
+blade_stations:
+  - {r_m: 0.221, chord_m: 0.1905, twist_deg: 0.0}
+  - {r_m: 0.288, chord_m: 0.1905, twist_deg: 0.0}
+  - {r_m: 0.355, chord_m: 0.1905, twist_deg: 0.0}
+  - {r_m: 0.422, chord_m: 0.1905, twist_deg: 0.0}
+  - {r_m: 0.489, chord_m: 0.1905, twist_deg: 0.0}
+  - {r_m: 0.557, chord_m: 0.1905, twist_deg: 0.0}
+  - {r_m: 0.624, chord_m: 0.1905, twist_deg: 0.0}
+  - {r_m: 0.691, chord_m: 0.1905, twist_deg: 0.0}
+  - {r_m: 0.758, chord_m: 0.1905, twist_deg: 0.0}
+  - {r_m: 0.825, chord_m: 0.1905, twist_deg: 0.0}
+  - {r_m: 0.892, chord_m: 0.1905, twist_deg: 0.0}
+  - {r_m: 0.959, chord_m: 0.1905, twist_deg: 0.0}
+  - {r_m: 1.026, chord_m: 0.1905, twist_deg: 0.0}
+  - {r_m: 1.093, chord_m: 0.1905, twist_deg: 0.0}
+  - {r_m: 1.135, chord_m: 0.1905, twist_deg: 0.0}
+
+# NACA 0012 polar -- linear Cl through stall + simple post-stall.
+# Coarse table; refine to a tabulated polar later if needed.
+airfoil_polar:
+  Re: 1.5e6
+  points:
+    - {alpha_deg: -180.0, cl:  0.000, cd: 0.030}
+    - {alpha_deg:  -25.0, cl: -1.000, cd: 0.300}
+    - {alpha_deg:  -15.0, cl: -1.300, cd: 0.025}
+    - {alpha_deg:  -12.0, cl: -1.250, cd: 0.020}
+    - {alpha_deg:   -8.0, cl: -0.880, cd: 0.012}
+    - {alpha_deg:   -4.0, cl: -0.440, cd: 0.0085}
+    - {alpha_deg:   -2.0, cl: -0.220, cd: 0.0080}
+    - {alpha_deg:    0.0, cl:  0.000, cd: 0.0080}
+    - {alpha_deg:    2.0, cl:  0.220, cd: 0.0080}
+    - {alpha_deg:    4.0, cl:  0.440, cd: 0.0085}
+    - {alpha_deg:    6.0, cl:  0.660, cd: 0.0095}
+    - {alpha_deg:    8.0, cl:  0.880, cd: 0.012}
+    - {alpha_deg:   10.0, cl:  1.100, cd: 0.016}
+    - {alpha_deg:   12.0, cl:  1.250, cd: 0.020}
+    - {alpha_deg:   15.0, cl:  1.300, cd: 0.025}
+    - {alpha_deg:   25.0, cl:  1.000, cd: 0.300}
+    - {alpha_deg:  180.0, cl:  0.000, cd: 0.030}
+
+wake:
+  WakeMod:   2        # DBEMT
+  DBEMT_Mod: 1        # constant tau1; matches dynbem.OyeBEMModel formulation
+  tau1_const: 5.0     # s; AeroDyn default is ~10. dynbem.oye derives tau1
+                      # per-call from rotor radius / V_inf; for hover with
+                      # V_inf small, the value is large. 5 s is a placeholder
+                      # we may refine after first run.
+  SkewMod:   1        # uncoupled; hover has no skew
+  TipLoss:   true
+  HubLoss:   true
+
+# Hover: V_wind = 0. dynbem can drive V_wind = 0 cleanly; AeroDyn may need
+# a tiny non-zero value to avoid div-by-zero in some legacy code paths.
+# We try V = 0 first and fall back to 0.01 m/s if it fails.
+operating_points:
+  - {U_wind_ms: 0.0, Omega_rpm: 1250.0, pitch_deg:  5.0, settle_s: 3.0}
+  - {U_wind_ms: 0.0, Omega_rpm: 1250.0, pitch_deg:  8.0, settle_s: 3.0}
+  - {U_wind_ms: 0.0, Omega_rpm: 1250.0, pitch_deg: 12.0, settle_s: 3.0}
