@@ -297,6 +297,21 @@ drop-in upgrade behind the same `AeroBase` interface.
     inflow effects.  ECN.
   - OpenFAST AeroDyn Theory v3.5, §6.3.4 (DBEMT).
 
+### Forward flight capability ✅ DONE (applies to Levels 1–2)
+
+Wired into all BEM and dynamic-inflow models above:
+
+- Oblique inflow: advance ratio `µ = V_edge / (Ω·R)` ≠ 0
+- Blade azimuth-dependent ψ-loop velocity (`n_psi=36` stations by default,
+  automatically triggered when `µ > 0.01`, cyclic input is nonzero, or
+  cyclic inflow state is nonzero)
+- Per-azimuth cyclic blade pitch: `θ(ψ) = collective + θ_1c·cos(ψ) + θ_1s·sin(ψ)`
+- In-plane hub moments `Mx_hub`, `My_hub` returned via `AeroResult.M_orbital`
+  (needed for vehicle roll/pitch response to cyclic control)
+- Pitt-Peters L matrix off-diagonal `−L_off·C_T` produces Glauert wake-skew
+  naturally from thrust forcing (exact for axial and pure-longitudinal flight;
+  approximate for oblique `µ_y ≠ 0`)
+
 ### Level 3 — Peters-He finite-state dynamic inflow (state of the art)
 
 - 9-state (or higher-order) Peters-He inflow model
@@ -304,17 +319,6 @@ drop-in upgrade behind the same `AeroBase` interface.
 - Captures higher harmonics of the inflow distribution
 - Best accuracy for maneuvering flight and aeroelastic coupling
 - **Validation**: see [EMPIRICAL_VALIDATION.md](EMPIRICAL_VALIDATION.md).
-
-### Forward flight (applies to all levels) — implemented
-
-- Oblique inflow: advance ratio `µ = V_edge / (Ω·R)` ≠ 0
-- Blade azimuth-dependent velocity in the BEM loop (`n_psi=36` stations
-  by default, triggered when `µ > 0.01`, cyclic input is nonzero, or
-  cyclic inflow state is nonzero)
-- In-plane hub moments `Mx_hub`, `My_hub` returned in `AeroResult.M_orbital`
-- Pitt-Peters L matrix off-diagonal `−L_off·C_T` produces Glauert
-  wake-skew naturally from thrust forcing (exact for axial and
-  pure-longitudinal flight; approximate for oblique `µ_y ≠ 0`)
 
 ---
 
