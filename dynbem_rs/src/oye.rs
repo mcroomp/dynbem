@@ -59,7 +59,9 @@ impl<'a> PsiKernel for OyeKernel<'a> {
 
 /// Quasi-steady annulus inflow from Glauert mass-flow momentum balance.
 ///
-///     dT = 4*pi*r*F*rho*V_resultant*v_i
+/// ```text
+/// dT = 4*pi*r*F*rho*V_resultant*v_i
+/// ```
 ///
 /// Linearised in W_qs using a rotor-mean mu_T (computed externally from the
 /// converged state). `F[i]` is the per-annulus Prandtl tip+hub loss factor
@@ -98,8 +100,10 @@ fn solve_w_qs(
 
 /// Oye time constants per annulus.
 ///
-///     tau1     = 1.1 / (1 - 1.3*min(a, 0.5)) * R / V_inf      (rotor-mean)
-///     tau2(r)  = (0.39 - 0.26*(r/R)^2) * tau1                 (radius-dependent)
+/// ```text
+/// tau1     = 1.1 / (1 - 1.3*min(a, 0.5)) * R / V_inf      (rotor-mean)
+/// tau2(r)  = (0.39 - 0.26*(r/R)^2) * tau1                 (radius-dependent)
+/// ```
 ///
 /// The 0.5 clamp on a keeps tau1 finite at the actuator-disk limit.
 fn oye_taus(r_tip: f64, x_arr: &[f64], v_inf: f64, a_avg: f64) -> (f64, Vec<f64>) {

@@ -136,6 +136,41 @@ checked against, what the achieved variance is, and the physical
 reasons for any residual bias, see
 [EMPIRICAL_VALIDATION.md](EMPIRICAL_VALIDATION.md).
 
+## Performance baseline (Criterion)
+
+The Rust crate includes a stable Criterion benchmark suite at
+[`dynbem_rs/benches/model_kernels.rs`](dynbem_rs/benches/model_kernels.rs).
+Use this as the baseline before and after any performance refactor.
+
+### Bench groups
+
+- `solve_bem_element`: single-element BEM hot kernel cost
+- `sweep_scalar/prescribed/...`: scalar psi-loop sweep at fixed `(n_psi, n_elements)`
+- `models_compute_forces/{bem,pitt_peters,oye}`: model-level `compute_forces` cost
+
+### Recommended commands
+
+```
+cargo bench -p dynbem_rs --bench model_kernels --no-run
+cargo bench -p dynbem_rs --bench model_kernels -- "sweep_scalar|models_compute_forces" --sample-size 20 --measurement-time 3
+```
+
+For change validation, run the same command before/after your patch and
+compare medians in each benchmark group.
+
+## AI tooling notes
+
+- `CLAUDE.md` is the Claude Code instruction file and remains useful if
+  Claude-based agents are in your workflow.
+- GitHub tooling (Copilot coding agent / GitHub CLI agent workflows)
+  does not use `CLAUDE.md` as its default instruction file.
+- For GitHub-side defaults, use `AGENTS.md` (repo-level coding-agent
+  instructions), and optionally `.github/copilot-instructions.md` for
+  Copilot-specific repository guidance.
+
+Recommendation: keep `CLAUDE.md` if you use Claude tools, but add and
+maintain an `AGENTS.md` so GitHub agent flows pick up the same policy.
+
 ---
 
 ## Coordinate system — NED
@@ -223,7 +258,7 @@ drop-in upgrade behind the same `AeroBase` interface.
   blade pitch `θ(ψ) = collective + θ_1c·cos(ψ) + θ_1s·sin(ψ)` with
   helicopter-standard signs (`tilt_lon > 0` → nose-down,
   `tilt_lat > 0` → roll right). See
-  [`dynbem_rs/src/cyclic.rs`](dynbem_rs/src/cyclic.rs) and CLAUDE.md.
+  [`dynbem_rs/src/cyclic.rs`](dynbem_rs/src/cyclic.rs).
 - In-plane hub moments returned via `AeroResult.M_orbital`
   (`Mx_hub, My_hub` accumulated in the ψ-loop) — needed for cyclic to
   produce vehicle attitude response in the outer loop.
@@ -251,7 +286,7 @@ drop-in upgrade behind the same `AeroBase` interface.
   - Wind-axis rotation of the L-matrix is NOT applied; oblique flight
     `µ_y ≠ 0` is approximate.  Exact for axial and pure-longitudinal
     flight.  A previous implementation was reverted because it
-    destabilised the tethered-rotor envelope — see CLAUDE.md.
+    destabilised the tethered-rotor envelope.
 
 ### Level 2 alt — Øye 2-stage annular dynamic inflow ✅ DONE
 

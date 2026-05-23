@@ -104,8 +104,6 @@ pub fn solve_trim_cyclic<M: AeroModel>(
     n_settle: usize,
     fix_omega: bool,
 ) -> TrimOutcome<M::State> {
-    let omega0 = state.omega();
-    let fix_to = if fix_omega { Some(omega0) } else { None };
     let mut tilt_lon = tilt_lon_init.clamp(tilt_min, tilt_max);
     let mut tilt_lat = tilt_lat_init.clamp(tilt_min, tilt_max);
 

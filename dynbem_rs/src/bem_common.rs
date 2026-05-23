@@ -171,7 +171,9 @@ pub struct VrsRegime {
 
 /// Mass-flow speed at the disk (the Glauert V_T scalar).
 ///
-///     V_T = sqrt(v_edge^2 + (v_climb + v0_axial)^2)
+/// ```text
+/// V_T = sqrt(v_edge^2 + (v_climb + v0_axial)^2)
+/// ```
 ///
 /// `v0_axial` is the axial (induced) component in m/s. Floored at
 /// `V_T_HOVER_FLOOR_FRAC * max(omega_r, 1)` to keep the Pitt-Peters / Oye
