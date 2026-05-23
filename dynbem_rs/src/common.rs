@@ -1,5 +1,16 @@
 // Shared low-level numerics. Pure Rust, no PyO3 here.
 
+use aligned::{Aligned, A64};
+
+/// Maximum radial elements supported by model/state vectors.
+pub const MAX_BEM_ELEMENTS: usize = 256;
+
+/// Maximum polar-table points supported by tabulated polars.
+pub const MAX_POLAR_POINTS: usize = 8192;
+
+/// 64-byte aligned fixed buffer used by BEM inner-loop station arrays.
+pub type AlignedBEMF64 = Aligned<A64, [f64; MAX_BEM_ELEMENTS]>;
+
 // ---------------------------------------------------------------------------
 // Numerical thresholds used across the BEM models.
 // Names express WHAT the value guards, not just its magnitude.

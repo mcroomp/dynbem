@@ -5,9 +5,7 @@ use std::f64::consts::PI;
 
 use crate::aero_io::{AeroResult, RotorInputs};
 use crate::aero_model::AeroModel;
-use crate::bem_common::{
-    assemble_result, kinematics, ElementCtx, PsiKernel, RadialGrid, SweepCtx,
-};
+use crate::bem_common::{assemble_result, kinematics, ElementCtx, PsiKernel, RadialGrid, SweepCtx};
 use crate::common::{EPS_DENOM, EPS_OMEGA_R, MIN_LOSS_FACTOR};
 use crate::cyclic::cyclic_coeffs;
 use crate::polar::{Polar, PolarKind};
@@ -23,19 +21,34 @@ const BEM_TOL: f64 = 1e-7;
 
 #[inline]
 pub fn prandtl_tip_loss(n_blades: usize, x: f64, phi_rad: f64) -> f64 {
-    if phi_rad.abs() < EPS_DENOM || x >= 1.0 {
+    prandtl_tip_loss_from_sin_abs(n_blades, x, phi_rad.sin().abs())
+}
+
+#[inline]
+pub fn prandtl_tip_loss_from_sin_abs(n_blades: usize, x: f64, sin_phi_abs: f64) -> f64 {
+    if sin_phi_abs < EPS_DENOM || x >= 1.0 {
         return 1.0;
     }
-    let f = (n_blades as f64) / 2.0 * (1.0 - x) / (x * phi_rad.sin().abs());
+    let f = (n_blades as f64) / 2.0 * (1.0 - x) / (x * sin_phi_abs);
     (2.0 / PI) * (1.0_f64.min((-f).exp())).acos()
 }
 
 #[inline]
 pub fn prandtl_hub_loss(n_blades: usize, x: f64, x_hub: f64, phi_rad: f64) -> f64 {
-    if phi_rad.abs() < EPS_DENOM || x <= x_hub || x_hub <= 0.0 {
+    prandtl_hub_loss_from_sin_abs(n_blades, x, x_hub, phi_rad.sin().abs())
+}
+
+#[inline]
+pub fn prandtl_hub_loss_from_sin_abs(
+    n_blades: usize,
+    x: f64,
+    x_hub: f64,
+    sin_phi_abs: f64,
+) -> f64 {
+    if sin_phi_abs < EPS_DENOM || x <= x_hub || x_hub <= 0.0 {
         return 1.0;
     }
-    let f = (n_blades as f64) / 2.0 * (x - x_hub) / (x_hub * phi_rad.sin().abs());
+    let f = (n_blades as f64) / 2.0 * (x - x_hub) / (x_hub * sin_phi_abs);
     (2.0 / PI) * (1.0_f64.min((-f).exp())).acos()
 }
 
@@ -84,15 +97,18 @@ pub fn solve_bem_element(
     if omega_r < EPS_OMEGA_R {
         return BEMElementResult::default();
     }
-    let x = r / radius_m;
+    let inv_radius_m = if radius_m > 0.0 { 1.0 / radius_m } else { 0.0 };
+    let inv_omega_r = 1.0 / omega_r;
+    let inv_r = if r > 0.0 { 1.0 / r } else { 0.0 };
+    let x = r * inv_radius_m;
     let x_hub = if radius_m > 0.0 {
-        root_cutout_m / radius_m
+        root_cutout_m * inv_radius_m
     } else {
         0.0
     };
-    let sigma_r = (n_blades as f64) * chord / (2.0 * PI * r);
+    let sigma_r = (n_blades as f64) * chord * inv_r / (2.0 * PI);
     let theta = collective_rad + twist_rad;
-    let lambda_c = v_climb / omega_r;
+    let lambda_c = v_climb * inv_omega_r;
 
     let mut lambda_r = if lambda_c >= 0.0 {
         (lambda_c + 0.03).max(0.02)
@@ -112,15 +128,17 @@ pub fn solve_bem_element(
         let alpha = theta - phi;
         let (cl, cd) = polar.cl_cd(alpha);
 
+        let cos_p = phi.cos();
+        let sin_p = phi.sin();
+        let sin_phi_abs = sin_p.abs();
+
         let f_loss = if use_tip_loss {
-            (prandtl_tip_loss(n_blades, x, phi) * prandtl_hub_loss(n_blades, x, x_hub, phi))
-                .max(MIN_LOSS_FACTOR)
+            (prandtl_tip_loss_from_sin_abs(n_blades, x, sin_phi_abs)
+                * prandtl_hub_loss_from_sin_abs(n_blades, x, x_hub, sin_phi_abs))
+            .max(MIN_LOSS_FACTOR)
         } else {
             1.0
         };
-
-        let cos_p = phi.cos();
-        let sin_p = phi.sin();
         let cn = cl * cos_p - cd * sin_p;
         let ct = cl * sin_p + cd * cos_p;
 
@@ -180,16 +198,20 @@ pub fn solve_bem_element(
     let phi = v_a.atan2(v_t);
     let alpha = theta - phi;
     let (cl, cd) = polar.cl_cd(alpha);
-    let cn = cl * phi.cos() - cd * phi.sin();
-    let ct = cl * phi.sin() + cd * phi.cos();
+    let cos_p = phi.cos();
+    let sin_p = phi.sin();
+    let sin_phi_abs = sin_p.abs();
+    let cn = cl * cos_p - cd * sin_p;
+    let ct = cl * sin_p + cd * cos_p;
     let q = 0.5 * rho * v_rel_sq * chord * dr * (n_blades as f64);
 
     // Momentum-balance residual at the converged state:
     //   |4*F*lambda_r*(lambda_r - lambda_c) - sigma_r*cn*(lambda_r^2 + x^2)|
     // Same definition as the legacy Python BEMElementResult.momentum_residual.
     let f_loss = if use_tip_loss {
-        (prandtl_tip_loss(n_blades, x, phi) * prandtl_hub_loss(n_blades, x, x_hub, phi))
-            .max(MIN_LOSS_FACTOR)
+        (prandtl_tip_loss_from_sin_abs(n_blades, x, sin_phi_abs)
+            * prandtl_hub_loss_from_sin_abs(n_blades, x, x_hub, sin_phi_abs))
+        .max(MIN_LOSS_FACTOR)
     } else {
         1.0
     };
@@ -405,15 +427,19 @@ fn solve_bem_element_windmill(
     if omega_r < EPS_OMEGA_R {
         return None;
     }
-    let x = r / radius_m;
+    let inv_radius_m = if radius_m > 0.0 { 1.0 / radius_m } else { 0.0 };
+    let inv_u_up = 1.0 / u_up;
+    let inv_omega_r = 1.0 / omega_r;
+    let inv_r = if r > 0.0 { 1.0 / r } else { 0.0 };
+    let x = r * inv_radius_m;
     let x_hub = if radius_m > 0.0 {
-        root_cutout_m / radius_m
+        root_cutout_m * inv_radius_m
     } else {
         0.0
     };
-    let sigma_r = (n_blades as f64) * chord / (2.0 * PI * r);
+    let sigma_r = (n_blades as f64) * chord * inv_r / (2.0 * PI);
     let theta = collective_rad + twist_rad;
-    let lam_local = omega * r / u_up;
+    let lam_local = omega * r * inv_u_up;
 
     let residual = |phi: f64| -> f64 {
         match induction_at_phi(
@@ -460,7 +486,7 @@ fn solve_bem_element_windmill(
     let q = 0.5 * rho * v_rel_sq * chord * dr * (n_blades as f64);
     // Windmill solver works in (a, a') space, not (lambda_r, a_prime); reconstruct
     // lambda_r consistent with the rest of the pipeline (axial inflow ratio).
-    let lambda_r = v_a / (omega * radius_m);
+    let lambda_r = v_a * inv_omega_r;
     Some(BEMElementResult {
         d_t: q * ind.cn,
         d_q: q * ind.ct * r,
@@ -603,6 +629,7 @@ impl AeroModel for QuasiStaticBEM {
                 rho,
                 n_b: n_blades,
                 n_psi: self.n_psi_elements,
+                n_psi_inv: 1.0 / (self.n_psi_elements as f64),
                 v_in_hub_x: v_inplane_hub[0],
                 v_in_hub_y: v_inplane_hub[1],
                 theta_1c,

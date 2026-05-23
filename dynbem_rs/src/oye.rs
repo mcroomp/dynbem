@@ -5,7 +5,6 @@ use std::f64::consts::PI;
 
 use crate::aero_io::{AeroResult, RotorInputs};
 use crate::aero_model::AeroModel;
-use crate::quasi_static_bem::{prandtl_hub_loss, prandtl_tip_loss};
 use crate::bem_common::{
     assemble_result, element_force, kinematics, v_t_disk, vrs_regime, ElementCtx, PsiKernel,
     RadialGrid, SweepCtx,
@@ -15,6 +14,7 @@ use crate::common::{
 };
 use crate::cyclic::cyclic_coeffs;
 use crate::polar::PolarKind;
+use crate::quasi_static_bem::{prandtl_hub_loss, prandtl_tip_loss};
 use crate::rotor_definition::RotorDefinition;
 use crate::rotor_state::OyeRotorState;
 
@@ -22,6 +22,24 @@ use crate::rotor_state::OyeRotorState;
 /// Damps the coupling between the quasi-steady target W_qs and the
 /// intermediate filter state W_int.
 pub const OYE_K: f64 = 0.6;
+
+/// Oye 2-stage filter step.
+#[inline(always)]
+pub fn oye_filter_step(
+    d_w_int: &mut [f64],
+    d_w: &mut [f64],
+    w_qs: &[f64],
+    w_int: &[f64],
+    w: &[f64],
+    tau2_arr: &[f64],
+    tau1_scalar: f64,
+    n_active: usize,
+) {
+    for i in 0..n_active {
+        d_w_int[i] = (w_qs[i] - w_int[i]) / tau1_scalar;
+        d_w[i] = (w_int[i] - w[i]) / tau2_arr[i];
+    }
+}
 
 /// Upper clamp on rotor-mean induction factor `a` in the tau1 formula.
 /// Without this, tau1 -> infinity as a -> 1/1.3 ~= 0.77 and the filter
@@ -34,12 +52,6 @@ const A_AVG_CLAMP: f64 = 0.5;
 const W_QS_CLAMP: f64 = 1.0;
 
 /// Oye psi-loop kernel.
-///
-/// Local inflow is per-annulus and azimuth-independent
-/// (`lambda_climb + W[i]`), and we accumulate the azimuth-averaged dT
-/// into `dt_avg[i]` for the W_qs solver. Both happen in one `element`
-/// override -- splitting them into separate trait methods would force
-/// `dt` to be recomputed or carried by side state, with no benefit.
 struct OyeKernel<'a> {
     lambda_climb: f64,
     w: &'a [f64],
@@ -52,28 +64,16 @@ impl<'a> PsiKernel for OyeKernel<'a> {
         let lam = self.lambda_climb + self.w[ctx.i];
         let v_a = lam * sweep.omega_r;
         let (dt, dq) = element_force(v_a, sweep, ctx);
-        self.dt_avg[ctx.i] += dt / (sweep.n_psi as f64);
+        self.dt_avg[ctx.i] += dt * sweep.n_psi_inv;
         (dt, dq)
     }
 }
 
-/// Quasi-steady annulus inflow from Glauert mass-flow momentum balance.
-///
-/// ```text
-/// dT = 4*pi*r*F*rho*V_resultant*v_i
-/// ```
-///
-/// Linearised in W_qs using a rotor-mean mu_T (computed externally from the
-/// converged state). `F[i]` is the per-annulus Prandtl tip+hub loss factor
-/// (1.0 inboard, smoothly -> 0 at the tip). Without it the tip region is
-/// over-induced and Oye over-predicts thrust by 10-20% vs reference codes
-/// in the low-V_inf / high-induced-inflow regime. Stays stable in forward
-/// flight where the pure axial-momentum form blows up at low lambda_r
-/// (autorotation / VRS).
 fn solve_w_qs(
     dt_avg: &[f64],
     x_arr: &[f64],
     f_loss: &[f64],
+    n_active: usize,
     _dr: f64,
     r_tip: f64,
     omega_r: f64,
@@ -81,38 +81,30 @@ fn solve_w_qs(
     rho: f64,
 ) -> Vec<f64> {
     if omega_r < EPS_OMEGA_R {
-        return vec![0.0; dt_avg.len()];
+        return vec![0.0; n_active];
     }
     let area = PI * r_tip * r_tip;
-    // rho_norm here is (rho * A * Omega_R^2 * dr / R) per Python implementation.
     let rho_norm = (rho * area * omega_r * omega_r * _dr / r_tip).max(1e-30);
     let mu_t_safe = mu_t.max(crate::common::MU_T_FLOOR);
-    let mut out = Vec::with_capacity(dt_avg.len());
-    for i in 0..dt_avg.len() {
+    let mut out = vec![0.0; n_active];
+    for i in 0..n_active {
         let d_cdx = dt_avg[i] / rho_norm;
         let x = x_arr[i].max(EPS_OMEGA_R);
         let f = f_loss[i].max(MIN_LOSS_FACTOR);
         let w = d_cdx / (4.0 * x * f * mu_t_safe);
-        out.push(w.clamp(-W_QS_CLAMP, W_QS_CLAMP));
+        out[i] = w.clamp(-W_QS_CLAMP, W_QS_CLAMP);
     }
     out
 }
 
-/// Oye time constants per annulus.
-///
-/// ```text
-/// tau1     = 1.1 / (1 - 1.3*min(a, 0.5)) * R / V_inf      (rotor-mean)
-/// tau2(r)  = (0.39 - 0.26*(r/R)^2) * tau1                 (radius-dependent)
-/// ```
-///
-/// The 0.5 clamp on a keeps tau1 finite at the actuator-disk limit.
-fn oye_taus(r_tip: f64, x_arr: &[f64], v_inf: f64, a_avg: f64) -> (f64, Vec<f64>) {
+fn oye_taus(r_tip: f64, x_arr: &[f64], v_inf: f64, a_avg: f64, n_active: usize) -> (f64, Vec<f64>) {
     let a_c = a_avg.clamp(0.0, A_AVG_CLAMP);
     let tau1 = 1.1 / (1.0 - 1.3 * a_c) * r_tip / v_inf.max(V_T_HOVER_FLOOR_FRAC);
-    let tau2: Vec<f64> = x_arr
-        .iter()
-        .map(|&x| (0.39 - 0.26 * x * x) * tau1)
-        .collect();
+    let mut tau2 = vec![0.0; n_active];
+    for i in 0..n_active {
+        let x = x_arr[i];
+        tau2[i] = (0.39 - 0.26 * x * x) * tau1;
+    }
     (tau1, tau2)
 }
 
@@ -130,12 +122,7 @@ impl AeroModel for OyeBEMModel {
 
     fn initial_state(&self) -> Self::State {
         let n = self.defn.blade.n_elements;
-        OyeRotorState {
-            W_int: vec![0.0; n],
-            W: vec![0.0; n],
-            omega_rad_s: 0.0,
-            spin_angle_rad: 0.0,
-        }
+        OyeRotorState::zeros(n, 0.0)
     }
 
     fn inflow_taus(&self, inputs: &RotorInputs, state: &Self::State) -> Vec<f64> {
@@ -149,7 +136,7 @@ impl AeroModel for OyeBEMModel {
         let v_climb = kin.v_climb;
         let v_edge = kin.v_edge;
         let w_mean: f64 = if n > 0 {
-            state.W.iter().sum::<f64>() / (n as f64)
+            state.w_slice().iter().sum::<f64>() / (n as f64)
         } else {
             0.0
         };
@@ -159,7 +146,7 @@ impl AeroModel for OyeBEMModel {
         } else {
             0.0
         };
-        let (tau1, tau2) = oye_taus(r_tip, &self.grid.x_mid, v_inf, a_avg);
+        let (tau1, tau2) = oye_taus(r_tip, &self.grid.x_mid[..n], v_inf, a_avg, n);
         let mut out = Vec::with_capacity(2 * n + 2);
         out.extend(std::iter::repeat(tau1).take(n));
         out.extend(tau2);
@@ -189,17 +176,16 @@ impl AeroModel for OyeBEMModel {
         let gains = self.defn.control_gains();
         let (theta_1c, theta_1s) = cyclic_coeffs(inputs.tilt_lon, inputs.tilt_lat, gains);
 
-        // Blade element forces -- psi-loop with per-annulus W.
         let lambda_climb = if omega_r > EPS_OMEGA_R {
             v_climb / omega_r
         } else {
             0.0
         };
-        let mut dt_avg = vec![0.0f64; n];
+        let mut dt_avg = vec![0.0; n];
         let (t_total, q_total, mx_hub, my_hub) = if omega_r > EPS_OMEGA_R && omega > 1.0 {
             let mut kernel = OyeKernel {
                 lambda_climb,
-                w: &state.W,
+                w: state.w_slice(),
                 dt_avg: &mut dt_avg,
             };
             let sweep = SweepCtx {
@@ -211,6 +197,7 @@ impl AeroModel for OyeBEMModel {
                 rho,
                 n_b: blade.n_blades,
                 n_psi: self.n_psi_elements,
+                n_psi_inv: 1.0 / (self.n_psi_elements as f64),
                 v_in_hub_x: v_inplane_hub[0],
                 v_in_hub_y: v_inplane_hub[1],
                 theta_1c,
@@ -221,9 +208,8 @@ impl AeroModel for OyeBEMModel {
             (0.0, 0.0, 0.0, 0.0)
         };
 
-        // W_qs per annulus, with VRS uniform override.
         let w_mean: f64 = if n > 0 {
-            state.W.iter().sum::<f64>() / (n as f64)
+            state.w_slice().iter().sum::<f64>() / (n as f64)
         } else {
             0.0
         };
@@ -234,29 +220,22 @@ impl AeroModel for OyeBEMModel {
         let area = PI * r_tip * r_tip;
         let vrs = vrs_regime(t_total, v_climb, rho, area);
 
-        // Per-annulus Prandtl tip+hub loss for the momentum balance.
-        // Uses representative axial-flight phi from the current lagged
-        // state W -- exact for axial flight, approximation for forward
-        // flight (matches what AeroDyn DBEMT does).
         let use_tip_loss = self.defn.airfoil.tip_loss;
-        let f_loss: Vec<f64> = if use_tip_loss && omega_r > EPS_OMEGA_R {
+        let mut f_loss = vec![1.0; n];
+        if use_tip_loss && omega_r > EPS_OMEGA_R {
             let n_b = self.defn.blade.n_blades;
             let x_hub = self.grid.x_hub;
-            (0..n)
-                .map(|i| {
-                    let r = self.grid.r_mid[i];
-                    let lam_local = lambda_climb + state.W[i];
-                    let v_a = lam_local * omega_r;
-                    let v_t = omega * r;
-                    let phi = v_a.atan2(v_t);
-                    let x = self.grid.x_mid[i];
-                    (prandtl_tip_loss(n_b, x, phi) * prandtl_hub_loss(n_b, x, x_hub, phi))
-                        .max(MIN_LOSS_FACTOR)
-                })
-                .collect()
-        } else {
-            vec![1.0; n]
-        };
+            for i in 0..n {
+                let r = self.grid.r_mid[i];
+                let lam_local = lambda_climb + state.W[i];
+                let v_a = lam_local * omega_r;
+                let v_t = omega * r;
+                let phi = v_a.atan2(v_t);
+                let x = self.grid.x_mid[i];
+                f_loss[i] = (prandtl_tip_loss(n_b, x, phi) * prandtl_hub_loss(n_b, x, x_hub, phi))
+                    .max(MIN_LOSS_FACTOR);
+            }
+        }
 
         let w_qs: Vec<f64> = if vrs.in_vrs && omega_r > EPS_OMEGA_R {
             let w_uniform = vrs_lambda1(vrs.lam2) * vrs.v_h / omega_r;
@@ -264,8 +243,9 @@ impl AeroModel for OyeBEMModel {
         } else {
             solve_w_qs(
                 &dt_avg,
-                &self.grid.x_mid,
+                &self.grid.x_mid[..n],
                 &f_loss,
+                n,
                 self.grid.dr,
                 r_tip,
                 omega_r,
@@ -274,21 +254,25 @@ impl AeroModel for OyeBEMModel {
             )
         };
 
-        // Oye 2-stage filter ODE (Mod=1: dW_qs/dt = 0 across the outer step).
         let a_avg = if vt_disk > VRS_DESCENT_THRESHOLD {
             w_mean * omega_r / vt_disk
         } else {
             0.0
         };
-        let (_tau1_scalar, tau2_arr) = oye_taus(r_tip, &self.grid.x_mid, vt_disk, a_avg);
-        let tau1_scalar = _tau1_scalar;
+        let (tau1_scalar, tau2_arr) = oye_taus(r_tip, &self.grid.x_mid[..n], vt_disk, a_avg, n);
 
-        let mut d_w_int = Vec::with_capacity(n);
-        let mut d_w = Vec::with_capacity(n);
-        for i in 0..n {
-            d_w_int.push((w_qs[i] - state.W_int[i]) / tau1_scalar);
-            d_w.push((state.W_int[i] - state.W[i]) / tau2_arr[i]);
-        }
+        let mut d_w_int = vec![0.0; n];
+        let mut d_w = vec![0.0; n];
+        oye_filter_step(
+            &mut d_w_int,
+            &mut d_w,
+            &w_qs,
+            &state.W_int,
+            &state.W,
+            &tau2_arr,
+            tau1_scalar,
+            n,
+        );
 
         let i_ode = self.defn.autorotation.I_ode_kgm2.unwrap_or(1.0);
         let d_omega = (-q_total + inputs.motor_torque_Nm) / i_ode;
@@ -296,6 +280,7 @@ impl AeroModel for OyeBEMModel {
 
         let result = assemble_result(t_total, q_total, mx_hub, my_hub, hub_axis, &inputs.R_hub);
         let derivative = OyeRotorState {
+            n_elements: n,
             W_int: d_w_int,
             W: d_w,
             omega_rad_s: d_omega,

@@ -114,6 +114,7 @@ fn bench_scalar_sweep(c: &mut Criterion) {
             rho: 1.225,
             n_b: defn.blade.n_blades,
             n_psi,
+            n_psi_inv: 1.0 / (n_psi as f64),
             v_in_hub_x: 8.0,
             v_in_hub_y: 1.5,
             theta_1c: 1.0_f64.to_radians(),
@@ -126,7 +127,7 @@ fn bench_scalar_sweep(c: &mut Criterion) {
                     lambda_total: 0.065,
                     lam_c: 0.012,
                     lam_s: -0.009,
-                    x_mid: &grid.x_mid,
+                    x_mid: &grid.x_mid[..grid.n_elements],
                 };
                 black_box(sweep.run(&mut kernel))
             })

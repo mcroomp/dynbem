@@ -2,7 +2,9 @@
 // See ../CLAUDE.md "Shared BEM infrastructure".
 
 use crate::aero_io::{AeroResult, Mat3, RotorInputs, Vec3};
-use crate::common::{EPS_OMEGA_R, VRS_DESCENT_THRESHOLD, V_T_HOVER_FLOOR_FRAC};
+use crate::common::{
+    AlignedBEMF64, EPS_OMEGA_R, MAX_BEM_ELEMENTS, VRS_DESCENT_THRESHOLD, V_T_HOVER_FLOOR_FRAC,
+};
 use crate::polar::{Polar, PolarKind};
 use crate::rotor_definition::BladeGeometry;
 use std::f64::consts::PI;
@@ -15,12 +17,13 @@ use std::f64::consts::PI;
 /// no branches per element.
 #[derive(Clone, Debug)]
 pub struct RadialGrid {
+    pub n_elements: usize,
     pub dr: f64,
-    pub r_mid: Vec<f64>,     // n
-    pub x_mid: Vec<f64>,     // n = r_mid / R
-    pub x_hub: f64,          // root_cutout / R
-    pub chord: Vec<f64>,     // n  -- per-station chord (m)
-    pub twist_rad: Vec<f64>, // n  -- per-station twist (rad)
+    pub r_mid: AlignedBEMF64,     // n
+    pub x_mid: AlignedBEMF64,     // n = r_mid / R
+    pub x_hub: f64,               // root_cutout / R
+    pub chord: AlignedBEMF64,     // n  -- per-station chord (m)
+    pub twist_rad: AlignedBEMF64, // n  -- per-station twist (rad)
 }
 
 impl RadialGrid {
@@ -28,20 +31,22 @@ impl RadialGrid {
         let r_root = blade.root_cutout_m;
         let r_tip = blade.radius_m;
         let n = blade.n_elements;
+        assert!(n <= MAX_BEM_ELEMENTS);
         let dr = (r_tip - r_root) / (n as f64);
-        let mut r_mid = Vec::with_capacity(n);
-        let mut x_mid = Vec::with_capacity(n);
-        let mut chord = Vec::with_capacity(n);
-        let mut twist_rad = Vec::with_capacity(n);
+        let mut r_mid = aligned::Aligned([0.0; MAX_BEM_ELEMENTS]);
+        let mut x_mid = aligned::Aligned([0.0; MAX_BEM_ELEMENTS]);
+        let mut chord = aligned::Aligned([0.0; MAX_BEM_ELEMENTS]);
+        let mut twist_rad = aligned::Aligned([0.0; MAX_BEM_ELEMENTS]);
         for i in 0..n {
             let r = r_root + (i as f64 + 0.5) * dr;
-            r_mid.push(r);
-            x_mid.push(if r_tip > 0.0 { r / r_tip } else { 0.0 });
-            chord.push(blade.chord_at(r));
-            twist_rad.push(blade.twist_at(r).to_radians());
+            r_mid[i] = r;
+            x_mid[i] = if r_tip > 0.0 { r / r_tip } else { 0.0 };
+            chord[i] = blade.chord_at(r);
+            twist_rad[i] = blade.twist_at(r).to_radians();
         }
         let x_hub = if r_tip > 0.0 { r_root / r_tip } else { 0.0 };
         Self {
+            n_elements: n,
             dr,
             r_mid,
             x_mid,
@@ -330,6 +335,7 @@ pub struct SweepCtx<'a> {
     pub rho: f64,
     pub n_b: usize,
     pub n_psi: usize,
+    pub n_psi_inv: f64,
     /// In-plane wind in hub frame; `v_t_extra = v_in_hub_x*sin psi + v_in_hub_y*cos psi`.
     pub v_in_hub_x: f64,
     pub v_in_hub_y: f64,
@@ -350,9 +356,16 @@ impl<'a> SweepCtx<'a> {
         let mut q_acc = 0.0;
         let mut mx_acc = 0.0;
         let mut my_acc = 0.0;
-        let inv_n_psi = 1.0 / (self.n_psi as f64);
+        let inv_n_psi = self.n_psi_inv;
         let grid = self.grid;
-        let n_r = grid.r_mid.len();
+        let n_r = grid.n_elements;
+
+        assert!(n_r < MAX_BEM_ELEMENTS);
+
+        let r_mid = &grid.r_mid;
+        let chord = &grid.chord;
+        let twist = &grid.twist_rad;
+
         for i_psi in 0..self.n_psi {
             let psi = 2.0 * PI * (i_psi as f64) * inv_n_psi;
             let cos_psi = psi.cos();
@@ -361,7 +374,7 @@ impl<'a> SweepCtx<'a> {
             let col_psi = self.col + self.theta_1c * cos_psi + self.theta_1s * sin_psi;
             let mut rdt_sum = 0.0;
             for i in 0..n_r {
-                let r = grid.r_mid[i];
+                let r = r_mid[i];
                 let v_t = self.omega * r + v_t_extra;
                 if v_t <= 0.0 {
                     continue;
@@ -371,8 +384,8 @@ impl<'a> SweepCtx<'a> {
                     cos_psi,
                     sin_psi,
                     r,
-                    chord: grid.chord[i],
-                    twist: grid.twist_rad[i],
+                    chord: chord[i],
+                    twist: twist[i],
                     dr: grid.dr,
                     col_psi,
                     v_t,

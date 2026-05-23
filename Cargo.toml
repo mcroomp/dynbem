@@ -23,3 +23,9 @@ serde_yaml = "0.9"
 [profile.release]
 lto = "thin"
 codegen-units = 1
+debug = true
+strip = "none"
+
+[profile.bench]
+debug = true
+strip = "none"

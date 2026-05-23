@@ -15,6 +15,7 @@ path = "src/lib.rs"
 [dependencies]
 serde = { workspace = true }
 serde_yaml = { workspace = true }
+aligned = "0.4"
 
 [dev-dependencies]
 criterion = { version = "0.5", default-features = false, features = ["cargo_bench_support"] }
@@ -22,3 +23,7 @@ criterion = { version = "0.5", default-features = false, features = ["cargo_benc
 [[bench]]
 name = "model_kernels"
 harness = false
+
+[[bin]]
+name = "profile_kernels"
+path = "bin/profile_kernels.rs"

@@ -39,6 +39,7 @@ enum FinalState {
 }
 
 #[pyclass(name = "TrimResult", module = "dynbem._dynbem")]
+#[allow(non_snake_case)]
 pub struct PyTrimResult {
     #[pyo3(get)]
     pub tilt_lon: f64,

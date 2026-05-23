@@ -9,7 +9,7 @@ use crate::bem_common::{
     assemble_result, element_force, kinematics, v_t_disk, vrs_regime, ElementCtx, PsiKernel,
     RadialGrid, SweepCtx,
 };
-use crate::common::{vrs_lambda1, EPS_DENOM, EPS_OMEGA_R, MU_T_FLOOR};
+use crate::common::{vrs_lambda1, EPS_DENOM, EPS_OMEGA_R, MAX_BEM_ELEMENTS, MU_T_FLOOR};
 use crate::cyclic::cyclic_coeffs;
 use crate::polar::PolarKind;
 use crate::rotor_definition::RotorDefinition;
@@ -39,6 +39,7 @@ fn axial_forces(
         rho,
         n_b,
         n_psi: 1,
+        n_psi_inv: 1.0,
         v_in_hub_x: 0.0,
         v_in_hub_y: 0.0,
         theta_1c: 0.0,
@@ -47,8 +48,15 @@ fn axial_forces(
     let mut t_acc = 0.0;
     let mut q_acc = 0.0;
     let v_a = lambda_total * omega_r;
-    for i in 0..grid.r_mid.len() {
-        let r = grid.r_mid[i];
+
+    let n = grid.n_elements;
+    assert!(n < MAX_BEM_ELEMENTS);
+
+    let r_mid = &grid.r_mid;
+    let chord = &grid.chord;
+    let twist = &grid.twist_rad;
+    for i in 0..n {
+        let r = r_mid[i];
         let v_t = omega * r;
         if v_t < EPS_DENOM {
             continue;
@@ -58,8 +66,8 @@ fn axial_forces(
             cos_psi: 1.0,
             sin_psi: 0.0,
             r,
-            chord: grid.chord[i],
-            twist: grid.twist_rad[i],
+            chord: chord[i],
+            twist: twist[i],
             dr: grid.dr,
             col_psi: col,
             v_t,
@@ -171,7 +179,7 @@ impl AeroModel for PittPetersModel {
                     lambda_total,
                     lam_c,
                     lam_s,
-                    x_mid: &self.grid.x_mid,
+                    x_mid: &self.grid.x_mid[..self.grid.n_elements],
                 };
                 let sweep = SweepCtx {
                     grid: &self.grid,
@@ -182,6 +190,7 @@ impl AeroModel for PittPetersModel {
                     rho,
                     n_b: blade.n_blades,
                     n_psi: self.n_psi_elements,
+                    n_psi_inv: 1.0 / (self.n_psi_elements as f64),
                     v_in_hub_x: v_inplane_hub[0],
                     v_in_hub_y: v_inplane_hub[1],
                     theta_1c,

@@ -8,12 +8,12 @@
 pub mod aero_io;
 pub mod aero_model;
 pub mod bem_common;
-pub mod quasi_static_bem;
 pub mod common;
 pub mod cyclic;
 pub mod oye;
 pub mod pitt_peters;
 pub mod polar;
+pub mod quasi_static_bem;
 pub mod rotor_definition;
 pub mod rotor_state;
 pub mod rotor_yaml;

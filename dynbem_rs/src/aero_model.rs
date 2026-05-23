@@ -67,10 +67,10 @@ impl RotorStateExt for PittPetersRotorState {
 
 impl RotorStateExt for OyeRotorState {
     fn to_vec(&self) -> Vec<f64> {
-        let n = self.W_int.len();
+        let n = self.n_elements;
         let mut v = Vec::with_capacity(2 * n + 2);
-        v.extend_from_slice(&self.W_int);
-        v.extend_from_slice(&self.W);
+        v.extend_from_slice(self.w_int_slice());
+        v.extend_from_slice(self.w_slice());
         v.push(self.omega_rad_s);
         v.push(self.spin_angle_rad);
         v
@@ -78,18 +78,17 @@ impl RotorStateExt for OyeRotorState {
     fn from_vec(arr: &[f64]) -> Self {
         let n_total = arr.len();
         let n = (n_total - 2) / 2;
-        OyeRotorState {
-            W_int: arr[..n].to_vec(),
-            W: arr[n..2 * n].to_vec(),
-            omega_rad_s: arr[n_total - 2],
-            spin_angle_rad: arr[n_total - 1],
-        }
+        let mut out = OyeRotorState::zeros(n, arr[n_total - 2]);
+        out.spin_angle_rad = arr[n_total - 1];
+        out.W_int[..n].copy_from_slice(&arr[..n]);
+        out.W[..n].copy_from_slice(&arr[n..2 * n]);
+        out
     }
     fn omega(&self) -> f64 {
         self.omega_rad_s
     }
     fn n_dof(&self) -> usize {
-        2 * self.W_int.len() + 2
+        2 * self.n_elements + 2
     }
 }
 

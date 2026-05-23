@@ -964,12 +964,12 @@ impl PyOyeRotorState {
         if wi.len() != w.len() {
             return Err(PyValueError::new_err("W_int and W must have equal length"));
         }
-        Ok(PyOyeRotorState(core_::rotor_state::OyeRotorState {
-            W_int: wi,
-            W: w,
-            omega_rad_s,
-            spin_angle_rad,
-        }))
+        let n = wi.len();
+        let mut s = core_::rotor_state::OyeRotorState::zeros(n, omega_rad_s);
+        s.spin_angle_rad = spin_angle_rad;
+        s.W_int[..n].copy_from_slice(&wi);
+        s.W[..n].copy_from_slice(&w);
+        Ok(PyOyeRotorState(s))
     }
 
     #[staticmethod]
@@ -984,12 +984,12 @@ impl PyOyeRotorState {
     #[getter]
     #[allow(non_snake_case)]
     fn W_int<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
-        self.0.W_int.clone().into_pyarray_bound(py)
+        self.0.w_int_slice().to_vec().into_pyarray_bound(py)
     }
     #[getter]
     #[allow(non_snake_case)]
     fn W<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
-        self.0.W.clone().into_pyarray_bound(py)
+        self.0.w_slice().to_vec().into_pyarray_bound(py)
     }
     #[getter]
     fn omega_rad_s(&self) -> f64 {
@@ -1009,10 +1009,10 @@ impl PyOyeRotorState {
     }
 
     fn to_array<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
-        let n = self.0.W_int.len();
+        let n = self.0.n_elements;
         let mut v = Vec::with_capacity(2 * n + 2);
-        v.extend_from_slice(&self.0.W_int);
-        v.extend_from_slice(&self.0.W);
+        v.extend_from_slice(self.0.w_int_slice());
+        v.extend_from_slice(self.0.w_slice());
         v.push(self.0.omega_rad_s);
         v.push(self.0.spin_angle_rad);
         v.into_pyarray_bound(py)
@@ -1028,12 +1028,11 @@ impl PyOyeRotorState {
             )));
         }
         let n = (n_total - 2) / 2;
-        Ok(PyOyeRotorState(core_::rotor_state::OyeRotorState {
-            W_int: a[..n].to_vec(),
-            W: a[n..2 * n].to_vec(),
-            omega_rad_s: a[n_total - 2],
-            spin_angle_rad: a[n_total - 1],
-        }))
+        let mut s = core_::rotor_state::OyeRotorState::zeros(n, a[n_total - 2]);
+        s.spin_angle_rad = a[n_total - 1];
+        s.W_int[..n].copy_from_slice(&a[..n]);
+        s.W[..n].copy_from_slice(&a[n..2 * n]);
+        Ok(PyOyeRotorState(s))
     }
 }
 

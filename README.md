@@ -125,6 +125,13 @@ python -m envelope.compute_map --help
 uv run pytest tests/ -q
 ```
 
+If `uv` is not on `PATH` in your shell, run pytest with the workspace
+interpreter directly:
+
+```
+c:/repos/aero/.venv/Scripts/python.exe -m pytest tests/ -q
+```
+
 The `tests/` directory contains unit tests, validation scripts against
 published rotor data, and end-to-end force-balance / frame-transform
 checks. Whole-dataset validation sweeps against each paper live in
@@ -157,6 +164,23 @@ cargo bench -p dynbem_rs --bench model_kernels -- "sweep_scalar|models_compute_f
 
 For change validation, run the same command before/after your patch and
 compare medians in each benchmark group.
+
+## External profiling harness
+
+A standalone profiling binary is included at
+[`dynbem_rs/bin/profile_kernels.rs`](dynbem_rs/bin/profile_kernels.rs).
+It builds with normal package builds (see `[[bin]]` in
+[`dynbem_rs/Cargo.toml`](dynbem_rs/Cargo.toml)).
+
+```
+cargo build --release -p dynbem_rs
+./target/release/profile_kernels.exe oye
+./target/release/profile_kernels.exe pitt_peters
+./target/release/profile_kernels.exe solve_bem_element
+```
+
+Release profiles in the workspace keep debuginfo enabled so external
+profilers can resolve symbols.
 
 ## AI tooling notes
 

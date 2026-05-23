@@ -9,8 +9,8 @@ use std::path::{Path, PathBuf};
 use serde::Deserialize;
 
 use crate::rotor_definition::{
-    AirfoilProperties, AutorotationProperties, BladeGeometry, ControlProperties,
-    InertiaProperties, KamanFlap, RotorDefinition,
+    AirfoilProperties, AutorotationProperties, BladeGeometry, ControlProperties, InertiaProperties,
+    KamanFlap, RotorDefinition,
 };
 
 #[derive(Debug)]
@@ -22,7 +22,10 @@ pub enum YamlLoadError {
     MissingField(String),
     /// A value had the wrong shape (e.g. mass_kg dict with a
     /// non-numeric value).
-    InvalidValue { field: String, reason: String },
+    InvalidValue {
+        field: String,
+        reason: String,
+    },
 }
 
 impl std::fmt::Display for YamlLoadError {
@@ -225,7 +228,10 @@ struct AutorotationYaml {
 /// `base_dir`, if `Some`, is used to resolve a relative `airfoil.polar_csv`
 /// path; if `None`, the field is stored verbatim (callers who already
 /// have an absolute path or who want raw input can pass `None`).
-pub fn from_yaml_str(text: &str, base_dir: Option<&Path>) -> Result<RotorDefinition, YamlLoadError> {
+pub fn from_yaml_str(
+    text: &str,
+    base_dir: Option<&Path>,
+) -> Result<RotorDefinition, YamlLoadError> {
     let parsed: RotorYaml = serde_yaml::from_str(text)?;
     build(parsed, base_dir)
 }
@@ -278,8 +284,14 @@ fn resolve_mass_kg(inertia: &InertiaYaml, n_blades: usize) -> Option<f64> {
     }
     // Derive from components: blade_mass * N_blades + stationary + shell.
     let blade = inertia.blade_mass_kg.as_ref().map(|x| x.to_f64());
-    let stat = inertia.stationary_assembly_mass_kg.as_ref().map(|x| x.to_f64());
-    let shell = inertia.spinning_hub_shell_mass_kg.as_ref().map(|x| x.to_f64());
+    let stat = inertia
+        .stationary_assembly_mass_kg
+        .as_ref()
+        .map(|x| x.to_f64());
+    let shell = inertia
+        .spinning_hub_shell_mass_kg
+        .as_ref()
+        .map(|x| x.to_f64());
     match (blade, stat, shell) {
         (Some(b), Some(s), Some(h)) => Some(b * n_blades as f64 + s + h),
         _ => None,
@@ -353,11 +365,13 @@ fn build(y: RotorYaml, base_dir: Option<&Path>) -> Result<RotorDefinition, YamlL
         I_body_kgm2: y.inertia.I_body_kgm2.clone(),
         I_spin_kgm2: y.inertia.I_spin_kgm2.as_ref().map(|x| x.to_f64()),
         blade_mass_kg: y.inertia.blade_mass_kg.as_ref().map(|x| x.to_f64()),
-        stationary_assembly_mass_kg: y.inertia
+        stationary_assembly_mass_kg: y
+            .inertia
             .stationary_assembly_mass_kg
             .as_ref()
             .map(|x| x.to_f64()),
-        spinning_hub_shell_mass_kg: y.inertia
+        spinning_hub_shell_mass_kg: y
+            .inertia
             .spinning_hub_shell_mass_kg
             .as_ref()
             .map(|x| x.to_f64()),
@@ -418,7 +432,10 @@ autorotation:
         assert_eq!(defn.blade.n_elements, 30);
         assert!(!defn.blade.has_radial_stations());
         assert_eq!(defn.airfoil.name, "NACA 0015");
-        assert_eq!(defn.airfoil.polar_csv.as_deref(), Some("naca0015_ncrit5_re200k.csv"));
+        assert_eq!(
+            defn.airfoil.polar_csv.as_deref(),
+            Some("naca0015_ncrit5_re200k.csv")
+        );
         assert!(defn.control.is_none());
         assert_eq!(defn.autorotation.I_ode_kgm2, Some(1.0));
     }
