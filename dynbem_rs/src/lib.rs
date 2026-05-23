@@ -16,4 +16,5 @@ pub mod pitt_peters;
 pub mod polar;
 pub mod rotor_definition;
 pub mod rotor_state;
+pub mod rotor_yaml;
 pub mod trim;

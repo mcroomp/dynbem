@@ -10,13 +10,20 @@ Oye filter -- all load-bearing physics.
 
 ## Hard rules
 
-1. **No `pyo3` / `numpy` / `pyyaml` / file IO imports.** If you need a
-   Python-facing helper, file IO, or pickling, you're in the wrong
-   crate -- add it in [`../dynbem/`](../dynbem/) instead.
-2. **Public API stability matters.** The glue crate depends on every
+1. **No `pyo3` / `numpy` imports.** If you need a Python-facing helper
+   or pickling, you're in the wrong crate -- add it in
+   [`../dynbem/`](../dynbem/) instead.
+2. **File IO and YAML are confined to `rotor_yaml.rs`.** The math
+   modules (`bem*`, `pitt_peters`, `oye`, `polar`, `cyclic`,
+   `rotor_definition`, `rotor_state`, `aero_*`, `trim`, `common`)
+   must stay free of `std::fs` / `serde` / `serde_yaml` so they can
+   be used in `no-std`-ish embedded contexts and so the math core
+   stays decoupled from file-format concerns. New file formats
+   (CSV polars, etc.) get their own sibling module.
+3. **Public API stability matters.** The glue crate depends on every
    public field, struct, and function here. Renaming or moving things
    requires a matching edit there. Prefer additive changes.
-3. **Sign conventions are NOT documented in this crate's source.**
+4. **Sign conventions are NOT documented in this crate's source.**
    They live in [../CLAUDE.md](../CLAUDE.md). Refer to it; don't
    duplicate.
 
@@ -35,6 +42,8 @@ Oye filter -- all load-bearing physics.
     +-- polar.rs              LinearPolar, TabulatedPolar, PolarKind
     +-- rotor_definition.rs   Blade / Airfoil / Control / Inertia / etc.
     +-- rotor_state.rs        QuasiStatic / PittPeters / Oye state structs
+    +-- rotor_yaml.rs         YAML loader for RotorDefinition (only file
+    |                         IO + serde site in this crate)
     +-- trim.rs               solve_trim_cyclic<M>, relax_inflow<M> (generic)
 
 ## Adding a new aero model

@@ -45,8 +45,12 @@ fills the gap so existing `import dynbem` callers keep working:
 - **Dotted submodule access** (`dynbem.bem.BEMModel`, `dynbem.polar.LinearPolar`,
   ...): each shim file re-exports the relevant names from the parent
   package and adds a few helpers.
-- **YAML rotor loader** `dynbem.rotor_definition.load(path)`: ported from
-  `dynbem_old`. Reads the same YAML schema, builds a Rust RotorDefinition.
+- **YAML rotor loader** `dynbem.rotor_definition.load(path)` /
+  `loads(text, base_dir=None)`: thin wrappers around the
+  `_dynbem.load_rotor_yaml` / `loads_rotor_yaml` pyfunctions, which
+  delegate to `dynbem_rs::rotor_yaml` (serde_yaml). Rust and Python
+  share a single parser + schema, so pure-Rust callers can load the
+  same `rotor.yaml` files via `RotorDefinition::from_yaml_file(path)`.
 - **`.validate()` methods** on BladeGeometry / AirfoilProperties /
   RotorDefinition: monkey-patched onto the Rust pyclasses in
   `rotor_definition.py`. Return `list[ValidationIssue]`. If pyo3 ever
@@ -75,8 +79,10 @@ warnings, abstract base class registration):
 1. Expose a minimal Rust pyfunction or pyclass in `src/`.
 2. Wrap with the convenience layer in `python/dynbem/`.
 3. Add the dotted-submodule re-export if relevant.
-4. **Do NOT add the same convenience to dynbem_rs (the pure-Rust core)**
-   -- it would pull pyo3 / file IO / yaml into the no-deps math crate.
+4. **Do NOT add pyo3 / numpy to dynbem_rs (the pure-Rust core).** File
+   IO is now allowed but only in a dedicated module (currently just
+   `dynbem_rs::rotor_yaml`); the math modules stay free of `std::fs`
+   and `serde` so they remain embeddable.
 
 ## Numpy boundary discipline
 

@@ -16,6 +16,9 @@ rust-version = "1.74"
 # future workspace members touching pyo3 stay on the same revision.
 pyo3 = { version = "0.22", features = ["extension-module", "abi3-py310"] }
 numpy = "0.22"
+# YAML rotor-definition loader (dynbem_rs::rotor_yaml).
+serde = { version = "1", features = ["derive"] }
+serde_yaml = "0.9"
 
 [profile.release]
 lto = "thin"

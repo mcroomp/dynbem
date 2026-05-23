@@ -43,6 +43,19 @@ Coordinates are NED throughout; rotor rotation is CCW-from-above
 
 ## Install
 
+**Quick start** (all platforms):
+
+```
+./setup.sh           # Windows git-bash/WSL or POSIX (creates .venv, builds dynbem)
+setup.cmd            # Windows PowerShell/cmd only
+```
+
+Both scripts check prerequisites (Python 3.10+, cargo, C compiler) upfront,
+create a virtual environment, install dependencies, and build the Rust extension
+via maturin. See [setup.sh](setup.sh) for details on supported platforms.
+
+**Manual setup** (if you prefer not to use the setup scripts):
+
 The repo is a uv workspace + Cargo workspace. The Rust extension is built
 automatically (via maturin) by `uv sync`:
 
@@ -64,6 +77,8 @@ Rust toolchain (`rustup` stable).
 import numpy as np
 import dynbem
 
+# Load rotor definition from YAML. Parsing happens in Rust (dynbem_rs)
+# via PyO3 bindings; pure-Rust callers can use RotorDefinition::from_yaml_file(path).
 defn   = dynbem.rotor_definition.load("rotors/castles_gray_6ft/rotor.yaml")
 model  = dynbem.create_aero(defn, model="pitt_peters")  # or "oye", "bem"
 # ("pitt_peters_jit" is accepted as a legacy alias for "pitt_peters" --

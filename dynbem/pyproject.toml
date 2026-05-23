@@ -25,8 +25,11 @@ dependencies = [
     "numpy>=1.24",
 ]
 
+# YAML loading is handled by the Rust core (dynbem_rs::rotor_yaml via
+# serde_yaml). The `yaml` extra is retained as an empty alias so that
+# existing installs of `dynbem[yaml]` continue to resolve.
 [project.optional-dependencies]
-yaml = ["PyYAML>=6"]
+yaml = []
 
 [project.urls]
 Homepage = "https://github.com/mcroomp/dynbem"

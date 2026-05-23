@@ -11,3 +11,7 @@ rust-version.workspace = true
 [lib]
 name = "dynbem_rs"
 path = "src/lib.rs"
+
+[dependencies]
+serde = { workspace = true }
+serde_yaml = { workspace = true }

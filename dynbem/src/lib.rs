@@ -46,6 +46,28 @@ fn prandtl_hub_loss(n_blades: usize, x: f64, x_hub: f64, phi_rad: f64) -> f64 {
 }
 
 // ---------------------------------------------------------------------------
+// load_rotor_yaml: delegates to dynbem_rs::rotor_yaml so Rust and Python
+// share a single YAML parser + schema. polar_csv is resolved relative
+// to the YAML file's directory, matching the legacy Python loader.
+// ---------------------------------------------------------------------------
+
+#[pyfunction]
+fn load_rotor_yaml(path: &str) -> PyResult<PyRotorDefinition> {
+    dynbem_rs::rotor_yaml::from_yaml_file(path)
+        .map(PyRotorDefinition)
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))
+}
+
+#[pyfunction]
+#[pyo3(signature = (text, base_dir = None))]
+fn loads_rotor_yaml(text: &str, base_dir: Option<&str>) -> PyResult<PyRotorDefinition> {
+    let base = base_dir.map(std::path::Path::new);
+    dynbem_rs::rotor_yaml::from_yaml_str(text, base)
+        .map(PyRotorDefinition)
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))
+}
+
+// ---------------------------------------------------------------------------
 // solve_bem_element: per-annulus BEM solver, exposed for diagnostics +
 // the spanwise-CL verification scripts. Mirrors the legacy Python
 // dynbem.bem.solve_bem_element NamedTuple API.
@@ -122,6 +144,8 @@ fn _dynbem(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(prandtl_tip_loss, m)?)?;
     m.add_function(wrap_pyfunction!(prandtl_hub_loss, m)?)?;
     m.add_function(wrap_pyfunction!(solve_bem_element, m)?)?;
+    m.add_function(wrap_pyfunction!(load_rotor_yaml, m)?)?;
+    m.add_function(wrap_pyfunction!(loads_rotor_yaml, m)?)?;
     m.add_class::<PyBEMElementResult>()?;
     m.add_class::<PyLinearPolar>()?;
     m.add_class::<PyTabulatedPolar>()?;
