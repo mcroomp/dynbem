@@ -80,9 +80,24 @@ def _step_state_semi_implicit(model, state, dstate, dt: float,
     plain explicit Euler.  Model-agnostic — works with any AeroBase
     subclass that overrides inflow_taus correctly.
     """
-    taus = model.inflow_taus(inputs, state)
-    arr  = state.to_array()
+    taus = np.asarray(model.inflow_taus(inputs, state), dtype=float)
+    arr = state.to_array()
     darr = dstate.to_array()
+
+    # Backward/forward compatibility:
+    # - Older models may return per-state taus (same size as state array).
+    # - Current RotorStateExt returns inflow-only taus; omega/spin are
+    #   mechanical states at arr[-2:], integrated explicitly (tau = inf).
+    if taus.size == arr.size - 2:
+        taus_full = np.full(arr.shape, np.inf, dtype=float)
+        taus_full[:-2] = taus
+        taus = taus_full
+    elif taus.size != arr.size:
+        raise ValueError(
+            f"inflow_taus size mismatch: got {taus.size}, expected "
+            f"{arr.size} (full) or {arr.size - 2} (inflow-only)"
+        )
+
     # damp = 1/(1+dt/τ); =1 when τ=∞ (plain Euler)
     finite = np.isfinite(taus)
     damp = np.ones_like(arr)
