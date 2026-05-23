@@ -9,86 +9,90 @@
 use crate::aero_io::{AeroResult, RotorInputs};
 use crate::rotor_state::{OyeRotorState, PittPetersRotorState, QuasiStaticRotorState};
 
-/// State vector serialization for the ODE integrator.
-/// Convention: omega_rad_s is the **second-to-last** entry, spin_angle_rad
-/// is the last (so the trim solver can clamp omega without knowing the
-/// state layout).
+/// Inflow-state serialization for generic integrators.
+/// Mechanical state (omega/spin) stays explicit on the typed state.
 pub trait RotorStateExt: Clone {
-    fn to_vec(&self) -> Vec<f64>;
-    fn from_vec(arr: &[f64]) -> Self;
+    fn get_inflow(&self) -> Vec<f64>;
+    fn set_inflow(&mut self, arr: Vec<f64>);
     fn omega(&self) -> f64;
-    fn n_dof(&self) -> usize;
+    fn set_omega(&mut self, omega: f64);
+    fn spin(&self) -> f64;
+    fn set_spin(&mut self, spin: f64);
+    fn inflow_dof(&self) -> usize {
+        self.get_inflow().len()
+    }
 }
 
 impl RotorStateExt for QuasiStaticRotorState {
-    fn to_vec(&self) -> Vec<f64> {
-        vec![self.omega_rad_s, self.spin_angle_rad]
+    fn get_inflow(&self) -> Vec<f64> {
+        Vec::new()
     }
-    fn from_vec(arr: &[f64]) -> Self {
-        QuasiStaticRotorState {
-            omega_rad_s: arr[0],
-            spin_angle_rad: arr[1],
-        }
+    fn set_inflow(&mut self, arr: Vec<f64>) {
+        debug_assert!(arr.is_empty());
     }
     fn omega(&self) -> f64 {
         self.omega_rad_s
     }
-    fn n_dof(&self) -> usize {
-        2
+    fn set_omega(&mut self, omega: f64) {
+        self.omega_rad_s = omega;
+    }
+    fn spin(&self) -> f64 {
+        self.spin_angle_rad
+    }
+    fn set_spin(&mut self, spin: f64) {
+        self.spin_angle_rad = spin;
     }
 }
 
 impl RotorStateExt for PittPetersRotorState {
-    fn to_vec(&self) -> Vec<f64> {
-        vec![
-            self.lambda_0,
-            self.lambda_c,
-            self.lambda_s,
-            self.omega_rad_s,
-            self.spin_angle_rad,
-        ]
+    fn get_inflow(&self) -> Vec<f64> {
+        vec![self.lambda_0, self.lambda_c, self.lambda_s]
     }
-    fn from_vec(arr: &[f64]) -> Self {
-        PittPetersRotorState {
-            lambda_0: arr[0],
-            lambda_c: arr[1],
-            lambda_s: arr[2],
-            omega_rad_s: arr[3],
-            spin_angle_rad: arr[4],
-        }
+    fn set_inflow(&mut self, arr: Vec<f64>) {
+        debug_assert_eq!(arr.len(), 3);
+        self.lambda_0 = arr[0];
+        self.lambda_c = arr[1];
+        self.lambda_s = arr[2];
     }
     fn omega(&self) -> f64 {
         self.omega_rad_s
     }
-    fn n_dof(&self) -> usize {
-        5
+    fn set_omega(&mut self, omega: f64) {
+        self.omega_rad_s = omega;
+    }
+    fn spin(&self) -> f64 {
+        self.spin_angle_rad
+    }
+    fn set_spin(&mut self, spin: f64) {
+        self.spin_angle_rad = spin;
     }
 }
 
 impl RotorStateExt for OyeRotorState {
-    fn to_vec(&self) -> Vec<f64> {
+    fn get_inflow(&self) -> Vec<f64> {
         let n = self.n_elements;
-        let mut v = Vec::with_capacity(2 * n + 2);
+        let mut v = Vec::with_capacity(2 * n);
         v.extend_from_slice(self.w_int_slice());
         v.extend_from_slice(self.w_slice());
-        v.push(self.omega_rad_s);
-        v.push(self.spin_angle_rad);
         v
     }
-    fn from_vec(arr: &[f64]) -> Self {
-        let n_total = arr.len();
-        let n = (n_total - 2) / 2;
-        let mut out = OyeRotorState::zeros(n, arr[n_total - 2]);
-        out.spin_angle_rad = arr[n_total - 1];
-        out.W_int[..n].copy_from_slice(&arr[..n]);
-        out.W[..n].copy_from_slice(&arr[n..2 * n]);
-        out
+    fn set_inflow(&mut self, arr: Vec<f64>) {
+        let n = self.n_elements;
+        debug_assert_eq!(arr.len(), 2 * n);
+        self.W_int[..n].copy_from_slice(&arr[..n]);
+        self.W[..n].copy_from_slice(&arr[n..2 * n]);
     }
     fn omega(&self) -> f64 {
         self.omega_rad_s
     }
-    fn n_dof(&self) -> usize {
-        2 * self.n_elements + 2
+    fn set_omega(&mut self, omega: f64) {
+        self.omega_rad_s = omega;
+    }
+    fn spin(&self) -> f64 {
+        self.spin_angle_rad
+    }
+    fn set_spin(&mut self, spin: f64) {
+        self.spin_angle_rad = spin;
     }
 }
 
@@ -109,7 +113,7 @@ pub trait AeroModel {
     /// Default = all-infinity (no dynamic-inflow lags); dynamic-inflow
     /// models override this with their per-state lag formulas.
     fn inflow_taus(&self, _inputs: &RotorInputs, state: &Self::State) -> Vec<f64> {
-        vec![f64::INFINITY; state.n_dof()]
+        vec![f64::INFINITY; state.inflow_dof()]
     }
 
     /// Zero state at the right shape for this model.

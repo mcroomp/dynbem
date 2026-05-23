@@ -1,6 +1,6 @@
-// Rotor state types: quasi-static, Pitt-Peters, Oye. Mechanical states
-// (omega, spin_angle) are ALWAYS the last two entries in the state vector
-// serialization (see aero_model::RotorStateExt).
+// Rotor state types: quasi-static, Pitt-Peters, Oye.
+// State-vector layout (including omega/spin indices) is reported by
+// each RotorStateExt implementation in aero_model.rs.
 
 #[derive(Clone, Debug, Default)]
 pub struct QuasiStaticRotorState {

@@ -133,7 +133,7 @@ impl AeroModel for PittPetersModel {
         let vt = v_t_disk(kin.v_edge, kin.v_climb, v0, kin.omega_r);
         let tau_0 = (8.0 * r_tip) / (3.0 * PI * vt);
         let tau_cs = (16.0 * r_tip) / (45.0 * PI * vt);
-        vec![tau_0, tau_cs, tau_cs, f64::INFINITY, f64::INFINITY]
+        vec![tau_0, tau_cs, tau_cs]
     }
 
     fn compute_forces(

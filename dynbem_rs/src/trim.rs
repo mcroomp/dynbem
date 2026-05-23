@@ -1,5 +1,5 @@
 // Steady-state cyclic trim solver. Generic over any AeroModel: the
-// integrator only needs to_vec/from_vec on State, and compute_forces +
+// integrator only needs get_inflow/set_inflow on State, and compute_forces +
 // inflow_taus on the model.
 //
 // The Python facade in the glue crate adds an AeroAny enum to dispatch
@@ -12,8 +12,7 @@ use crate::aero_model::{AeroModel, RotorStateExt};
 
 /// One semi-implicit Euler step: damp dynamic-inflow states by
 /// 1/(1 + dt/tau); explicit Euler on mechanical (tau = inf). Optionally
-/// clamps omega to a fixed value (state convention: omega is the
-/// second-to-last entry).
+/// clamps omega to a fixed value.
 fn semi_implicit_step<M: AeroModel>(
     aero: &M,
     state: &M::State,
@@ -23,9 +22,12 @@ fn semi_implicit_step<M: AeroModel>(
     fix_omega_to: Option<f64>,
 ) -> M::State {
     let taus = aero.inflow_taus(inputs, state);
-    let arr = state.to_vec();
-    let darr = derivative.to_vec();
+    let arr = state.get_inflow();
+    let darr = derivative.get_inflow();
     let n = arr.len();
+    debug_assert_eq!(arr.len(), n);
+    debug_assert_eq!(darr.len(), n);
+    debug_assert_eq!(taus.len(), n);
     let mut new_arr = Vec::with_capacity(n);
     for i in 0..n {
         let damp = if taus[i].is_finite() {
@@ -35,10 +37,15 @@ fn semi_implicit_step<M: AeroModel>(
         };
         new_arr.push(arr[i] + dt * darr[i] * damp);
     }
+    let mut out = state.clone();
+    out.set_inflow(new_arr);
     if let Some(om) = fix_omega_to {
-        new_arr[n - 2] = om;
+        out.set_omega(om);
+    } else {
+        out.set_omega(state.omega() + dt * derivative.omega());
     }
-    M::State::from_vec(&new_arr)
+    out.set_spin(state.spin() + dt * derivative.spin());
+    out
 }
 
 /// Advance the state to quasi-steady inflow at fixed inputs.

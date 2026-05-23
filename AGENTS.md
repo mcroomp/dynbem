@@ -417,11 +417,14 @@ new aero model"); the short version:
   returning the time constant for each state component (`f64::INFINITY`
   for mechanical / quasi-static states). The envelope integrator's
   semi-implicit damping needs this.
-- Add a new `RotorState` variant in `dynbem_rs/src/rotor_state.rs` with
-  `to_vec` / `from_vec`. Convention: mechanical states `ω, ψ` are
-  the **last two** entries — `arr[-2] = omega_rad_s`,
-  `arr[-1] = spin_angle_rad`. The envelope's clipping and recovery
-  code relies on this.
+- Add a new `RotorState` variant in `dynbem_rs/src/rotor_state.rs` and
+  the matching `RotorStateExt` impl in `dynbem_rs/src/aero_model.rs`.
+  `RotorStateExt` now serializes **inflow states only** via
+  `get_inflow()` / `set_inflow(Vec<f64>)`; mechanical states remain
+  explicit scalar fields (`omega_rad_s`, `spin_angle_rad`) with
+  dedicated accessors (`omega`, `set_omega`, `spin`, `set_spin`).
+  Do not rely on positional conventions for mechanical states in the
+  inflow vector.
 - Add a `PyFoo` newtype in `dynbem/src/wrappers.rs` and an `AeroAny`
   variant in `dynbem/src/trim_py.rs`. Wire the new model into
   `create_aero` in `dynbem/python/dynbem/factory.py` with a stable

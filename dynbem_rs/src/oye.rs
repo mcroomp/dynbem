@@ -131,7 +131,7 @@ impl AeroModel for OyeBEMModel {
         let kin = kinematics(inputs, state.omega_rad_s, r_tip);
         let omega_r = kin.omega_r;
         if omega_r < EPS_OMEGA_R {
-            return vec![f64::INFINITY; 2 * n + 2];
+            return vec![f64::INFINITY; 2 * n];
         }
         let v_climb = kin.v_climb;
         let v_edge = kin.v_edge;
@@ -147,11 +147,9 @@ impl AeroModel for OyeBEMModel {
             0.0
         };
         let (tau1, tau2) = oye_taus(r_tip, &self.grid.x_mid[..n], v_inf, a_avg, n);
-        let mut out = Vec::with_capacity(2 * n + 2);
+        let mut out = Vec::with_capacity(2 * n);
         out.extend(std::iter::repeat(tau1).take(n));
         out.extend(tau2);
-        out.push(f64::INFINITY);
-        out.push(f64::INFINITY);
         out
     }
 
