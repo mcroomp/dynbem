@@ -1198,11 +1198,9 @@ impl PyQuasiStaticBEM {
         n_psi_elements: usize,
     ) -> PyResult<Self> {
         let polar = resolve_polar(polar, &defn.0)?;
-        Ok(PyQuasiStaticBEM(core_::quasi_static_bem::QuasiStaticBEM::build(
-            defn.0,
-            n_psi_elements,
-            polar,
-        )))
+        Ok(PyQuasiStaticBEM(
+            core_::quasi_static_bem::QuasiStaticBEM::build(defn.0, n_psi_elements, polar),
+        ))
     }
 
     fn initial_rotor_state(&self) -> PyQuasiStaticRotorState {

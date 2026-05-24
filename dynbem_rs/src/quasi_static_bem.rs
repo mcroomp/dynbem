@@ -39,12 +39,7 @@ pub fn prandtl_hub_loss(n_blades: usize, x: f64, x_hub: f64, phi_rad: f64) -> f6
 }
 
 #[inline]
-pub fn prandtl_hub_loss_from_sin_abs(
-    n_blades: usize,
-    x: f64,
-    x_hub: f64,
-    sin_phi_abs: f64,
-) -> f64 {
+pub fn prandtl_hub_loss_from_sin_abs(n_blades: usize, x: f64, x_hub: f64, sin_phi_abs: f64) -> f64 {
     if sin_phi_abs < EPS_DENOM || x <= x_hub || x_hub <= 0.0 {
         return 1.0;
     }

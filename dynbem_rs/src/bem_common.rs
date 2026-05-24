@@ -264,17 +264,11 @@ pub fn element_force(v_a: f64, sweep: &SweepCtx<'_>, ctx: &ElementCtx) -> (f64, 
 // is bit-identical to the prior per-model hand-rolled loops -- the trait is
 // used as a *static interface* (generic K), not runtime dispatch.
 //
-// Two override points, with sensible defaults:
-//   - element(ctx): compute (dT, dQ) for one element. Default = the
-//     prescribed-inflow path used by Pitt-Peters and Oye -- evaluate
-//     lam_local, then run element_force. BEM overrides this to call its
-//     iterative solve_bem_element instead.
-//   - lam_local(i, cos_psi, sin_psi): the local inflow formula
-//     (Pitt-Peters: lambda_total + x*(lam_c*cos psi + lam_s*sin psi);
-//      Oye: lambda_climb + W[i]). Unused if element() is overridden.
-//   - on_element(i, dt, inv_n_psi): per-element side effect (no-op for
-//     PP/BEM; Oye uses it to accumulate the azimuth-averaged dT/dx the
-//     W_qs solver needs downstream).
+// One override point:
+//   - element(ctx): compute (dT, dQ) for one element.
+//     Pitt-Peters and Oye both use the prescribed-inflow path
+//     (compute lam_local, then call element_force).
+//     BEM overrides this to call its iterative solve_bem_element instead.
 // ---------------------------------------------------------------------------
 
 /// Per-element transients passed to a PsiKernel. Call-invariants
@@ -294,30 +288,12 @@ pub struct ElementCtx {
 }
 
 pub trait PsiKernel {
-    /// Element-level force computation. Default = prescribed-inflow path
-    /// for Pitt-Peters (and any future model that just needs to define a
-    /// `lam_local` formula). Override for models that need their own
-    /// solver per element (BEM) or that need a per-element side effect
-    /// (Oye accumulating azimuth-averaged dT/dx alongside the force
-    /// computation -- a separate callback would just force the kernel
-    /// to recompute `dt` or split state setup, so we collapse both into
-    /// one override point).
-    #[inline(always)]
-    fn element(&mut self, sweep: &SweepCtx<'_>, ctx: &ElementCtx) -> (f64, f64) {
-        let lam = self.lam_local(ctx.i, ctx.cos_psi, ctx.sin_psi);
-        let v_a = lam * sweep.omega_r;
-        element_force(v_a, sweep, ctx)
-    }
-
-    /// Local axial inflow ratio at element i, azimuth (cos_psi, sin_psi).
-    /// Unused when the kernel overrides `element` directly; provide a
-    /// stub default so override-everything kernels (BEM, Oye) don't have
-    /// to implement it.
-    #[inline(always)]
-    #[allow(unused_variables)]
-    fn lam_local(&self, i: usize, cos_psi: f64, sin_psi: f64) -> f64 {
-        0.0
-    }
+    /// Element-level force computation.
+    ///
+    /// Models with prescribed inflow (Pitt-Peters, Oye) compute `lam`
+    /// directly and then call `element_force`; BEM-style models can run
+    /// their own per-element solver here.
+    fn element(&mut self, sweep: &SweepCtx<'_>, ctx: &ElementCtx) -> (f64, f64);
 }
 
 /// Whole-sweep configuration: the call-invariant inputs that describe one

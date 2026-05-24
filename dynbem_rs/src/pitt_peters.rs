@@ -84,7 +84,6 @@ fn axial_forces(
 /// Local inflow expands the three harmonic states (lambda_0 in
 /// `lambda_total`, plus lam_c and lam_s) at element i and azimuth psi:
 ///     lam_local = lambda_total + x*(lam_c*cos psi + lam_s*sin psi).
-/// No per-element callback -- PP doesn't need the azimuth-averaged dT/dx.
 struct PpKernel<'a> {
     lambda_total: f64,
     lam_c: f64,
@@ -94,8 +93,11 @@ struct PpKernel<'a> {
 
 impl<'a> PsiKernel for PpKernel<'a> {
     #[inline(always)]
-    fn lam_local(&self, i: usize, cos_psi: f64, sin_psi: f64) -> f64 {
-        self.lambda_total + self.x_mid[i] * (self.lam_c * cos_psi + self.lam_s * sin_psi)
+    fn element(&mut self, sweep: &SweepCtx<'_>, ctx: &ElementCtx) -> (f64, f64) {
+        let lam = self.lambda_total
+            + self.x_mid[ctx.i] * (self.lam_c * ctx.cos_psi + self.lam_s * ctx.sin_psi);
+        let v_a = lam * sweep.omega_r;
+        element_force(v_a, sweep, ctx)
     }
 }
 

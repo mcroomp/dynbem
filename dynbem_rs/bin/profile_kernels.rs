@@ -11,10 +11,10 @@
 use dynbem_rs::aero_io::{Mat3, RotorInputs, Vec3};
 use dynbem_rs::aero_model::AeroModel;
 use dynbem_rs::bem_common::RadialGrid;
-use dynbem_rs::oye::{OYE_K, OyeBEMModel};
+use dynbem_rs::oye::{OyeBEMModel, OYE_K};
 use dynbem_rs::pitt_peters::PittPetersModel;
 use dynbem_rs::polar::{LinearPolar, PolarKind};
-use dynbem_rs::quasi_static_bem::{QuasiStaticBEM, solve_bem_element};
+use dynbem_rs::quasi_static_bem::{solve_bem_element, QuasiStaticBEM};
 use dynbem_rs::rotor_definition::{
     AirfoilProperties, AutorotationProperties, BladeGeometry, InertiaProperties, RotorDefinition,
 };
