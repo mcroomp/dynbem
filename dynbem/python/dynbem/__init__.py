@@ -8,24 +8,26 @@ from abc import ABC
 
 from ._dynbem import (  # noqa: F401
     vrs_lambda1,
-    cyclic_coeffs,
+    cyclic_coeffs as _cyclic_coeffs_rust,
     prandtl_tip_loss,
     prandtl_hub_loss,
     LinearPolar,
     TabulatedPolar,
-    KamanFlap,
     BladeGeometry,
-    AirfoilProperties,
-    InertiaProperties,
-    ControlProperties,
-    AutorotationProperties,
-    RotorDefinition,
     QuasiStaticRotorState,
     PittPetersRotorState,
     OyeRotorState,
     RotorInputs,
     AeroResult,
     TrimResult,
+)
+from .rotor_definition import (  # noqa: F401
+    KamanFlap,
+    InertiaProperties,
+    AirfoilProperties,
+    ControlProperties,
+    AutorotationProperties,
+    RotorDefinition,
 )
 from ._dynbem import QuasiStaticBEM as _QuasiStaticBEM  # noqa: F401
 from ._dynbem import PittPetersModel as _PittPetersModel  # noqa: F401
@@ -34,19 +36,40 @@ from .factory import create_aero, build_polar, load_tabulated_polar  # noqa: F40
 from .trim import solve_trim_cyclic, relax_inflow  # noqa: F401
 
 
+def cyclic_coeffs(tilt_lon, tilt_lat, control=None):  # noqa: F401
+    """Compute (theta_1c, theta_1s) cyclic coefficients.
+
+    Accepts either a _dynbem.ControlProperties (lean Rust class) or a
+    dynbem.ControlProperties Python wrapper; in the latter case the internal
+    ``._rust`` handle is forwarded to the Rust implementation.
+    """
+    rust_ctrl = getattr(control, "_rust", control)
+    return _cyclic_coeffs_rust(tilt_lon, tilt_lat, rust_ctrl)
+
+
 # ---------------------------------------------------------------------------
 # Python subclasses of the Rust model pyclasses that auto-build a polar
-# from the rotor's AirfoilProperties when none is given. This restores the
-# legacy `QuasiStaticBEM(defn=...)` ergonomics, including loading the
-# tabulated polar from the YAML's polar_csv (which Rust's auto-default
-# LinearPolar can't do because it doesn't read files).
+# from the rotor's AirfoilProperties when none is given and extract the
+# lean ._rust RotorDefinition from the Python wrapper before passing to Rust.
 # ---------------------------------------------------------------------------
+
+def _rust_defn(defn):
+    """Extract the lean _dynbem.RotorDefinition from a Python wrapper."""
+    return getattr(defn, "_rust", defn)
+
 
 class QuasiStaticBEM(_QuasiStaticBEM):
     def __new__(cls, defn, polar=None, n_psi_elements=36):
         if polar is None:
             polar = build_polar(defn.airfoil)
-        return _QuasiStaticBEM.__new__(cls, defn, polar, n_psi_elements)
+        return _QuasiStaticBEM.__new__(cls, _rust_defn(defn), polar, n_psi_elements)
+
+    def __init__(self, defn, polar=None, n_psi_elements=36):
+        self._defn = defn
+
+    @property
+    def defn(self):
+        return self._defn
 
 
 # Backwards-compat alias. The model used to be named `BEMModel`, but
@@ -60,7 +83,14 @@ class PittPetersModel(_PittPetersModel):
     def __new__(cls, defn, polar=None, n_psi_elements=36):
         if polar is None:
             polar = build_polar(defn.airfoil)
-        return _PittPetersModel.__new__(cls, defn, polar, n_psi_elements)
+        return _PittPetersModel.__new__(cls, _rust_defn(defn), polar, n_psi_elements)
+
+    def __init__(self, defn, polar=None, n_psi_elements=36):
+        self._defn = defn
+
+    @property
+    def defn(self):
+        return self._defn
 
 
 class OyeBEMModel(_OyeBEMModel):
@@ -68,8 +98,15 @@ class OyeBEMModel(_OyeBEMModel):
         if polar is None:
             polar = build_polar(defn.airfoil)
         return _OyeBEMModel.__new__(
-            cls, defn, polar, n_psi_elements, coupling_k,
+            cls, _rust_defn(defn), polar, n_psi_elements, coupling_k,
         )
+
+    def __init__(self, defn, polar=None, n_psi_elements=36, coupling_k=0.6):
+        self._defn = defn
+
+    @property
+    def defn(self):
+        return self._defn
 
 
 # ---------------------------------------------------------------------------

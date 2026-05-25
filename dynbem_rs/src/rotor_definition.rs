@@ -1,5 +1,7 @@
-// Rotor definition: blade geometry, airfoil, control, inertia, autorotation.
-// Pure data structs. YAML loading stays Python-side. See ../../../CLAUDE.md.
+// Rotor definition: blade geometry, airfoil, control, autorotation.
+// Pure data structs — only the fields actually used in Rust math.
+// YAML loading and metadata (inertia, KamanFlap, polar_csv, Re_design,
+// etc.) stay Python-side. See ../../../CLAUDE.md.
 
 use std::f64::consts::PI;
 
@@ -19,18 +21,6 @@ fn lerp_clamped(x: f64, xs: &[f64], ys: &[f64]) -> f64 {
     let i = i.max(1).min(n - 1);
     let t = (x - xs[i - 1]) / (xs[i] - xs[i - 1]);
     ys[i - 1] + t * (ys[i] - ys[i - 1])
-}
-
-#[derive(Clone, Debug)]
-#[allow(non_snake_case)]
-pub struct KamanFlap {
-    pub chord_fraction: Option<f64>,
-    pub span_start_m: Option<f64>,
-    pub span_end_m: Option<f64>,
-    pub tau: Option<f64>,
-    pub CM_gamma_per_rad: Option<f64>,
-    pub swashplate_load_fraction: Option<f64>,
-    pub notes: String,
 }
 
 #[derive(Clone, Debug)]
@@ -83,49 +73,24 @@ impl BladeGeometry {
 #[derive(Clone, Debug)]
 #[allow(non_snake_case)]
 pub struct AirfoilProperties {
-    pub Re_design: i64,
     pub CL0: f64,
     pub CL_alpha_per_rad: f64,
     pub CD0: f64,
     pub alpha_stall_deg: f64,
     pub tip_loss: bool,
-    pub name: String,
-    pub source: String,
-    pub polar_csv: Option<String>,
-    pub CD_structural: f64,
-    pub Re_operating: Option<i64>,
-}
-
-#[derive(Clone, Debug, Default)]
-#[allow(non_snake_case)]
-pub struct InertiaProperties {
-    pub mass_kg: Option<f64>,
-    pub I_body_kgm2: Vec<f64>,
-    pub I_spin_kgm2: Option<f64>,
-    pub blade_mass_kg: Option<f64>,
-    pub stationary_assembly_mass_kg: Option<f64>,
-    pub spinning_hub_shell_mass_kg: Option<f64>,
-    pub I_blade_flap_kgm2: Option<f64>,
 }
 
 #[derive(Clone, Debug)]
 #[allow(non_snake_case)]
 pub struct ControlProperties {
     pub swashplate_pitch_gain_rad: f64,
-    pub axle_attachment_length_m: Option<f64>,
-    pub K_cyc: Option<f64>,
     pub swashplate_phase_deg: Option<f64>,
-    pub servo_slew_rate_deg_s: Option<f64>,
-    pub servo_travel_deg: Option<f64>,
-    pub kaman_flap: Option<KamanFlap>,
 }
 
 #[derive(Clone, Debug, Default)]
 #[allow(non_snake_case)]
 pub struct AutorotationProperties {
     pub I_ode_kgm2: Option<f64>,
-    pub omega_min_rad_s: Option<f64>,
-    pub omega_eq_rad_s: Option<f64>,
 }
 
 #[derive(Clone, Debug)]
@@ -133,7 +98,6 @@ pub struct RotorDefinition {
     pub blade: BladeGeometry,
     pub airfoil: AirfoilProperties,
     pub control: Option<ControlProperties>,
-    pub inertia: InertiaProperties,
     pub autorotation: AutorotationProperties,
     pub name: String,
     pub description: String,
