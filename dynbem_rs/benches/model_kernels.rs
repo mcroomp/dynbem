@@ -4,7 +4,7 @@ use dynbem_rs::aero_model::AeroModel;
 use dynbem_rs::bem_common::{element_force, ElementCtx, PsiKernel, RadialGrid, SweepCtx};
 use dynbem_rs::oye::{OyeBEMModel, OYE_K};
 use dynbem_rs::pitt_peters::PittPetersModel;
-use dynbem_rs::polar::LinearPolar;
+use dynbem_rs::polar::{LinearPolar, Polar};
 use dynbem_rs::quasi_static_bem::{solve_bem_element, QuasiStaticBEM};
 use dynbem_rs::rotor_definition::{
     AirfoilProperties, BladeGeometry, RotorDefinition,
