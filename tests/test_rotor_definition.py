@@ -1,7 +1,7 @@
 import pytest
 
 from dynbem.rotor_definition import (
-    AirfoilProperties,
+    LinearPolarParameters,
     AutorotationProperties,
     BladeGeometry,
     ControlProperties,
@@ -66,7 +66,7 @@ class TestBladeGeometry:
         assert any(i.level == "ERROR" and "n_blades" in i.field for i in issues)
 
 
-class TestAirfoilProperties:
+class TestLinearPolarParameters:
     def test_validate_ok(self, airfoil):
         assert airfoil.validate() == []
 

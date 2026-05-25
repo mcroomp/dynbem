@@ -16,7 +16,7 @@ use dynbem_rs::pitt_peters::PittPetersModel;
 use dynbem_rs::polar::LinearPolar;
 use dynbem_rs::quasi_static_bem::{solve_bem_element, QuasiStaticBEM};
 use dynbem_rs::rotor_definition::{
-    AirfoilProperties, BladeGeometry, RotorDefinition,
+    LinearPolarParameters, BladeGeometry, RotorDefinition,
 };
 use dynbem_rs::rotor_state::{OyeRotorState, PittPetersRotorState, QuasiStaticRotorState};
 use std::env;
@@ -31,16 +31,16 @@ fn make_rotor_definition(n_elements: usize) -> RotorDefinition {
             chord_m: 0.06,
             twist_deg: 2.0,
             n_elements,
+            tip_loss: true,
             r_stations_m: Vec::new(),
             chord_stations_m: Vec::new(),
             twist_stations_deg: Vec::new(),
         },
-        airfoil: AirfoilProperties {
+        airfoil: LinearPolarParameters {
             CL0: 0.0,
             CL_alpha_per_rad: 5.7,
             CD0: 0.01,
             alpha_stall_deg: 15.0,
-            tip_loss: true,
         },
         control: None,
         name: "bench_rotor".to_string(),

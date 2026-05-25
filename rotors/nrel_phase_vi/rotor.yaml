@@ -51,6 +51,7 @@ rotor:
   chord_m:       0.358
   twist_deg:    -0.79
   n_elements:    16
+  tip_loss:      true
   # Hand 2001 Table A-1 airfoil-section geometry.  CCBlade's published
   # twist values (+22 root, +0.79 tip) are turbine convention; dynbem
   # uses helicopter convention so they're negated here.  Chord values
@@ -74,7 +75,6 @@ airfoil:
   CL_alpha_per_rad: 6.20    # standard 2*pi-ish for S809 pre-stall
   CD0:              0.013
   alpha_stall_deg:  14.0
-  tip_loss:         true
   polar_csv:        xf-s809-nr-1000000.csv
 
 autorotation:

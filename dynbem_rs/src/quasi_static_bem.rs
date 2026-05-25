@@ -580,7 +580,7 @@ impl<P: Polar + Clone> AeroModel for QuasiStaticBEM<P> {
         let rho = inputs.rho_kg_m3;
         let r_tip = blade.radius_m;
         let n_blades = blade.n_blades;
-        let use_tip_loss = self.defn.airfoil.tip_loss;
+        let use_tip_loss = self.defn.blade.tip_loss;
         let grid = &self.grid;
 
         let kin = kinematics(inputs, omega, r_tip);

@@ -234,7 +234,7 @@ impl<P: Polar + Clone> AeroModel for OyeBEMModel<P> {
         let area = PI * r_tip * r_tip;
         let vrs = vrs_regime(t_total, v_climb, rho, area);
 
-        let use_tip_loss = self.defn.airfoil.tip_loss;
+        let use_tip_loss = self.defn.blade.tip_loss;
         let mut f_loss = vec![1.0; n];
         if use_tip_loss && omega_r > EPS_OMEGA_R {
             let n_b = self.defn.blade.n_blades;

@@ -25,7 +25,7 @@ from dynbem.bem import prandtl_hub_loss, prandtl_tip_loss, solve_bem_element, BE
 from dynbem.polar import LinearPolar
 from dynbem import RotorInputs
 from dynbem.rotor_definition import (
-    AirfoilProperties, AutorotationProperties, BladeGeometry, RotorDefinition,
+    LinearPolarParameters, AutorotationProperties, BladeGeometry, RotorDefinition,
 )
 from dynbem.rotor_state import QuasiStaticRotorState
 from tests.helpers import hover_inputs, make_bem
@@ -89,9 +89,9 @@ def ct_rotor_defn():
     return RotorDefinition(
         blade=BladeGeometry(n_blades=2, radius_m=1.143, root_cutout_m=0.1,
                             chord_m=0.1905, twist_deg=0.0, n_elements=30),
-        airfoil=AirfoilProperties(Re_design=1_000_000, CL0=0.0,
+        airfoil=LinearPolarParameters(Re_design=1_000_000, CL0=0.0,
                                   CL_alpha_per_rad=2 * math.pi, CD0=0.008,
-                                  alpha_stall_deg=15.0, tip_loss=True),
+                                  alpha_stall_deg=15.0),
         autorotation=AutorotationProperties(I_ode_kgm2=1.0),
         name="Caradonna-Tung",
     )
@@ -310,10 +310,10 @@ class TestHoverCTAnalytical:
         sigma = N * chord / (math.pi * R)
         cl_alpha = 2 * math.pi
         blade = BladeGeometry(n_blades=N, radius_m=R, root_cutout_m=0.05,
-                              chord_m=chord, twist_deg=0.0, n_elements=40)
-        airfoil = AirfoilProperties(Re_design=500_000, CL0=0.0,
+                              chord_m=chord, twist_deg=0.0, n_elements=40, tip_loss=False)
+        airfoil = LinearPolarParameters(Re_design=500_000, CL0=0.0,
                                     CL_alpha_per_rad=cl_alpha, CD0=0.001,
-                                    alpha_stall_deg=15.0, tip_loss=False)
+                                    alpha_stall_deg=15.0)
         model = make_bem(RotorDefinition(blade=blade, airfoil=airfoil))
 
         CT_bem = _ct_rotor(model, coll_deg, 1250.0)
@@ -440,13 +440,12 @@ def h1_rotor_defn():
             twist_deg=0.0,
             n_elements=30,
         ),
-        airfoil=AirfoilProperties(
+        airfoil=LinearPolarParameters(
             Re_design=2_000_000,
             CL0=0.0,
             CL_alpha_per_rad=2 * math.pi,
             CD0=0.010,
             alpha_stall_deg=14.0,
-            tip_loss=True,
         ),
         autorotation=AutorotationProperties(I_ode_kgm2=1.0),
         name="Harrington-R1",

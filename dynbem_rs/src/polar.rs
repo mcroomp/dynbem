@@ -57,8 +57,8 @@ impl LinearPolar {
         }
     }
 
-    /// Build from `AirfoilProperties`, converting `alpha_stall_deg` to radians.
-    pub fn from_properties(props: &crate::rotor_definition::AirfoilProperties) -> Self {
+    /// Build from `LinearPolarParameters`, converting `alpha_stall_deg` to radians.
+    pub fn from_properties(props: &crate::rotor_definition::LinearPolarParameters) -> Self {
         Self::new(
             props.CL0,
             props.CL_alpha_per_rad,

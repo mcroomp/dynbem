@@ -31,6 +31,7 @@ pub struct BladeGeometry {
     pub chord_m: f64,
     pub twist_deg: f64,
     pub n_elements: usize,
+    pub tip_loss: bool,
     pub r_stations_m: Vec<f64>,
     pub chord_stations_m: Vec<f64>,
     pub twist_stations_deg: Vec<f64>,
@@ -53,6 +54,7 @@ impl BladeGeometry {
             chord_m,
             twist_deg,
             n_elements,
+            tip_loss: true,
             r_stations_m: vec![],
             chord_stations_m: vec![],
             twist_stations_deg: vec![],
@@ -94,12 +96,11 @@ impl BladeGeometry {
 
 #[derive(Clone, Debug)]
 #[allow(non_snake_case)]
-pub struct AirfoilProperties {
+pub struct LinearPolarParameters {
     pub CL0: f64,
     pub CL_alpha_per_rad: f64,
     pub CD0: f64,
     pub alpha_stall_deg: f64,
-    pub tip_loss: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -112,7 +113,7 @@ pub struct ControlProperties {
 #[derive(Clone, Debug)]
 pub struct RotorDefinition {
     pub blade: BladeGeometry,
-    pub airfoil: AirfoilProperties,
+    pub airfoil: LinearPolarParameters,
     pub control: Option<ControlProperties>,
     pub name: String,
     pub description: String,

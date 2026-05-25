@@ -38,7 +38,7 @@ from dynbem import RotorInputs                                          # noqa: 
 from dynbem.bem import BEMModel                                          # noqa: E402
 from dynbem.rotor_state import QuasiStaticRotorState                    # noqa: E402
 from dynbem.rotor_definition import (                                    # noqa: E402
-    BladeGeometry, AirfoilProperties, RotorDefinition,
+    BladeGeometry, LinearPolarParameters, RotorDefinition,
 )
 from dynbem.polar import TabulatedPolar                                 # noqa: E402
 
@@ -68,13 +68,12 @@ def build_dynbem_model(cfg: dict) -> BEMModel:
         chord_stations_m   = [s["chord_m"]   for s in stations],
         twist_stations_deg = [s["twist_deg"] for s in stations],
     )
-    airfoil = AirfoilProperties(
+    airfoil = LinearPolarParameters(
         Re_design        = int(float(cfg["airfoil_polar"]["Re"])),
         CL0              = 0.0,
         CL_alpha_per_rad = 2.0 * math.pi,  # placeholder; we override w/ polar
         CD0              = 0.008,
         alpha_stall_deg  = 12.0,
-        tip_loss         = True,
     )
     pts = cfg["airfoil_polar"]["points"]
     polar = TabulatedPolar(

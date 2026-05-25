@@ -17,7 +17,7 @@ from typing import Any, Dict, List, Optional
 import yaml
 
 from ._dynbem import (
-    AirfoilProperties as _RustAirfoilProperties,
+    LinearPolarParameters as _RustLinearPolarParameters,
     BladeGeometry as _RustBladeGeometry,
     ControlProperties as _RustControlProperties,
     RotorDefinition as _RustRotorDefinition,
@@ -35,6 +35,7 @@ class BladeGeometry(_RustBladeGeometry):
         cls, n_blades, radius_m, root_cutout_m, chord_m,
         twist_deg=0.0, n_elements=20,
         r_stations_m=None, chord_stations_m=None, twist_stations_deg=None,
+        tip_loss=True,
     ):
         return _RustBladeGeometry.__new__(
             cls, n_blades, radius_m, root_cutout_m, chord_m,
@@ -42,13 +43,14 @@ class BladeGeometry(_RustBladeGeometry):
             r_stations_m if r_stations_m is not None else [],
             chord_stations_m if chord_stations_m is not None else [],
             twist_stations_deg if twist_stations_deg is not None else [],
+            tip_loss,
         )
 
     def __init__(self, *args, **kwargs):
         pass
 
 __all__ = [
-    "AirfoilProperties",
+    "LinearPolarParameters",
     "AutorotationProperties",
     "BladeGeometry",
     "ControlProperties",
@@ -110,8 +112,8 @@ class InertiaProperties:
         self.I_blade_flap_kgm2 = I_blade_flap_kgm2
 
 
-class AirfoilProperties:
-    """Airfoil aerodynamic properties."""
+class LinearPolarParameters:
+    """Linear polar parameters for the BEM solver."""
 
     def __init__(
         self,
@@ -119,7 +121,6 @@ class AirfoilProperties:
         CL_alpha_per_rad,
         CD0,
         alpha_stall_deg,
-        tip_loss,
         Re_design=None,
         name="",
         source="",
@@ -132,7 +133,6 @@ class AirfoilProperties:
         self.CL_alpha_per_rad = CL_alpha_per_rad
         self.CD0 = CD0
         self.alpha_stall_deg = alpha_stall_deg
-        self.tip_loss = tip_loss
         self.name = name
         self.source = source
         self.polar_csv = polar_csv
@@ -261,7 +261,7 @@ def _validate_definition(self) -> List[ValidationIssue]:
 
 # Attach validate() to BladeGeometry (Rust pyclass) and Python classes.
 BladeGeometry.validate = _validate_blade
-AirfoilProperties.validate = _validate_airfoil
+LinearPolarParameters.validate = _validate_airfoil
 RotorDefinition.validate = _validate_definition
 
 
@@ -285,12 +285,11 @@ def _to_rust_defn(defn):
     control = defn.control
     return _RustRotorDefinition(
         blade=defn.blade,
-        airfoil=_RustAirfoilProperties(
+        airfoil=_RustLinearPolarParameters(
             CL0=airfoil.CL0,
             CL_alpha_per_rad=airfoil.CL_alpha_per_rad,
             CD0=airfoil.CD0,
             alpha_stall_deg=airfoil.alpha_stall_deg,
-            tip_loss=airfoil.tip_loss,
         ),
         control=_RustControlProperties(
             swashplate_pitch_gain_rad=control.swashplate_pitch_gain_rad,
@@ -375,15 +374,15 @@ def _build_from_dict(doc: Dict[str, Any], base_dir: Optional[str]) -> RotorDefin
         r_stations_m=list(r.get("r_stations_m") or []),
         chord_stations_m=list(r.get("chord_stations_m") or []),
         twist_stations_deg=list(r.get("twist_stations_deg") or []),
+        tip_loss=bool(r.get("tip_loss", True)),
     )
 
-    airfoil = AirfoilProperties(
+    airfoil = LinearPolarParameters(
         Re_design=int(_req(a, "Re_design", "airfoil")),
         CL0=float(_req(a, "CL0", "airfoil")),
         CL_alpha_per_rad=float(_req(a, "CL_alpha_per_rad", "airfoil")),
         CD0=float(_req(a, "CD0", "airfoil")),
         alpha_stall_deg=float(_req(a, "alpha_stall_deg", "airfoil")),
-        tip_loss=bool(a.get("tip_loss", True)),
         name=a.get("designation") or "",
         source=a.get("source") or "",
         polar_csv=_resolve_polar_csv(a.get("polar_csv"), base_dir),

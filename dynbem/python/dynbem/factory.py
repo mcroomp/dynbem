@@ -2,7 +2,7 @@
 
 Mirrors dynbem.create_aero -- one entry point that builds the right
 model + polar from a RotorDefinition. The polar is auto-built from
-AirfoilProperties (LinearPolar from CL0/CL_alpha/CD0/alpha_stall, or
+LinearPolarParameters (LinearPolar from CL0/CL_alpha/CD0/alpha_stall, or
 TabulatedPolar from polar_csv) so callers don't have to construct one
 manually.
 """
@@ -23,7 +23,7 @@ from ._dynbem import (
 
 
 def build_polar(airfoil) -> Union[LinearPolar, TabulatedPolar]:
-    """Build a polar from an AirfoilProperties.
+    """Build a polar from a LinearPolarParameters.
 
     If polar_csv is provided, load it (airfoiltools.com format -- 9
     metadata rows then Alpha,Cl,Cd, with any non-numeric leading rows

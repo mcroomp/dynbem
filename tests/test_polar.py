@@ -52,14 +52,13 @@ class TestLinearPolar:
         assert cl_neg == pytest.approx(-cl_pos, rel=1e-6)
 
     def test_from_properties(self):
-        from dynbem.rotor_definition import AirfoilProperties
-        props = AirfoilProperties(
+        from dynbem.rotor_definition import LinearPolarParameters
+        props = LinearPolarParameters(
             Re_design=500_000,
             CL0=0.1,
             CL_alpha_per_rad=5.5,
             CD0=0.015,
             alpha_stall_deg=14.0,
-            tip_loss=True,
         )
         p = LinearPolar.from_properties(props)
         assert p.CL0 == pytest.approx(0.1)

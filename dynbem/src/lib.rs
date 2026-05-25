@@ -120,7 +120,7 @@ fn _dynbem(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyLinearPolar>()?;
     m.add_class::<PyTabulatedPolar>()?;
     m.add_class::<PyBladeGeometry>()?;
-    m.add_class::<PyAirfoilProperties>()?;
+    m.add_class::<PyLinearPolarParameters>()?;
     m.add_class::<PyControlProperties>()?;
     m.add_class::<PyRotorDefinition>()?;
     m.add_class::<PyQuasiStaticRotorState>()?;

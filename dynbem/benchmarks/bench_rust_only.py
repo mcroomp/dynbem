@@ -16,7 +16,7 @@ import numpy as np
 import dynbem as rs
 
 AIR = dict(Re_design=500_000, CL0=0.0, CL_alpha_per_rad=5.7,
-           CD0=0.011, alpha_stall_deg=12.0, tip_loss=True)
+           CD0=0.011, alpha_stall_deg=12.0)
 BLADE = dict(n_blades=2, radius_m=0.914, root_cutout_m=0.10,
              chord_m=0.058, n_elements=15)
 N_PSI = 36
@@ -34,7 +34,7 @@ OPS = [
 def _build(model_name):
     defn = rs.RotorDefinition(
         blade=rs.BladeGeometry(**BLADE),
-        airfoil=rs.AirfoilProperties(**AIR),
+        airfoil=rs.LinearPolarParameters(**AIR),
         autorotation=rs.AutorotationProperties(I_ode_kgm2=0.02),
     )
     return rs.create_aero(defn, model=model_name, n_psi_elements=N_PSI)

@@ -76,16 +76,16 @@ impl PyLinearPolar {
         )
     }
 
-    /// Build a LinearPolar from an AirfoilProperties-like object (either the
-    /// lean _dynbem.AirfoilProperties or the Python AirfoilProperties wrapper
+    /// Build a LinearPolar from a LinearPolarParameters-like object (either the
+    /// lean _dynbem.LinearPolarParameters or the Python LinearPolarParameters wrapper
     /// that holds a ._rust attribute).
     #[staticmethod]
     fn from_properties(airfoil: &Bound<'_, PyAny>) -> PyResult<Self> {
         // Try the lean Rust class first (direct extraction).
-        let (cl0, cl_alpha, cd0, stall_deg) = if let Ok(a) = airfoil.extract::<PyAirfoilProperties>() {
+        let (cl0, cl_alpha, cd0, stall_deg) = if let Ok(a) = airfoil.extract::<PyLinearPolarParameters>() {
             (a.0.CL0, a.0.CL_alpha_per_rad, a.0.CD0, a.0.alpha_stall_deg)
         } else {
-            // Fall back to Python attribute access (Python AirfoilProperties wrapper).
+            // Fall back to Python attribute access (Python LinearPolarParameters wrapper).
             let cl0: f64 = airfoil.getattr("CL0")?.extract()?;
             let cl_alpha: f64 = airfoil.getattr("CL_alpha_per_rad")?.extract()?;
             let cd0: f64 = airfoil.getattr("CD0")?.extract()?;
@@ -172,6 +172,7 @@ impl PyBladeGeometry {
         n_blades, radius_m, root_cutout_m, chord_m,
         twist_deg, n_elements,
         r_stations_m, chord_stations_m, twist_stations_deg,
+        tip_loss = true,
     ))]
     fn new(
         n_blades: usize,
@@ -183,6 +184,7 @@ impl PyBladeGeometry {
         r_stations_m: Vec<f64>,
         chord_stations_m: Vec<f64>,
         twist_stations_deg: Vec<f64>,
+        tip_loss: bool,
     ) -> Self {
         PyBladeGeometry(core_::rotor_definition::BladeGeometry {
             n_blades,
@@ -191,6 +193,7 @@ impl PyBladeGeometry {
             chord_m,
             twist_deg,
             n_elements,
+            tip_loss,
             r_stations_m,
             chord_stations_m,
             twist_stations_deg,
@@ -217,10 +220,8 @@ impl PyBladeGeometry {
     fn twist_deg(&self) -> f64 {
         self.0.twist_deg
     }
-    #[getter]
-    fn n_elements(&self) -> usize {
-        self.0.n_elements
-    }
+    #[getter] fn n_elements(&self) -> usize { self.0.n_elements }
+    #[getter] fn tip_loss(&self) -> bool { self.0.tip_loss }
 
     #[getter]
     fn span_m(&self) -> f64 {
@@ -262,34 +263,33 @@ impl PyBladeGeometry {
             self.0.r_stations_m.clone(),
             self.0.chord_stations_m.clone(),
             self.0.twist_stations_deg.clone(),
+            self.0.tip_loss,
         )
             .into_py(py);
         Ok((cls, args))
     }
 }
 
-#[pyclass(name = "AirfoilProperties", module = "dynbem._dynbem")]
+#[pyclass(name = "LinearPolarParameters", module = "dynbem._dynbem")]
 #[derive(Clone, Debug)]
-pub struct PyAirfoilProperties(pub core_::rotor_definition::AirfoilProperties);
+pub struct PyLinearPolarParameters(pub core_::rotor_definition::LinearPolarParameters);
 
 #[pymethods]
-impl PyAirfoilProperties {
+impl PyLinearPolarParameters {
     #[new]
-    #[pyo3(signature = (CL0, CL_alpha_per_rad, CD0, alpha_stall_deg, tip_loss))]
+    #[pyo3(signature = (CL0, CL_alpha_per_rad, CD0, alpha_stall_deg))]
     #[allow(non_snake_case)]
     fn new(
         CL0: f64,
         CL_alpha_per_rad: f64,
         CD0: f64,
         alpha_stall_deg: f64,
-        tip_loss: bool,
     ) -> Self {
-        PyAirfoilProperties(core_::rotor_definition::AirfoilProperties {
+        PyLinearPolarParameters(core_::rotor_definition::LinearPolarParameters {
             CL0,
             CL_alpha_per_rad,
             CD0,
             alpha_stall_deg,
-            tip_loss,
         })
     }
 
@@ -297,7 +297,6 @@ impl PyAirfoilProperties {
     #[getter] #[allow(non_snake_case)] fn CL_alpha_per_rad(&self) -> f64 { self.0.CL_alpha_per_rad }
     #[getter] #[allow(non_snake_case)] fn CD0(&self) -> f64 { self.0.CD0 }
     #[getter] fn alpha_stall_deg(&self) -> f64 { self.0.alpha_stall_deg }
-    #[getter] fn tip_loss(&self) -> bool { self.0.tip_loss }
 }
 
 #[pyclass(name = "ControlProperties", module = "dynbem._dynbem")]
@@ -329,7 +328,7 @@ impl PyRotorDefinition {
     #[pyo3(signature = (blade, airfoil, control, name, description))]
     fn new(
         blade: PyBladeGeometry,
-        airfoil: PyAirfoilProperties,
+        airfoil: PyLinearPolarParameters,
         control: Option<PyControlProperties>,
         name: String,
         description: String,
@@ -344,7 +343,7 @@ impl PyRotorDefinition {
     }
 
     #[getter] fn blade(&self) -> PyBladeGeometry { PyBladeGeometry(self.0.blade.clone()) }
-    #[getter] fn airfoil(&self) -> PyAirfoilProperties { PyAirfoilProperties(self.0.airfoil.clone()) }
+    #[getter] fn airfoil(&self) -> PyLinearPolarParameters { PyLinearPolarParameters(self.0.airfoil.clone()) }
     #[getter] fn name(&self) -> &str { &self.0.name }
     #[getter] fn description(&self) -> &str { &self.0.description }
     #[getter] fn control(&self) -> Option<PyControlProperties> { self.0.control.clone().map(PyControlProperties) }

@@ -12,7 +12,7 @@ import math
 import numpy as np
 
 from dynbem import (
-    AirfoilProperties,
+    LinearPolarParameters,
     BladeGeometry,
     OyeBEMModel,
     PittPetersModel,
@@ -55,7 +55,7 @@ def make_blade(
 
 
 # ---------------------------------------------------------------------------
-# AirfoilProperties factory
+# LinearPolarParameters factory
 # ---------------------------------------------------------------------------
 
 def make_airfoil(
@@ -63,16 +63,14 @@ def make_airfoil(
     CL_alpha_per_rad,
     CD0,
     alpha_stall_deg,
-    tip_loss=True,
     Re_design=None,
-) -> AirfoilProperties:
-    """AirfoilProperties with explicit required fields; tip_loss defaults True."""
-    return AirfoilProperties(
+) -> LinearPolarParameters:
+    """LinearPolarParameters with explicit required fields."""
+    return LinearPolarParameters(
         CL0=CL0,
         CL_alpha_per_rad=CL_alpha_per_rad,
         CD0=CD0,
         alpha_stall_deg=alpha_stall_deg,
-        tip_loss=tip_loss,
         Re_design=Re_design,
     )
 
@@ -93,14 +91,13 @@ def make_control(swashplate_pitch_gain_rad, swashplate_phase_deg=None) -> Contro
 # Standard Caradonna-Tung NACA-0012 airfoil parameters
 # ---------------------------------------------------------------------------
 
-def ct_airfoil(**overrides) -> AirfoilProperties:
+def ct_airfoil(**overrides) -> LinearPolarParameters:
     """NACA 0012 airfoil (Caradonna-Tung parameters). Override any field."""
     p = dict(
         CL0=0.0,
         CL_alpha_per_rad=2 * math.pi,
         CD0=0.008,
         alpha_stall_deg=15.0,
-        tip_loss=True,
         Re_design=1_000_000,
     )
     p.update(overrides)

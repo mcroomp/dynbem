@@ -59,7 +59,7 @@ sys.path.insert(0, str(ROOT))
 
 from dynbem.bem import solve_bem_element
 from dynbem.rotor_definition import (
-    AirfoilProperties, AutorotationProperties, BladeGeometry, RotorDefinition)
+    LinearPolarParameters, AutorotationProperties, BladeGeometry, RotorDefinition)
 from dynbem.factory import build_polar
 
 CSV_DIR = ROOT / "Research" / "csv" / "CaradonnaTung"
@@ -69,10 +69,10 @@ ROTOR = RotorDefinition(
     blade=BladeGeometry(
         n_blades=2, radius_m=1.143, root_cutout_m=0.1,
         chord_m=0.1905, twist_deg=0.0, n_elements=30),
-    airfoil=AirfoilProperties(
+    airfoil=LinearPolarParameters(
         Re_design=1_000_000, CL0=0.0,
         CL_alpha_per_rad=2 * math.pi, CD0=0.008,
-        alpha_stall_deg=15.0, tip_loss=True),
+        alpha_stall_deg=15.0),
     autorotation=AutorotationProperties(I_ode_kgm2=1.0),
     name="Caradonna-Tung",
 )
@@ -166,7 +166,7 @@ def section_CL_bem(coll_deg: float, omega_rpm: float, r_over_R: float) -> float:
         collective_rad=math.radians(coll_deg),
         omega=omega, v_climb=0.0, rho=1.225,
         n_blades=ROTOR.blade.n_blades, radius_m=R,
-        polar=POLAR, use_tip_loss=ROTOR.airfoil.tip_loss,
+        polar=POLAR, use_tip_loss=ROTOR.blade.tip_loss,
         root_cutout_m=ROTOR.blade.root_cutout_m,
     )
     v_a = elem.lambda_r * Omega_R

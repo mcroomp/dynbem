@@ -13,7 +13,7 @@ import pytest
 
 from dynbem import AeroResult, BEMModel, RotorInputs, build_polar
 from dynbem.rotor_definition import (
-    AirfoilProperties, AutorotationProperties, BladeGeometry, RotorDefinition,
+    LinearPolarParameters, AutorotationProperties, BladeGeometry, RotorDefinition,
 )
 from dynbem.rotor_state import QuasiStaticRotorState
 from tests.helpers import make_bem
@@ -38,13 +38,12 @@ def ct_blade():
 @pytest.fixture
 def ct_airfoil():
     # NACA 0012: CL0=0, 2π lift slope, CD0≈0.008, stall ~15°
-    return AirfoilProperties(
+    return LinearPolarParameters(
         Re_design=1_000_000,
         CL0=0.0,
         CL_alpha_per_rad=2 * math.pi,
         CD0=0.008,
         alpha_stall_deg=15.0,
-        tip_loss=True,
     )
 
 
@@ -175,22 +174,21 @@ class TestBEMPhysics:
 
     def test_tip_loss_reduces_thrust(self):
         """Tip loss enabled should give less thrust than tip loss disabled."""
-        blade = BladeGeometry(
+        blade_tl = BladeGeometry(
             n_blades=2, radius_m=1.143, root_cutout_m=0.1,
-            chord_m=0.1905, twist_deg=0.0, n_elements=20,
+            chord_m=0.1905, twist_deg=0.0, n_elements=20, tip_loss=True,
         )
-        airfoil_tl = AirfoilProperties(
+        blade_no = BladeGeometry(
+            n_blades=2, radius_m=1.143, root_cutout_m=0.1,
+            chord_m=0.1905, twist_deg=0.0, n_elements=20, tip_loss=False,
+        )
+        airfoil = LinearPolarParameters(
             Re_design=1_000_000, CL0=0.0,
             CL_alpha_per_rad=2 * math.pi, CD0=0.008,
-            alpha_stall_deg=15.0, tip_loss=True,
+            alpha_stall_deg=15.0,
         )
-        airfoil_no = AirfoilProperties(
-            Re_design=1_000_000, CL0=0.0,
-            CL_alpha_per_rad=2 * math.pi, CD0=0.008,
-            alpha_stall_deg=15.0, tip_loss=False,
-        )
-        defn_tl = RotorDefinition(blade=blade, airfoil=airfoil_tl)
-        defn_no = RotorDefinition(blade=blade, airfoil=airfoil_no)
+        defn_tl = RotorDefinition(blade=blade_tl, airfoil=airfoil)
+        defn_no = RotorDefinition(blade=blade_no, airfoil=airfoil)
         m_tl = make_bem(defn_tl)
         m_no = make_bem(defn_no)
         inp, state = _hover_inputs(8.0, 1250)

@@ -38,7 +38,7 @@ fn inflow_taus(&self, inputs: &RotorInputs, state: &Self::State)
 | `LinearPolar` | Flat-plate / linear lift curve; constructed from CL0, CL_alpha, CD0, alpha_stall |
 | `TabulatedPolar` | Interpolated from alpha/CL/CD arrays |
 
-`LinearPolar::from_properties(props: &AirfoilProperties)` builds a
+`LinearPolar::from_properties(props: &LinearPolarParameters)` builds a
 `LinearPolar` directly from the airfoil block of a `RotorDefinition`.
 
 ## Custom polar types
@@ -78,18 +78,18 @@ use dynbem_rs::{
     aero_model::AeroModel,
     polar::LinearPolar,
     pitt_peters::PittPetersModel,
-    rotor_definition::{
-        AirfoilProperties, BladeGeometry, RotorDefinition,
+    rotor_definition::
+        LinearPolarParameters, BladeGeometry, RotorDefinition,
     },
 };
 use std::f64::consts::PI;
 
-let airfoil = AirfoilProperties {
+let airfoil = LinearPolarParameters {
     CL0: 0.0, CL_alpha_per_rad: 2.0 * PI, CD0: 0.01,
-    alpha_stall_deg: 15.0, tip_loss: true,
+    alpha_stall_deg: 15.0,
 };
 let defn = RotorDefinition {
-    blade: BladeGeometry::uniform(2, 0.15, 0.015, 0.025, 0.0, 12),
+    blade: BladeGeometry::uniform(2, 0.15, 0.015, 0.025, 0.0, 12),  // tip_loss defaults to true
     airfoil,
     control: None,
     name: "my_rotor".into(),

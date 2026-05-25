@@ -26,6 +26,7 @@ rotor:
   chord_m:       0.20
   twist_deg:     0.0
   n_elements:    10
+  tip_loss:      true
 
 airfoil:
   designation:      SG6040
@@ -36,7 +37,6 @@ airfoil:
   CL_alpha_per_rad: 5.79
   CD0:              0.0079
   alpha_stall_deg:  13.0
-  tip_loss:         true
   polar_csv:        sg6040_re500k.csv
 
 inertia:

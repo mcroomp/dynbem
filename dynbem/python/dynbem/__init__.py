@@ -26,7 +26,7 @@ from .rotor_definition import (  # noqa: F401
     BladeGeometry,
     KamanFlap,
     InertiaProperties,
-    AirfoilProperties,
+    LinearPolarParameters,
     ControlProperties,
     AutorotationProperties,
     RotorDefinition,
@@ -93,7 +93,7 @@ __all__ = [
     "solve_trim_cyclic", "relax_inflow",
     # types
     "LinearPolar", "TabulatedPolar", "AirfoilPolar",
-    "KamanFlap", "BladeGeometry", "AirfoilProperties",
+    "KamanFlap", "BladeGeometry", "LinearPolarParameters",
     "InertiaProperties", "ControlProperties", "AutorotationProperties",
     "RotorDefinition",
     "QuasiStaticRotorState", "PittPetersRotorState", "OyeRotorState",
