@@ -12,9 +12,7 @@ windmill-brake state (WBS), autorotation, and wind-turbine power extraction
 
 The math core is a pure-Rust crate ([`dynbem_rs/`](dynbem_rs/), no pyo3 /
 numpy / file IO) wrapped by a thin PyO3 + maturin binding crate
-([`dynbem/`](dynbem/)) which is the publishable Python package. The
-original pure-Python implementation is archived read-only under
-[`dynbem_old/`](dynbem_old/) for reference.
+([`dynbem/`](dynbem/)) which is the publishable Python package.
 
 Two dynamic-inflow models are provided:
 
@@ -27,7 +25,7 @@ Two dynamic-inflow models are provided:
 
 Both models share a tabulated polar interpolator and a common BEM ψ-loop
 kernel ([`dynbem_rs/src/bem_common.rs`](dynbem_rs/src/bem_common.rs)) and
-plug into the same `AeroModel` trait (Rust) / `AeroBase` ABC (Python).
+plug into the same `AeroModel` trait (Rust).
 The repo also includes a flight-envelope sweep driver
 (`envelope/compute_map.py`), a cyclic-trim solver
 ([`dynbem_rs/src/trim.rs`](dynbem_rs/src/trim.rs)), and a point-mass +
@@ -46,8 +44,8 @@ Coordinates are NED throughout; rotor rotation is CCW-from-above
 **Quick start** (all platforms):
 
 ```
-./setup.sh           # Windows git-bash/WSL or POSIX (creates .venv, builds dynbem)
-setup.cmd            # Windows PowerShell/cmd only
+./setup.sh           # POSIX shell or Windows git-bash/WSL
+setup.cmd            # Windows cmd/PowerShell thin wrapper (calls bash internally)
 ```
 
 Both scripts check prerequisites (Python 3.10+, cargo, C compiler) upfront,
@@ -81,8 +79,6 @@ import dynbem
 # via PyO3 bindings; pure-Rust callers can use RotorDefinition::from_yaml_file(path).
 defn   = dynbem.rotor_definition.load("rotors/castles_gray_6ft/rotor.yaml")
 model  = dynbem.create_aero(defn, model="pitt_peters")  # or "oye", "bem"
-# ("pitt_peters_jit" is accepted as a legacy alias for "pitt_peters" --
-#  the Rust core is already compiled; there is no separate JIT model)
 state  = model.initial_rotor_state()
 
 omega = 125.7   # rad/s -- caller owns mechanical state
@@ -231,7 +227,7 @@ For a rotor disk lying in the XY-plane (hub pointing down):
 ## Implementation roadmap
 
 The model is built in phases from simple to state-of-the-art, each a
-drop-in upgrade behind the same `AeroBase` interface.
+drop-in upgrade behind the same `AeroModel` interface.
 
 ### Level 1 — Multi-element quasi-static BEM ✅ DONE
 
