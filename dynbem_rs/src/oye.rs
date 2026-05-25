@@ -129,7 +129,13 @@ impl<P: Polar + Clone> OyeBEMModel<P> {
         coupling_k: f64,
     ) -> Self {
         let grid = RadialGrid::from_blade(&defn.blade);
-        Self { defn, n_psi_elements, coupling_k, polar, grid }
+        Self {
+            defn,
+            n_psi_elements,
+            coupling_k,
+            polar,
+            grid,
+        }
     }
 }
 

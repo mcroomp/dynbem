@@ -170,4 +170,3 @@ impl Polar for TabulatedPolar {
         Some((&self.alpha, &self.cl, &self.cd))
     }
 }
-

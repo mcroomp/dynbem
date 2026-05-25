@@ -105,9 +105,9 @@ return types — see **[API.md](API.md)**.
 ## Flight envelope sweep
 
 ```
-run_map.cmd                  # quick grid, saves to out\map.npz, plots to out\
-run_map.cmd --full           # full grid
-python -m envelope.compute_map --help
+run_map.cmd                                           # quick grid, saves to out\map.npz, plots to out\
+run_map.cmd --full --save out\map.npz --plot out\     # full grid
+uv run python -m envelope.compute_map --help
 ```
 
 ## Tests

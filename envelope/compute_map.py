@@ -57,7 +57,7 @@ QUICK_GRID: dict[str, Any] = {
     "col_max":      0.20,
     "n_workers":   4,
     "rotor_yaml":  _ROTOR_YAML,
-    "model":       "pitt_peters_jit",
+    "model":       "pitt_peters",
 }
 
 FULL_GRID: dict[str, Any] = {
@@ -78,7 +78,7 @@ FULL_GRID: dict[str, Any] = {
     "col_max":      0.20,
     "n_workers":   os.cpu_count() or 4,
     "rotor_yaml":  _ROTOR_YAML,
-    "model":       "pitt_peters_jit",
+    "model":       "pitt_peters",
 }
 
 
@@ -148,13 +148,13 @@ def compute_grid(params: dict[str, Any] | None = None, **kwargs: Any) -> dict[st
                     "col_min":       float(cfg.get("col_min", -0.25)),
                     "col_max":       float(cfg.get("col_max", 0.20)),
                     "project_root":  project_root,
-                    "model":         str(cfg.get("model", "pitt_peters_jit")),
+                    "model":         str(cfg.get("model", "pitt_peters")),
                 }))
 
     total = len(worker_jobs)
     print(f"Grid: {nv} v_targets x {nw} winds x {na} elevations  "
           f"({n_samples} samples per curve, {t_min:.0f}-{t_max:.0f} N)")
-    print(f"Model: {cfg.get('model', 'pitt_peters_jit')}")
+    print(f"Model: {cfg.get('model', 'pitt_peters')}")
     print(f"Launching {total} jobs across {n_workers} workers ...")
 
     from envelope.point_mass import ramp_column_worker
@@ -219,7 +219,7 @@ def compute_grid(params: dict[str, Any] | None = None, **kwargs: Any) -> dict[st
         "elevations":   np.array(elevations),
         "mass_kg":      mass_kg,
         "rotor_name":   defn.name,
-        "model":        str(cfg.get("model", "pitt_peters_jit")),
+        "model":        str(cfg.get("model", "pitt_peters")),
     }
 
 
@@ -243,7 +243,7 @@ def save_grid(data: dict[str, Any], path: str) -> None:
         elevations=data["elevations"],
         mass_kg=np.array([data["mass_kg"]]),
         rotor_name=np.array([data["rotor_name"]]),
-        model=np.array([str(data.get("model", "pitt_peters_jit"))]),
+        model=np.array([str(data.get("model", "pitt_peters"))]),
     )
     print(f"Saved -> {path}")
 
@@ -272,7 +272,7 @@ def load_grid(path: str) -> dict[str, Any]:
         out["lambda_c_arr"] = np.full_like(out["cols_arr"], np.nan)
         out["lambda_s_arr"] = np.full_like(out["cols_arr"], np.nan)
     # Pre-multi-model maps default to Pitt-Peters JIT.
-    out["model"] = str(raw["model"][0]) if "model" in raw.files else "pitt_peters_jit"
+    out["model"] = str(raw["model"][0]) if "model" in raw.files else "pitt_peters"
     return out
 
 
@@ -664,7 +664,7 @@ if __name__ == "__main__":
                         help="Quantity to plot: col (collective), rpm, tilt")
     parser.add_argument("--model",    default=None,
                         choices=["bem", "pitt_peters", "pitt_peters_jit", "oye"],
-                        help="Aero model.  Default: pitt_peters_jit (the grid presets').  "
+                        help="Aero model.  Default: pitt_peters (the grid preset).  "
                              "Use 'oye' for an annulus-local alternative that's "
                              "more stable at descent + edgewise wind operating points.")
     parser.add_argument("--dt",       type=float, default=None,

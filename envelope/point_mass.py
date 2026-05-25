@@ -176,7 +176,8 @@ def simulate_point(
     f_grav_along = mass_kg * gravity_mps2 * float(t_hat[2])   # gravity component along tether
 
     # Generic state initialisation — works with any AeroBase subclass.
-    I_ode = float(model.defn.autorotation.I_ode_kgm2 or 1.0)
+    _autorot = getattr(model.defn, "autorotation", None)
+    I_ode = float((_autorot.I_ode_kgm2 if _autorot is not None else None) or 1.0)
     if warm_start is not None and "state_arr" in warm_start:
         state = model.initial_rotor_state().from_array(np.asarray(warm_start["state_arr"]))
         omega = float(warm_start.get("omega", omega_init))
@@ -213,13 +214,14 @@ def simulate_point(
             wind_world=wind_world,
             t=i * dt,
             omega_rad_s=omega,
+            rho_kg_m3=1.225,
         )
 
         aero, dstate = model.compute_forces(inputs, state)
-
-        # Integrate rotor state: semi-implicit on dynamic-inflow states
-        # (tau may be << dt).  Model-agnostic.
         arr = _step_state_semi_implicit(model, state, dstate, dt, inputs)
+
+        # Clip dynamic-inflow states (guards against divergence at very
+        # short time constants or model start-up transients).
         state = state.from_array(_clip_state(arr))
         omega = max(0.5, min(300.0,
                              omega + dt * omega_derivative(aero.Q_spin, 0.0, I_ode)))
@@ -356,7 +358,7 @@ def ramp_column_worker(args: dict) -> dict:
     f_grav_along = mass_kg * gravity_mps2 * float(t_hat_arr[2])
     int_max = (col_max - col_min) / max(ki_col, 1e-9)
 
-    I_ode = float(model.defn.autorotation.I_ode_kgm2 or 1.0)
+    I_ode = float(defn.autorotation.I_ode_kgm2 or 1.0)
 
     # Model-agnostic initial state.
     state = model.initial_rotor_state()
@@ -385,10 +387,11 @@ def ramp_column_worker(args: dict) -> dict:
             wind_world=wind_world,
             t=sim_t,
             omega_rad_s=omega,
+            rho_kg_m3=1.225,
         )
         aero, dstate = model.compute_forces(inputs, state)
 
-        # Semi-implicit Euler on dynamic-inflow states.
+        # Semi-implicit Euler step + clip.
         arr_raw = _step_state_semi_implicit(model, state, dstate, dt_in, inputs)
         arr_clipped = _clip_state(arr_raw)
         if not np.array_equal(arr_raw, arr_clipped):
@@ -438,7 +441,7 @@ def ramp_column_worker(args: dict) -> dict:
     col_samples = [col_now]
     v_samples = [v_along]
     sat_samples = [col_saturated]
-    omega_samples = [state.omega_rad_s]
+    omega_samples = [omega]
     tilt_samples = [_tilt_deg(T_min)]
     lamc_samples = [_lam_c(state)]
     lams_samples = [_lam_s(state)]
