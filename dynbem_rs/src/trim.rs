@@ -11,15 +11,13 @@ use crate::aero_io::{Mat3, RotorInputs};
 use crate::aero_model::{AeroModel, RotorStateExt};
 
 /// One semi-implicit Euler step: damp dynamic-inflow states by
-/// 1/(1 + dt/tau); explicit Euler on mechanical (tau = inf). Optionally
-/// clamps omega to a fixed value.
+/// 1/(1 + dt/tau); explicit Euler on inflow states (tau = inf).
 fn semi_implicit_step<M: AeroModel>(
     aero: &M,
     state: &M::State,
     derivative: &M::State,
     inputs: &RotorInputs,
     dt: f64,
-    fix_omega_to: Option<f64>,
 ) -> M::State {
     let taus = aero.inflow_taus(inputs, state);
     let arr = state.get_inflow();
@@ -39,12 +37,6 @@ fn semi_implicit_step<M: AeroModel>(
     }
     let mut out = state.clone();
     out.set_inflow(new_arr);
-    if let Some(om) = fix_omega_to {
-        out.set_omega(om);
-    } else {
-        out.set_omega(state.omega() + dt * derivative.omega());
-    }
-    out.set_spin(state.spin() + dt * derivative.spin());
     out
 }
 
@@ -55,12 +47,10 @@ pub fn relax_inflow<M: AeroModel>(
     inputs: &RotorInputs,
     n_steps: usize,
     dt: f64,
-    fix_omega: bool,
 ) -> M::State {
-    let fix_to = if fix_omega { Some(state.omega()) } else { None };
     for _ in 0..n_steps {
         let (_, deriv) = aero.compute_forces(inputs, &state);
-        state = semi_implicit_step(aero, &state, &deriv, inputs, dt, fix_to);
+        state = semi_implicit_step(aero, &state, &deriv, inputs, dt);
     }
     state
 }
@@ -109,7 +99,6 @@ pub fn solve_trim_cyclic<M: AeroModel>(
     dt_relax: f64,
     n_inflow_relax: usize,
     n_settle: usize,
-    fix_omega: bool,
 ) -> TrimOutcome<M::State> {
     let mut tilt_lon = tilt_lon_init.clamp(tilt_min, tilt_max);
     let mut tilt_lat = tilt_lat_init.clamp(tilt_min, tilt_max);
@@ -123,7 +112,7 @@ pub fn solve_trim_cyclic<M: AeroModel>(
 
     let relax = |s: M::State, tlon: f64, tlat: f64, n: usize| -> M::State {
         let inp = make_inputs(tlon, tlat);
-        relax_inflow(aero, s, &inp, n, dt_relax, fix_omega)
+        relax_inflow(aero, s, &inp, n, dt_relax)
     };
 
     if n_settle > 0 {

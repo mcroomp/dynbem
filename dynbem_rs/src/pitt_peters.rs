@@ -130,7 +130,7 @@ impl AeroModel for PittPetersModel {
 
     fn inflow_taus(&self, inputs: &RotorInputs, state: &Self::State) -> Vec<f64> {
         let r_tip = self.defn.blade.radius_m;
-        let kin = kinematics(inputs, state.omega_rad_s, r_tip);
+        let kin = kinematics(inputs, inputs.omega_rad_s, r_tip);
         let v0 = state.lambda_0 * kin.omega_r;
         let vt = v_t_disk(kin.v_edge, kin.v_climb, v0, kin.omega_r);
         let tau_0 = (8.0 * r_tip) / (3.0 * PI * vt);
@@ -144,7 +144,7 @@ impl AeroModel for PittPetersModel {
         state: &PittPetersRotorState,
     ) -> (AeroResult, PittPetersRotorState) {
         let blade = &self.defn.blade;
-        let omega = state.omega_rad_s;
+        let omega = inputs.omega_rad_s;
         let rho = inputs.rho_kg_m3;
         let r_tip = blade.radius_m;
         let area = PI * r_tip * r_tip;
@@ -274,19 +274,12 @@ impl AeroModel for PittPetersModel {
         let d_lam_c = (lam_c_ss - lam_c) / tau_cs;
         let d_lam_s = (lam_s_ss - lam_s) / tau_cs;
 
-        // Mechanical
-        let i_ode = self.defn.autorotation.I_ode_kgm2.unwrap_or(1.0);
-        let d_omega = (-q_total + inputs.motor_torque_Nm) / i_ode;
-        let d_spin_angle = omega;
-
         // Outputs
         let result = assemble_result(t_total, q_total, mx_hub, my_hub, hub_axis, &inputs.R_hub);
         let derivative = PittPetersRotorState {
             lambda_0: d_lam0,
             lambda_c: d_lam_c,
             lambda_s: d_lam_s,
-            omega_rad_s: d_omega,
-            spin_angle_rad: d_spin_angle,
         };
         (result, derivative)
     }

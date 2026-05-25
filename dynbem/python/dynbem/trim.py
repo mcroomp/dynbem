@@ -28,7 +28,7 @@ def _build_inputs(
     v_hub_world,
     wind_world,
     rho_kg_m3: float = 1.225,
-    motor_torque_Nm: float = 0.0,
+    omega_rad_s: float = 0.0,
     t: float = 0.0,
 ) -> RotorInputs:
     return RotorInputs(
@@ -39,7 +39,7 @@ def _build_inputs(
         v_hub_world=np.ascontiguousarray(v_hub_world, dtype=float),
         wind_world=np.ascontiguousarray(wind_world, dtype=float),
         rho_kg_m3=rho_kg_m3,
-        motor_torque_Nm=motor_torque_Nm,
+        omega_rad_s=omega_rad_s,
         t=t,
     )
 
@@ -66,7 +66,7 @@ def solve_trim_cyclic(aero, state, base_inputs=None, **kwargs):
     if base_inputs is None:
         # legacy form: extract input-building kwargs, build a RotorInputs
         input_keys = {"collective_rad", "R_hub", "v_hub_world", "wind_world",
-                      "rho_kg_m3", "motor_torque_Nm", "t"}
+                      "rho_kg_m3", "omega_rad_s", "t"}
         input_kwargs = {k: kwargs.pop(k) for k in list(kwargs) if k in input_keys}
         # The legacy trim solver searches for tilt_lon/tilt_lat, so the
         # inputs RotorInputs starts at the initial tilts (default 0, 0).
@@ -91,7 +91,7 @@ def relax_inflow(aero, state, inputs=None, **kwargs):
     if inputs is None:
         input_keys = {"collective_rad", "tilt_lon", "tilt_lat",
                       "R_hub", "v_hub_world", "wind_world",
-                      "rho_kg_m3", "motor_torque_Nm", "t"}
+                      "rho_kg_m3", "omega_rad_s", "t"}
         input_kwargs = {k: kwargs.pop(k) for k in list(kwargs) if k in input_keys}
         inputs = _build_inputs(**input_kwargs)
     return _relax_inflow_py(aero, state, inputs, **kwargs)

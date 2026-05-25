@@ -11,11 +11,12 @@ import math
 import numpy as np
 import pytest
 
-from dynbem import AeroResult, BEMModel, RotorInputs
+from dynbem import AeroResult, BEMModel, RotorInputs, build_polar
 from dynbem.rotor_definition import (
     AirfoilProperties, AutorotationProperties, BladeGeometry, RotorDefinition,
 )
 from dynbem.rotor_state import QuasiStaticRotorState
+from tests.helpers import make_bem
 
 
 # ---------------------------------------------------------------------------
@@ -59,7 +60,7 @@ def ct_defn(ct_blade, ct_airfoil):
 
 @pytest.fixture
 def ct_model(ct_defn):
-    return BEMModel(defn=ct_defn)
+    return make_bem(ct_defn)
 
 
 def _hover_inputs(collective_deg: float, omega_rpm: float) -> RotorInputs:
@@ -74,8 +75,8 @@ def _hover_inputs(collective_deg: float, omega_rpm: float) -> RotorInputs:
         wind_world=np.zeros(3),   # no wind: pure momentum-driven induction
         t=0.0,
         rho_kg_m3=1.225,
-        motor_torque_Nm=0.0,
-    ), QuasiStaticRotorState(omega_rad_s=omega_rad_s)
+        omega_rad_s=omega_rad_s,
+    ), QuasiStaticRotorState()
 
 
 # ---------------------------------------------------------------------------
@@ -96,7 +97,6 @@ class TestBEMInterface:
     def test_initial_rotor_state(self, ct_model):
         s = ct_model.initial_rotor_state()
         assert isinstance(s, QuasiStaticRotorState)
-        assert s.omega_rad_s == 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -108,7 +108,7 @@ class TestNEDConventions:
         """Upward thrust must be negative NED-Z."""
         inp, state = _hover_inputs(8.0, 1250)
         result, _ = ct_model.compute_forces(inp, state)
-        assert result.F_world[2] < 0, "Thrust should be −Z (upward) in NED"
+        assert result.F_world[2] < 0, "Thrust should be -Z (upward) in NED"
 
     def test_zero_xy_forces_in_axial_hover(self, ct_model):
         """In pure axial hover, lateral forces should be near-zero."""
@@ -116,22 +116,6 @@ class TestNEDConventions:
         result, _ = ct_model.compute_forces(inp, state)
         assert abs(result.F_world[0]) < 1.0
         assert abs(result.F_world[1]) < 1.0
-
-    def test_spin_angle_deriv_equals_omega(self, ct_model):
-        """dψ/dt == ω."""
-        omega = 130.9  # rad/s
-        inp, state = _hover_inputs(8.0, 1250)
-        state = QuasiStaticRotorState(omega_rad_s=omega)
-        inp = RotorInputs(
-            collective_rad=math.radians(8.0),
-            tilt_lon=0.0, tilt_lat=0.0,
-            R_hub=np.eye(3),
-            v_hub_world=np.zeros(3),
-            wind_world=np.zeros(3),
-            t=0.0,
-        )
-        _, deriv = ct_model.compute_forces(inp, state)
-        assert deriv.spin_angle_rad == pytest.approx(omega)
 
 
 # ---------------------------------------------------------------------------
@@ -165,32 +149,35 @@ class TestBEMPhysics:
             v_hub_world=np.zeros(3),
             wind_world=np.zeros(3),
             t=0.0,
+            rho_kg_m3=1.225,
+            omega_rad_s=0.0,
         )
-        state = QuasiStaticRotorState(omega_rad_s=0.0)
+        state = QuasiStaticRotorState()
         result, _ = ct_model.compute_forces(inp, state)
         assert abs(result.F_world[2]) < 5.0
 
     def test_autorotation_wind_produces_torque(self, ct_model):
-        """Upward wind (−Z) should drive the rotor (positive aero torque)."""
+        """Upward wind (-Z) should drive the rotor (negative Q_spin = driving)."""
         inp = RotorInputs(
             collective_rad=math.radians(5.0),
             tilt_lon=0.0, tilt_lat=0.0,
             R_hub=np.eye(3),
             v_hub_world=np.zeros(3),
-            wind_world=np.array([0.0, 0.0, -15.0]),  # 15 m/s upward (−Z NED)
+            wind_world=np.array([0.0, 0.0, -15.0]),  # 15 m/s upward (-Z NED)
             t=0.0,
+            rho_kg_m3=1.225,
+            omega_rad_s=50.0,
         )
-        state = QuasiStaticRotorState(omega_rad_s=50.0)
-        result, deriv = ct_model.compute_forces(inp, state)
-        # In autorotation the aero torque should accelerate the rotor
-        # (d_omega > 0 since motor_torque=0 and wind drives rotor)
-        assert deriv.omega_rad_s > 0, "Upward wind should spin up rotor"
+        state = QuasiStaticRotorState()
+        result, _ = ct_model.compute_forces(inp, state)
+        # Q_spin < 0 means driving torque (autorotation convention)
+        assert result.Q_spin < 0, "Upward wind should produce driving torque"
 
     def test_tip_loss_reduces_thrust(self):
         """Tip loss enabled should give less thrust than tip loss disabled."""
         blade = BladeGeometry(
             n_blades=2, radius_m=1.143, root_cutout_m=0.1,
-            chord_m=0.1905, n_elements=20,
+            chord_m=0.1905, twist_deg=0.0, n_elements=20,
         )
         airfoil_tl = AirfoilProperties(
             Re_design=1_000_000, CL0=0.0,
@@ -204,8 +191,8 @@ class TestBEMPhysics:
         )
         defn_tl = RotorDefinition(blade=blade, airfoil=airfoil_tl)
         defn_no = RotorDefinition(blade=blade, airfoil=airfoil_no)
-        m_tl = BEMModel(defn=defn_tl)
-        m_no = BEMModel(defn=defn_no)
+        m_tl = make_bem(defn_tl)
+        m_no = make_bem(defn_no)
         inp, state = _hover_inputs(8.0, 1250)
         r_tl, _ = m_tl.compute_forces(inp, state)
         r_no, _ = m_no.compute_forces(inp, state)

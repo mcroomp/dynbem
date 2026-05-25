@@ -85,6 +85,7 @@ model  = dynbem.create_aero(defn, model="pitt_peters")  # or "oye", "bem"
 #  the Rust core is already compiled; there is no separate JIT model)
 state  = model.initial_rotor_state()
 
+omega = 125.7   # rad/s -- caller owns mechanical state
 inputs = dynbem.RotorInputs(
     collective_rad=0.14,
     tilt_lon=0.0, tilt_lat=0.0,                # swashplate (helicopter-standard signs)
@@ -92,10 +93,14 @@ inputs = dynbem.RotorInputs(
     v_hub_world=np.zeros(3),
     wind_world=np.zeros(3),
     t=0.0,
+    omega_rad_s=omega,                         # rotor speed passed in each call
 )
 result, derivative = model.compute_forces(inputs, state)
 # result.F_world, result.M_orbital, result.M_spin, result.Q_spin
-# derivative is a RotorState with d/dt of every state field
+# derivative carries d/dt of the dynamic-inflow states (lambda_0/c/s or W/W_int)
+# Mechanical ODE lives in the caller:
+#   from dynbem.mechanical import omega_derivative
+#   omega += dt * omega_derivative(result.Q_spin, motor_torque_Nm, I_ode_kgm2)
 ```
 
 [`dynbem/python/dynbem/__init__.py`](dynbem/python/dynbem/__init__.py)
@@ -250,10 +255,11 @@ drop-in upgrade behind the same `AeroBase` interface.
 - Forward-flight ψ-loop: per-azimuth blade pitch (cyclic), tangential
   wind projection (advancing/retreating), and in-plane hub moment
   accumulation (M_orbital)
-- `dω/dt = (Q_aero + Q_motor) / I_ode` — rotor speed integrated as ODE
-  state
-- `dψ/dt = ω` — spin angle integrated as ODE state
-- Returns `QuasiStaticRotorState` derivative
+- **Pure-aero interface**: `omega_rad_s` is passed in `RotorInputs`
+  every call; the model returns no mechanical derivative.  The caller
+  integrates rotor speed externally via `dynbem.mechanical.omega_derivative`.
+- Returns `QuasiStaticRotorState` derivative (empty — inflow is
+  quasi-static; the state carries no fields)
 - **Validation**: see [EMPIRICAL_VALIDATION.md](EMPIRICAL_VALIDATION.md).
 
 ### Level 2 — Pitt-Peters 3-state dynamic inflow ✅ DONE

@@ -40,21 +40,19 @@ def _build(model_name):
     return rs.create_aero(defn, model=model_name, n_psi_elements=N_PSI)
 
 
-def _inputs(op):
+def _inputs(op, omega=125.0):
     _, col, vhub, wind, tlon = op
     return rs.RotorInputs(
         collective_rad=math.radians(col),
         tilt_lon=tlon, tilt_lat=0.0,
         R_hub=R_HUB, v_hub_world=np.array(vhub, dtype=float),
         wind_world=np.array(wind, dtype=float),
+        omega_rad_s=omega,
     )
 
 
-def _state(model, omega=125.0):
-    s = model.initial_rotor_state()
-    arr = np.asarray(s.to_array())
-    arr[-2] = omega
-    return s.from_array(arr)
+def _state(model):
+    return model.initial_rotor_state()
 
 
 def _min_time(model, inputs, state, n_inner, n_outer):
@@ -82,7 +80,7 @@ def main():
         for op in OPS:
             inp = _inputs(op)
             st  = _state(model)
-            us = _min_time(model, inp, st, N_INNER, N_OUTER) * 1e6
+            us  = _min_time(model, inp, st, N_INNER, N_OUTER) * 1e6
             print(f"{model_name:<14} {op[0]:<10} {us:>10.3f}")
     print("-" * 60)
 

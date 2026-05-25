@@ -1,7 +1,7 @@
-// Rotor definition: blade geometry, airfoil, control, autorotation.
-// Pure data structs — only the fields actually used in Rust math.
+// Rotor definition: blade geometry, airfoil, control.
+// Pure data structs -- only the fields actually used in Rust math.
 // YAML loading and metadata (inertia, KamanFlap, polar_csv, Re_design,
-// etc.) stay Python-side. See ../../../CLAUDE.md.
+// etc.) stay Python-side. See ../../../AGENTS.md.
 
 use std::f64::consts::PI;
 
@@ -87,18 +87,11 @@ pub struct ControlProperties {
     pub swashplate_phase_deg: Option<f64>,
 }
 
-#[derive(Clone, Debug, Default)]
-#[allow(non_snake_case)]
-pub struct AutorotationProperties {
-    pub I_ode_kgm2: Option<f64>,
-}
-
 #[derive(Clone, Debug)]
 pub struct RotorDefinition {
     pub blade: BladeGeometry,
     pub airfoil: AirfoilProperties,
     pub control: Option<ControlProperties>,
-    pub autorotation: AutorotationProperties,
     pub name: String,
     pub description: String,
 }

@@ -113,6 +113,9 @@ impl std::ops::Mul<Vec3> for Mat3 {
 // these by value and forward.
 // ---------------------------------------------------------------------------
 
+/// Inputs supplied by the caller on every compute_forces call.
+/// The caller owns the mechanical DOF (omega_rad_s) and integrates it
+/// externally; the model only reads it here.
 #[derive(Clone, Debug)]
 #[allow(non_snake_case)]
 pub struct RotorInputs {
@@ -124,7 +127,7 @@ pub struct RotorInputs {
     pub wind_world: Vec3,
     pub t: f64,
     pub rho_kg_m3: f64,
-    pub motor_torque_Nm: f64,
+    pub omega_rad_s: f64,
 }
 
 #[derive(Clone, Debug)]

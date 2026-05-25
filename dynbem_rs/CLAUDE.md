@@ -50,10 +50,12 @@ Oye filter -- all load-bearing physics.
 
 1. Add `src/foo.rs` with the model struct and `impl AeroModel for FooModel`.
 2. Add `FooRotorState` to `rotor_state.rs` and the `RotorStateExt` impl
-   in `aero_model.rs`. `RotorStateExt` serializes inflow states via
-   `get_inflow()` / `set_inflow(Vec<f64>)`; keep mechanical states as
-   explicit fields (`omega_rad_s`, `spin_angle_rad`) and wire their
-   scalar accessors (`omega`, `set_omega`, `spin`, `set_spin`).
+   in `aero_model.rs`. `RotorStateExt` serializes **inflow states only**
+   via `get_inflow()` / `set_inflow(Vec<f64>)`.  There are no mechanical
+   fields in the state structs; `omega_rad_s` is passed by the caller
+   through `RotorInputs` on every call.  The semi-implicit integrator in
+   `envelope/point_mass.py` and `attitude_sim.py` uses
+   `dynbem.mechanical.omega_derivative` to advance omega externally.
 3. Add `pub mod foo;` to `lib.rs`.
 4. Add a wrapper newtype in [../dynbem/src/wrappers.rs](../dynbem/src/wrappers.rs)
    (mark it `subclass = true` if Python should auto-build the polar)

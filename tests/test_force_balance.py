@@ -36,6 +36,7 @@ from dynbem.rotor_definition import (
     load as load_rotor,
 )
 from dynbem.rotor_state import PittPetersRotorState
+from tests.helpers import pp_state
 
 _ROTOR_YAML = str(
     Path(__file__).parent.parent / "rotors" / "castles_gray_6ft" / "rotor.yaml"
@@ -68,9 +69,11 @@ def _make_inputs(*,
                  tilt_lat_deg: float = 0.0,
                  R_hub: np.ndarray | None = None,
                  v_hub_world=(0.0, 0.0, 0.0),
-                 wind_world=(0.0, 0.0, 0.0)) -> RotorInputs:
+                 wind_world=(0.0, 0.0, 0.0),
+                 omega_rpm: float = 1200.0) -> RotorInputs:
     if R_hub is None:
         R_hub = np.eye(3)
+    omega_rad_s = omega_rpm * math.pi / 30.0
     return RotorInputs(
         collective_rad=math.radians(collective_deg),
         tilt_lon=math.radians(tilt_lon_deg),
@@ -79,6 +82,8 @@ def _make_inputs(*,
         v_hub_world=np.asarray(v_hub_world, dtype=float),
         wind_world=np.asarray(wind_world, dtype=float),
         t=0.0,
+        rho_kg_m3=1.225,
+        omega_rad_s=omega_rad_s,
     )
 
 
@@ -121,7 +126,7 @@ def _euler_to_steady(model, inputs: RotorInputs, *, rpm: float,
     evolve. Returns (final_state, final_result).
     """
     omega = rpm * math.pi / 30.0
-    state = PittPetersRotorState(omega_rad_s=omega)
+    state = pp_state()
     res = None
     for _ in range(n_steps):
         res, drv = model.compute_forces(inputs, state)
@@ -129,7 +134,6 @@ def _euler_to_steady(model, inputs: RotorInputs, *, rpm: float,
             lambda_0=state.lambda_0 + drv.lambda_0 * dt,
             lambda_c=state.lambda_c + drv.lambda_c * dt,
             lambda_s=state.lambda_s + drv.lambda_s * dt,
-            omega_rad_s=omega,
         )
     return state, res
 

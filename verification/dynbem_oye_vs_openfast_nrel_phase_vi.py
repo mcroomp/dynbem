@@ -32,7 +32,7 @@ import numpy as np
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from dynbem import OyeBEMModel, RotorInputs                            # noqa: E402
+from dynbem import OyeBEMModel, RotorInputs, create_aero             # noqa: E402
 from dynbem.rotor_definition import load as load_rotor                  # noqa: E402
 from dynbem.rotor_state import OyeRotorState                            # noqa: E402
 
@@ -56,18 +56,15 @@ def relax_to_steady(
     state = OyeRotorState(
         W_int=np.zeros(n_elements),
         W=np.zeros(n_elements),
-        omega_rad_s=omega_rad_s,
     )
     n_steps = int(round(settle_s / dt))
     last_T = last_Q = 0.0
     for _ in range(n_steps):
         result, deriv = model.compute_forces(inputs, state)
-        # explicit Euler on the inflow states; mechanical stays fixed
+        # explicit Euler on the inflow states
         state = OyeRotorState(
             W_int=state.W_int + dt * deriv.W_int,
             W=state.W + dt * deriv.W,
-            omega_rad_s=omega_rad_s,
-            spin_angle_rad=state.spin_angle_rad,
         )
         last_T = -float(result.F_world[2])
         last_Q = float(result.Q_spin)
@@ -86,7 +83,7 @@ def main() -> int:
               file=sys.stderr)
         return 1
 
-    model = OyeBEMModel(defn=load_rotor(str(ROTOR_YAML)))
+    model = create_aero(load_rotor(str(ROTOR_YAML)), "oye")
     R = model.defn.blade.radius_m
 
     with OPENFAST_CSV.open() as fh:
@@ -117,6 +114,8 @@ def main() -> int:
             v_hub_world=np.zeros(3),
             wind_world=np.array([0.0, 0.0, -U_wind]),
             t=0.0,
+            rho_kg_m3=1.225,
+            omega_rad_s=omega,
         )
         T_oye, Q_oye = relax_to_steady(model, inp, omega)
         # dynbem returns Q_spin in *helicopter* convention -- the rotor's

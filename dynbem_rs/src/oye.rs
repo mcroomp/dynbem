@@ -122,13 +122,13 @@ impl AeroModel for OyeBEMModel {
 
     fn initial_state(&self) -> Self::State {
         let n = self.defn.blade.n_elements;
-        OyeRotorState::zeros(n, 0.0)
+        OyeRotorState::zeros(n)
     }
 
     fn inflow_taus(&self, inputs: &RotorInputs, state: &Self::State) -> Vec<f64> {
         let r_tip = self.defn.blade.radius_m;
         let n = self.defn.blade.n_elements;
-        let kin = kinematics(inputs, state.omega_rad_s, r_tip);
+        let kin = kinematics(inputs, inputs.omega_rad_s, r_tip);
         let omega_r = kin.omega_r;
         if omega_r < EPS_OMEGA_R {
             return vec![f64::INFINITY; 2 * n];
@@ -159,7 +159,7 @@ impl AeroModel for OyeBEMModel {
         state: &OyeRotorState,
     ) -> (AeroResult, OyeRotorState) {
         let blade = &self.defn.blade;
-        let omega = state.omega_rad_s;
+        let omega = inputs.omega_rad_s;
         let rho = inputs.rho_kg_m3;
         let r_tip = blade.radius_m;
         let n = blade.n_elements;
@@ -272,17 +272,11 @@ impl AeroModel for OyeBEMModel {
             n,
         );
 
-        let i_ode = self.defn.autorotation.I_ode_kgm2.unwrap_or(1.0);
-        let d_omega = (-q_total + inputs.motor_torque_Nm) / i_ode;
-        let d_psi = omega;
-
         let result = assemble_result(t_total, q_total, mx_hub, my_hub, hub_axis, &inputs.R_hub);
         let derivative = OyeRotorState {
             n_elements: n,
             W_int: d_w_int,
             W: d_w,
-            omega_rad_s: d_omega,
-            spin_angle_rad: d_psi,
         };
         (result, derivative)
     }

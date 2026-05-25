@@ -415,16 +415,15 @@ new aero model"); the short version:
   "Shared BEM infrastructure" section above).
 - Add `inflow_taus(inputs, state) -> Vec<f64>` (via `RotorStateExt`)
   returning the time constant for each state component (`f64::INFINITY`
-  for mechanical / quasi-static states). The envelope integrator's
+  for quasi-static states). The envelope integrator's
   semi-implicit damping needs this.
 - Add a new `RotorState` variant in `dynbem_rs/src/rotor_state.rs` and
   the matching `RotorStateExt` impl in `dynbem_rs/src/aero_model.rs`.
-  `RotorStateExt` now serializes **inflow states only** via
-  `get_inflow()` / `set_inflow(Vec<f64>)`; mechanical states remain
-  explicit scalar fields (`omega_rad_s`, `spin_angle_rad`) with
-  dedicated accessors (`omega`, `set_omega`, `spin`, `set_spin`).
-  Do not rely on positional conventions for mechanical states in the
-  inflow vector.
+  `RotorStateExt` serializes **inflow states only** via
+  `get_inflow()` / `set_inflow(Vec<f64>)`.  There are no mechanical
+  fields in any state struct — `omega_rad_s` is passed by the caller
+  through `RotorInputs` every call, and the caller advances omega via
+  `dynbem.mechanical.omega_derivative` externally.
 - Add a `PyFoo` newtype in `dynbem/src/wrappers.rs` and an `AeroAny`
   variant in `dynbem/src/trim_py.rs`. Wire the new model into
   `create_aero` in `dynbem/python/dynbem/factory.py` with a stable

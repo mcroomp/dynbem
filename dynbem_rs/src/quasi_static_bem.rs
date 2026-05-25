@@ -576,7 +576,7 @@ impl AeroModel for QuasiStaticBEM {
         state: &QuasiStaticRotorState,
     ) -> (AeroResult, QuasiStaticRotorState) {
         let blade = &self.defn.blade;
-        let omega = state.omega_rad_s;
+        let omega = inputs.omega_rad_s;
         let rho = inputs.rho_kg_m3;
         let r_tip = blade.radius_m;
         let n_blades = blade.n_blades;
@@ -683,14 +683,7 @@ impl AeroModel for QuasiStaticBEM {
 
         let result = assemble_result(t_total, q_total, mx_hub, my_hub, hub_axis, &inputs.R_hub);
 
-        let i_ode = self.defn.autorotation.I_ode_kgm2.unwrap_or(1.0);
-        let d_omega = (-q_total + inputs.motor_torque_Nm) / i_ode;
-        let d_spin_angle = omega;
-
-        let derivative = QuasiStaticRotorState {
-            omega_rad_s: d_omega,
-            spin_angle_rad: d_spin_angle,
-        };
+        let derivative = QuasiStaticRotorState;
         // suppress unused warning (use_tip_loss read inside windmill helper).
         let _ = use_tip_loss;
         (result, derivative)

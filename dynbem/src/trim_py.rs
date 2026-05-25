@@ -80,7 +80,7 @@ impl PyTrimResult {
     tolerance_Nm = 0.02, max_iterations = 50,
     probe_rad = 0.008726646259971648,  // 0.5 deg
     dt_relax = 0.005, n_inflow_relax = 100,
-    n_settle = 0, fix_omega = true,
+    n_settle = 0,
 ))]
 #[allow(clippy::too_many_arguments)]
 #[allow(non_snake_case)]
@@ -99,7 +99,6 @@ pub fn solve_trim_cyclic_py(
     dt_relax: f64,
     n_inflow_relax: usize,
     n_settle: usize,
-    fix_omega: bool,
 ) -> PyResult<PyTrimResult> {
     let model = AeroAny::from_py(aero)?;
     match model {
@@ -121,7 +120,6 @@ pub fn solve_trim_cyclic_py(
                 dt_relax,
                 n_inflow_relax,
                 n_settle,
-                fix_omega,
             );
             Ok(PyTrimResult {
                 tilt_lon: out.tilt_lon,
@@ -151,7 +149,6 @@ pub fn solve_trim_cyclic_py(
                 dt_relax,
                 n_inflow_relax,
                 n_settle,
-                fix_omega,
             );
             Ok(PyTrimResult {
                 tilt_lon: out.tilt_lon,
@@ -181,7 +178,6 @@ pub fn solve_trim_cyclic_py(
                 dt_relax,
                 n_inflow_relax,
                 n_settle,
-                fix_omega,
             );
             Ok(PyTrimResult {
                 tilt_lon: out.tilt_lon,
@@ -197,7 +193,7 @@ pub fn solve_trim_cyclic_py(
 }
 
 #[pyfunction]
-#[pyo3(signature = (aero, state, inputs, n_steps = 200, dt = 0.005, fix_omega = true))]
+#[pyo3(signature = (aero, state, inputs, n_steps = 200, dt = 0.005))]
 pub fn relax_inflow_py(
     py: Python<'_>,
     aero: &Bound<'_, PyAny>,
@@ -205,23 +201,22 @@ pub fn relax_inflow_py(
     inputs: &PyRotorInputs,
     n_steps: usize,
     dt: f64,
-    fix_omega: bool,
 ) -> PyResult<PyObject> {
     let model = AeroAny::from_py(aero)?;
     match model {
         AeroAny::QuasiStaticBEM(m) => {
             let s = state.extract::<PyQuasiStaticRotorState>()?.0;
-            let out = relax_inflow(&m, s, &inputs.0, n_steps, dt, fix_omega);
+            let out = relax_inflow(&m, s, &inputs.0, n_steps, dt);
             Ok(PyQuasiStaticRotorState(out).into_py(py))
         }
         AeroAny::PittPeters(m) => {
             let s = state.extract::<PyPittPetersRotorState>()?.0;
-            let out = relax_inflow(&m, s, &inputs.0, n_steps, dt, fix_omega);
+            let out = relax_inflow(&m, s, &inputs.0, n_steps, dt);
             Ok(PyPittPetersRotorState(out).into_py(py))
         }
         AeroAny::Oye(m) => {
             let s = state.extract::<PyOyeRotorState>()?.0;
-            let out = relax_inflow(&m, s, &inputs.0, n_steps, dt, fix_omega);
+            let out = relax_inflow(&m, s, &inputs.0, n_steps, dt);
             Ok(PyOyeRotorState(out).into_py(py))
         }
     }

@@ -65,7 +65,7 @@ def load_tabulated_polar(path: Union[str, Path]) -> TabulatedPolar:
 
 def create_aero(
     defn: RotorDefinition,
-    model: str = "pitt_peters",
+    model: str,
     *,
     n_psi_elements: int = 36,
     polar: Optional[Union[LinearPolar, TabulatedPolar]] = None,
@@ -85,11 +85,11 @@ def create_aero(
     # imported, so we resolve them at call time rather than module-load time.
     from . import OyeBEMModel, PittPetersModel, QuasiStaticBEM  # noqa: WPS433
     if model in ("quasi_static", "bem"):
-        return QuasiStaticBEM(defn, polar, n_psi_elements=n_psi_elements)
+        return QuasiStaticBEM(defn, polar, n_psi_elements)
     if model in ("pitt_peters", "pitt_peters_jit", "jit", "pitt_peters_numpy"):
-        return PittPetersModel(defn, polar, n_psi_elements=n_psi_elements)
+        return PittPetersModel(defn, polar, n_psi_elements)
     if model in ("oye", "oye_bem"):
-        return OyeBEMModel(defn, polar, n_psi_elements=n_psi_elements)
+        return OyeBEMModel(defn, polar, n_psi_elements, 0.6)
     raise ValueError(
         f"Unknown aero model {model!r}. "
         "Choose 'quasi_static' (alias 'bem'), 'pitt_peters', or 'oye'."

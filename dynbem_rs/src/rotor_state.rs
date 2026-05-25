@@ -1,20 +1,16 @@
 // Rotor state types: quasi-static, Pitt-Peters, Oye.
-// State-vector layout (including omega/spin indices) is reported by
-// each RotorStateExt implementation in aero_model.rs.
+// States carry inflow DOFs only.  omega_rad_s lives in RotorInputs and is
+// supplied by the caller on every compute_forces call; the mechanical ODE
+// (d_omega/dt) is integrated externally by the caller.
 
 #[derive(Clone, Debug, Default)]
-pub struct QuasiStaticRotorState {
-    pub omega_rad_s: f64,
-    pub spin_angle_rad: f64,
-}
+pub struct QuasiStaticRotorState;
 
 #[derive(Clone, Debug, Default)]
 pub struct PittPetersRotorState {
     pub lambda_0: f64,
     pub lambda_c: f64,
     pub lambda_s: f64,
-    pub omega_rad_s: f64,
-    pub spin_angle_rad: f64,
 }
 
 #[derive(Clone, Debug)]
@@ -23,18 +19,14 @@ pub struct OyeRotorState {
     pub n_elements: usize,
     pub W_int: Vec<f64>,
     pub W: Vec<f64>,
-    pub omega_rad_s: f64,
-    pub spin_angle_rad: f64,
 }
 
 impl OyeRotorState {
-    pub fn zeros(n_elements: usize, omega_rad_s: f64) -> Self {
+    pub fn zeros(n_elements: usize) -> Self {
         Self {
             n_elements,
             W_int: vec![0.0; n_elements],
             W: vec![0.0; n_elements],
-            omega_rad_s,
-            spin_angle_rad: 0.0,
         }
     }
 

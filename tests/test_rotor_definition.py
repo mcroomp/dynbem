@@ -8,27 +8,28 @@ from dynbem.rotor_definition import (
     InertiaProperties,
     RotorDefinition,
 )
+from tests.helpers import make_airfoil, make_blade, make_control
 
 
 @pytest.fixture
 def blade():
-    return BladeGeometry(n_blades=3, radius_m=5.0, root_cutout_m=0.5, chord_m=0.3)
+    return make_blade(n_blades=3, radius_m=5.0, root_cutout_m=0.5, chord_m=0.3)
 
 
 @pytest.fixture
 def airfoil():
-    return AirfoilProperties(
-        Re_design=500_000,
+    return make_airfoil(
         CL0=0.0,
         CL_alpha_per_rad=5.7,
         CD0=0.01,
         alpha_stall_deg=15.0,
+        Re_design=500_000,
     )
 
 
 @pytest.fixture
 def control():
-    return ControlProperties(swashplate_pitch_gain_rad=0.1)
+    return make_control(swashplate_pitch_gain_rad=0.1)
 
 
 @pytest.fixture
@@ -55,12 +56,12 @@ class TestBladeGeometry:
         assert blade.validate() == []
 
     def test_validate_negative_span(self):
-        b = BladeGeometry(n_blades=3, radius_m=0.4, root_cutout_m=0.5, chord_m=0.3)
+        b = make_blade(n_blades=3, radius_m=0.4, root_cutout_m=0.5, chord_m=0.3)
         issues = b.validate()
         assert any(i.level == "ERROR" and "span" in i.field for i in issues)
 
     def test_validate_zero_blades(self):
-        b = BladeGeometry(n_blades=0, radius_m=5.0, root_cutout_m=0.5, chord_m=0.3)
+        b = make_blade(n_blades=0, radius_m=5.0, root_cutout_m=0.5, chord_m=0.3)
         issues = b.validate()
         assert any(i.level == "ERROR" and "n_blades" in i.field for i in issues)
 
@@ -70,9 +71,9 @@ class TestAirfoilProperties:
         assert airfoil.validate() == []
 
     def test_validate_negative_cd0(self):
-        a = AirfoilProperties(
-            Re_design=500_000, CL0=0.0, CL_alpha_per_rad=5.7,
-            CD0=-0.01, alpha_stall_deg=15.0,
+        a = make_airfoil(
+            CL0=0.0, CL_alpha_per_rad=5.7, CD0=-0.01,
+            alpha_stall_deg=15.0, Re_design=500_000,
         )
         issues = a.validate()
         assert any("CD0" in i.field for i in issues)
@@ -89,10 +90,10 @@ class TestRotorDefinition:
         assert defn.validate() == []
 
     def test_validate_aggregates_blade_and_airfoil(self):
-        bad_blade = BladeGeometry(n_blades=0, radius_m=5.0, root_cutout_m=0.5, chord_m=0.3)
-        bad_airfoil = AirfoilProperties(
-            Re_design=500_000, CL0=0.0, CL_alpha_per_rad=5.7,
-            CD0=-0.01, alpha_stall_deg=15.0,
+        bad_blade = make_blade(n_blades=0, radius_m=5.0, root_cutout_m=0.5, chord_m=0.3)
+        bad_airfoil = make_airfoil(
+            CL0=0.0, CL_alpha_per_rad=5.7, CD0=-0.01, alpha_stall_deg=15.0,
+            Re_design=500_000,
         )
         d = RotorDefinition(blade=bad_blade, airfoil=bad_airfoil)
         issues = d.validate()

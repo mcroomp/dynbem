@@ -46,7 +46,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from dynbem.bem import BEMModel
-from dynbem import RotorInputs
+from dynbem import RotorInputs, create_aero
 import dynbem.rotor_definition as rotor_definition
 from dynbem.rotor_state import QuasiStaticRotorState
 
@@ -73,7 +73,7 @@ def _sample_evenly(items: list, n: int | None) -> list:
 
 def load_model() -> BEMModel:
     """Build the Castles-Gray 6-ft rotor BEM model from rotor.yaml."""
-    return BEMModel(defn=rotor_definition.load(ROTOR_YAML))
+    return create_aero(rotor_definition.load(ROTOR_YAML), "bem")
 
 
 def bem_forces(model: BEMModel, theta_deg: float, omega_rpm: float,
@@ -95,8 +95,10 @@ def bem_forces(model: BEMModel, theta_deg: float, omega_rpm: float,
         v_hub_world=np.zeros(3),
         wind_world=np.array([0.0, 0.0, v_climb_ms]),
         t=0.0,
+        rho_kg_m3=RHO,
+        omega_rad_s=omega,
     )
-    state = QuasiStaticRotorState(omega_rad_s=omega)
+    state = QuasiStaticRotorState()
     result, _ = model.compute_forces(inp, state)
     T = -result.F_world[2]
     CT = T / (RHO * A * (omega * R) ** 2)

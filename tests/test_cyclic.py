@@ -20,6 +20,7 @@ from dynbem import RotorInputs, create_aero
 from dynbem.cyclic import cyclic_coeffs
 from dynbem.rotor_definition import load as load_rotor
 from dynbem.rotor_state import PittPetersRotorState, QuasiStaticRotorState
+from tests.helpers import pp_state
 
 
 _ROTOR_YAML = str(
@@ -47,15 +48,13 @@ def _make_inputs(tilt_lon: float, tilt_lat: float) -> RotorInputs:
         v_hub_world=np.zeros(3),
         wind_world=np.zeros(3),
         t=0.0,
+        rho_kg_m3=1.225,
+        omega_rad_s=_OMEGA,
     )
 
 
 def _initial_state(model):
-    s = model.initial_rotor_state()
-    # Spin the rotor up by replacing omega; other fields keep defaults.
-    if isinstance(s, PittPetersRotorState):
-        return PittPetersRotorState(omega_rad_s=_OMEGA)
-    return QuasiStaticRotorState(omega_rad_s=_OMEGA)
+    return model.initial_rotor_state()
 
 
 # ---------------------------------------------------------------------------
@@ -166,7 +165,7 @@ def _euler_integrate_pp(model, inputs, n_steps=8000, dt=0.0005):
     """
     from dynbem.rotor_state import PittPetersRotorState
 
-    state = PittPetersRotorState(omega_rad_s=_OMEGA)
+    state = pp_state()
     res = None
     for _ in range(n_steps):
         res, drv = model.compute_forces(inputs, state)
@@ -174,7 +173,6 @@ def _euler_integrate_pp(model, inputs, n_steps=8000, dt=0.0005):
             lambda_0=state.lambda_0 + drv.lambda_0 * dt,
             lambda_c=state.lambda_c + drv.lambda_c * dt,
             lambda_s=state.lambda_s + drv.lambda_s * dt,
-            omega_rad_s=_OMEGA,  # hold omega fixed for this test
         )
     return state, res
 
@@ -227,7 +225,7 @@ def test_cyclic_inflow_reduces_hub_moment(pp_model):
     transient (pre-inflow) value.
     """
     inputs = _make_inputs(tilt_lon=math.radians(2.0), tilt_lat=0.0)
-    state0 = PittPetersRotorState(omega_rad_s=_OMEGA)
+    state0 = pp_state()
     res_initial, _ = pp_model.compute_forces(inputs, state0)
     state_ss, res_ss = _euler_integrate_pp(pp_model, inputs)
     # M_y should be reduced in magnitude (inflow opposing the asymmetry).
@@ -248,6 +246,8 @@ def test_forward_flight_glauert_emerges_from_momentum_balance(pp_model):
         v_hub_world=np.array([10.0, 0.0, 0.0]),  # 10 m/s in +X
         wind_world=np.zeros(3),
         t=0.0,
+        rho_kg_m3=1.225,
+        omega_rad_s=_OMEGA,
     )
     state, _ = _euler_integrate_pp(pp_model, inputs)
     # Some longitudinal inflow harmonic should appear from velocity asymmetry.

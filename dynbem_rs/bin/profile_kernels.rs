@@ -16,7 +16,7 @@ use dynbem_rs::pitt_peters::PittPetersModel;
 use dynbem_rs::polar::{LinearPolar, PolarKind};
 use dynbem_rs::quasi_static_bem::{solve_bem_element, QuasiStaticBEM};
 use dynbem_rs::rotor_definition::{
-    AirfoilProperties, AutorotationProperties, BladeGeometry, RotorDefinition,
+    AirfoilProperties, BladeGeometry, RotorDefinition,
 };
 use dynbem_rs::rotor_state::{OyeRotorState, PittPetersRotorState, QuasiStaticRotorState};
 use std::env;
@@ -43,7 +43,6 @@ fn make_rotor_definition(n_elements: usize) -> RotorDefinition {
             tip_loss: true,
         },
         control: None,
-        autorotation: AutorotationProperties::default(),
         name: "bench_rotor".to_string(),
         description: "standalone harness rotor".to_string(),
     }
@@ -59,7 +58,7 @@ fn make_inputs() -> RotorInputs {
         wind_world: Vec3::new(8.0, 1.5, -1.0),
         t: 0.0,
         rho_kg_m3: 1.225,
-        motor_torque_Nm: 0.0,
+        omega_rad_s: 120.0,
     }
 }
 
@@ -103,8 +102,6 @@ fn bench_pitt_peters(iterations: usize) {
         lambda_0: 0.06,
         lambda_c: 0.01,
         lambda_s: -0.008,
-        omega_rad_s: 120.0,
-        spin_angle_rad: 0.0,
     };
 
     let start = Instant::now();
@@ -133,7 +130,7 @@ fn bench_oye(iterations: usize) {
         grid: RadialGrid::from_blade(&defn.blade),
     };
 
-    let oye_state = OyeRotorState::zeros(defn.blade.n_elements, 120.0);
+    let oye_state = OyeRotorState::zeros(defn.blade.n_elements);
 
     let start = Instant::now();
     for _ in 0..iterations {
@@ -154,10 +151,7 @@ fn bench_sweep(iterations: usize) {
     let inputs = make_inputs();
 
     let bem = QuasiStaticBEM::build(defn, 72, polar);
-    let bem_state = QuasiStaticRotorState {
-        omega_rad_s: 120.0,
-        spin_angle_rad: 0.0,
-    };
+    let bem_state = QuasiStaticRotorState;
 
     let start = Instant::now();
     for _ in 0..iterations {

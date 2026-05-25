@@ -59,6 +59,7 @@ class TestLinearPolar:
             CL_alpha_per_rad=5.5,
             CD0=0.015,
             alpha_stall_deg=14.0,
+            tip_loss=True,
         )
         p = LinearPolar.from_properties(props)
         assert p.CL0 == pytest.approx(0.1)

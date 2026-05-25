@@ -245,10 +245,8 @@ def simulate_attitude(
     # -----------------------------------------------------------------------
     # Rotor state init — model-agnostic
     # -----------------------------------------------------------------------
-    zero    = aero.initial_rotor_state()
-    arr0    = zero.to_array()
-    arr0[-2] = omega_init                       # arr[-2] = ω by convention
-    rotor_state = zero.from_array(arr0)
+    rotor_state = aero.initial_rotor_state()
+    omega       = omega_init
 
     pitch       = 0.0
     roll        = 0.0
@@ -280,6 +278,8 @@ def simulate_attitude(
             collective_rad=col_now,
             tilt_lon=tilt_lon, tilt_lat=tilt_lat,
             R_hub=R_hub, v_hub_world=vel, wind_world=wind, t=t_now,
+            rho_kg_m3=1.225,
+            omega_rad_s=omega_init if fix_omega else omega,
         )
         aero_res, drv = aero.compute_forces(inputs, rotor_state)
 
@@ -306,9 +306,7 @@ def simulate_attitude(
             col_now = max(col_min, min(col_max, col_raw))
 
         new_arr = _step_state_semi_implicit(aero, rotor_state, drv, dt, inputs)
-        if fix_omega:
-            new_arr[-2] = omega_init
-        new_arr = _clip_state(new_arr, rotor_state)
+        new_arr = _clip_state(new_arr)
         rotor_state = rotor_state.from_array(new_arr)
 
         return (pitch, roll, pitch_rate, roll_rate, v_along, col_now,
@@ -322,11 +320,13 @@ def simulate_attitude(
     # -----------------------------------------------------------------------
     def _settle_step(rotor_state, v_along, col_now, int_col, tlon, tlat):
         vel = v_along * t_hat
-        inputs = RotorInputs(
+        inputs_settle = RotorInputs(
             collective_rad=col_now, tilt_lon=tlon, tilt_lat=tlat,
             R_hub=R_hub_eq, v_hub_world=vel, wind_world=wind, t=0.0,
+            rho_kg_m3=1.225,
+            omega_rad_s=omega_init,
         )
-        res, drv = aero.compute_forces(inputs, rotor_state)
+        res, drv = aero.compute_forces(inputs_settle, rotor_state)
         f_thrust_along = float(np.dot(res.F_world, t_hat))
         f_along = f_thrust_along + f_grav_along + tension_n
         v_along = max(-30.0, min(30.0, v_along + dt * f_along / mass_kg))
@@ -335,9 +335,8 @@ def simulate_attitude(
             int_col = max(-int_max, min(int_max, int_col + err * dt))
             col_now = max(col_min, min(col_max,
                                        kp_col * err + ki_col * int_col))
-        new_arr = _step_state_semi_implicit(aero, rotor_state, drv, dt, inputs)
-        new_arr[-2] = omega_init
-        new_arr = _clip_state(new_arr, rotor_state)
+        new_arr = _step_state_semi_implicit(aero, rotor_state, drv, dt, inputs_settle)
+        new_arr = _clip_state(new_arr)
         rotor_state = rotor_state.from_array(new_arr)
         return rotor_state, v_along, col_now, int_col
 
@@ -360,10 +359,10 @@ def simulate_attitude(
         aero, rotor_state,
         collective_rad=col_now,
         R_hub=R_hub_eq, v_hub_world=vel_eq, wind_world=wind,
+        omega_rad_s=omega_init,
         tilt_min=tilt_min, tilt_max=tilt_max,
         tolerance_Nm=trim_tolerance_Nm,
         dt_relax=dt, n_inflow_relax=100,
-        fix_omega=True,
     )
     trim_tilt_lon = trim.tilt_lon
     trim_tilt_lat = trim.tilt_lat
@@ -414,7 +413,7 @@ def simulate_attitude(
         h["roll_rate"][i]  = roll_rate
         h["col"][i]        = col_now
         h["v_along"][i]    = v_along
-        h["omega"][i]      = rotor_state.omega_rad_s
+        h["omega"][i]      = omega_init if fix_omega else omega
         if i == n_steps:
             # No update on the last index — leave tilt/M/T at the last
             # computed values (filled below for i < n_steps).
@@ -462,6 +461,6 @@ def simulate_attitude(
             "pitch_rate": pitch_rate,
             "roll_rate":  roll_rate,
             "v_along":    v_along,
-            "omega":      rotor_state.omega_rad_s,
+            "omega":      omega_init if fix_omega else omega,
         },
     }

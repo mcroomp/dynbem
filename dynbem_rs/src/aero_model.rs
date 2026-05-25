@@ -10,14 +10,10 @@ use crate::aero_io::{AeroResult, RotorInputs};
 use crate::rotor_state::{OyeRotorState, PittPetersRotorState, QuasiStaticRotorState};
 
 /// Inflow-state serialization for generic integrators.
-/// Mechanical state (omega/spin) stays explicit on the typed state.
+/// Omega is now part of RotorInputs; state contains only inflow DOFs.
 pub trait RotorStateExt: Clone {
     fn get_inflow(&self) -> Vec<f64>;
     fn set_inflow(&mut self, arr: Vec<f64>);
-    fn omega(&self) -> f64;
-    fn set_omega(&mut self, omega: f64);
-    fn spin(&self) -> f64;
-    fn set_spin(&mut self, spin: f64);
     fn inflow_dof(&self) -> usize {
         self.get_inflow().len()
     }
@@ -30,18 +26,6 @@ impl RotorStateExt for QuasiStaticRotorState {
     fn set_inflow(&mut self, arr: Vec<f64>) {
         debug_assert!(arr.is_empty());
     }
-    fn omega(&self) -> f64 {
-        self.omega_rad_s
-    }
-    fn set_omega(&mut self, omega: f64) {
-        self.omega_rad_s = omega;
-    }
-    fn spin(&self) -> f64 {
-        self.spin_angle_rad
-    }
-    fn set_spin(&mut self, spin: f64) {
-        self.spin_angle_rad = spin;
-    }
 }
 
 impl RotorStateExt for PittPetersRotorState {
@@ -53,18 +37,6 @@ impl RotorStateExt for PittPetersRotorState {
         self.lambda_0 = arr[0];
         self.lambda_c = arr[1];
         self.lambda_s = arr[2];
-    }
-    fn omega(&self) -> f64 {
-        self.omega_rad_s
-    }
-    fn set_omega(&mut self, omega: f64) {
-        self.omega_rad_s = omega;
-    }
-    fn spin(&self) -> f64 {
-        self.spin_angle_rad
-    }
-    fn set_spin(&mut self, spin: f64) {
-        self.spin_angle_rad = spin;
     }
 }
 
@@ -82,18 +54,6 @@ impl RotorStateExt for OyeRotorState {
         self.W_int[..n].copy_from_slice(&arr[..n]);
         self.W[..n].copy_from_slice(&arr[n..2 * n]);
     }
-    fn omega(&self) -> f64 {
-        self.omega_rad_s
-    }
-    fn set_omega(&mut self, omega: f64) {
-        self.omega_rad_s = omega;
-    }
-    fn spin(&self) -> f64 {
-        self.spin_angle_rad
-    }
-    fn set_spin(&mut self, spin: f64) {
-        self.spin_angle_rad = spin;
-    }
 }
 
 /// Common aero-model interface. Each implementor caches a polar table
@@ -108,10 +68,8 @@ pub trait AeroModel {
         state: &Self::State,
     ) -> (AeroResult, Self::State);
 
-    /// Time constants per state DOF (infinite for mechanical / quasi-static
-    /// states). Used by the semi-implicit damping in the trim integrator.
-    /// Default = all-infinity (no dynamic-inflow lags); dynamic-inflow
-    /// models override this with their per-state lag formulas.
+    /// Time constants per inflow state DOF. Used by the semi-implicit damping
+    /// in the trim integrator. Default = all-infinity (no dynamic-inflow lags);
     fn inflow_taus(&self, _inputs: &RotorInputs, state: &Self::State) -> Vec<f64> {
         vec![f64::INFINITY; state.inflow_dof()]
     }

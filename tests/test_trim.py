@@ -44,11 +44,13 @@ def _level_R():
 
 
 def _moments_at(aero, state, *, collective, tilt_lon, tilt_lat,
-                R_hub, v_hub_world, wind_world):
+                R_hub, v_hub_world, wind_world, omega_rad_s=_OMEGA):
     inputs = RotorInputs(
         collective_rad=collective,
         tilt_lon=tilt_lon, tilt_lat=tilt_lat,
         R_hub=R_hub, v_hub_world=v_hub_world, wind_world=wind_world, t=0.0,
+        rho_kg_m3=1.225,
+        omega_rad_s=omega_rad_s,
     )
     res, _ = aero.compute_forces(inputs, state)
     M_hub = R_hub.T @ res.M_orbital
@@ -59,16 +61,16 @@ def _moments_at(aero, state, *, collective, tilt_lon, tilt_lat,
 class TestTrimSolver:
 
     def test_hover_trim_is_near_zero(self, defn, model_name):
-        """Axisymmetric hover (no wind) ⇒ no asymmetry ⇒ trim cyclic ≈ 0."""
+        """Axisymmetric hover (no wind) => no asymmetry => trim cyclic ~= 0."""
         aero  = create_aero(defn, model=model_name)
         state = aero.initial_rotor_state()
-        state.omega_rad_s = _OMEGA
 
         result = solve_trim_cyclic(
             aero, state,
             collective_rad=_COLLECTIVE,
             R_hub=_level_R(),
             v_hub_world=np.zeros(3), wind_world=np.zeros(3),
+            omega_rad_s=_OMEGA,
             tolerance_Nm=_TOL_NM,
         )
         assert result.converged, (
@@ -80,10 +82,9 @@ class TestTrimSolver:
         assert abs(result.tilt_lat) < math.radians(0.5)
 
     def test_forward_flight_trim_residual_below_tolerance(self, defn, model_name):
-        """10 m/s East wind across level disk ⇒ trim residual < tolerance."""
+        """10 m/s East wind across level disk => trim residual < tolerance."""
         aero  = create_aero(defn, model=model_name)
         state = aero.initial_rotor_state()
-        state.omega_rad_s = _OMEGA
 
         result = solve_trim_cyclic(
             aero, state,
@@ -91,6 +92,7 @@ class TestTrimSolver:
             R_hub=_level_R(),
             v_hub_world=np.zeros(3),
             wind_world=np.array([0.0, 10.0, 0.0]),
+            omega_rad_s=_OMEGA,
             tolerance_Nm=_TOL_NM,
         )
         assert result.converged, (
@@ -106,7 +108,6 @@ class TestTrimSolver:
         the returned ``final_state`` (which holds the relaxed inflow)."""
         aero  = create_aero(defn, model=model_name)
         state = aero.initial_rotor_state()
-        state.omega_rad_s = _OMEGA
         wind = np.array([0.0, 10.0, 0.0])
 
         result = solve_trim_cyclic(
@@ -114,6 +115,7 @@ class TestTrimSolver:
             collective_rad=_COLLECTIVE,
             R_hub=_level_R(),
             v_hub_world=np.zeros(3), wind_world=wind,
+            omega_rad_s=_OMEGA,
             tolerance_Nm=_TOL_NM,
         )
         Mx, My = _moments_at(
@@ -127,18 +129,18 @@ class TestTrimSolver:
 
     def test_trim_to_nonzero_target_moment(self, defn, model_name):
         """target_moment = (0, M_target) should produce a trim where
-        My_hub ≈ M_target (within tolerance)."""
+        My_hub ~= M_target (within tolerance)."""
         aero  = create_aero(defn, model=model_name)
         state = aero.initial_rotor_state()
-        state.omega_rad_s = _OMEGA
         wind = np.array([0.0, 10.0, 0.0])
-        M_target = 5.0   # N·m on body-Y, small enough to be feasible
+        M_target = 5.0   # N*m on body-Y, small enough to be feasible
 
         result = solve_trim_cyclic(
             aero, state,
             collective_rad=_COLLECTIVE,
             R_hub=_level_R(),
             v_hub_world=np.zeros(3), wind_world=wind,
+            omega_rad_s=_OMEGA,
             target_moment=(0.0, M_target),
             tolerance_Nm=_TOL_NM,
         )
@@ -153,29 +155,22 @@ class TestTrimSolver:
         assert abs(My - M_target) < _TOL_NM, f"My={My:.4f} should be near {M_target}"
 
     def test_relax_inflow_settles_to_steady_state(self, defn, model_name):
-        """``relax_inflow`` reaches a fixed point on the inflow states.
-
-        We check inflow only — ω is held fixed by ``fix_omega`` and the
-        spin angle ψ accumulates monotonically (rotor keeps spinning),
-        so excluding both is the right convergence diagnostic.
-        """
+        """``relax_inflow`` reaches a fixed point on the inflow states."""
         aero = create_aero(defn, model=model_name)
         s0   = aero.initial_rotor_state()
-        s0.omega_rad_s = _OMEGA
 
         kw = dict(
             collective_rad=_COLLECTIVE, tilt_lon=0.0, tilt_lat=0.0,
             R_hub=_level_R(), v_hub_world=np.zeros(3),
             wind_world=np.array([0.0, 10.0, 0.0]),
-            n_steps=500, dt=0.005, fix_omega=True,
+            omega_rad_s=_OMEGA,
+            n_steps=500, dt=0.005,
         )
         s1 = relax_inflow(aero, s0, **kw)
         s2 = relax_inflow(aero, s1, **kw)
-        # arr[-2] = ω (held fixed), arr[-1] = ψ (monotonic).
-        # Inflow states are at arr[:-2].
-        inflow_delta = float(np.linalg.norm(s2.to_array()[:-2] - s1.to_array()[:-2]))
+        inflow_delta = float(np.linalg.norm(s2.to_array() - s1.to_array()))
         assert inflow_delta < 1e-4, (
-            f"{model_name}: inflow not settled (Δ_inflow={inflow_delta:.4e})"
+            f"{model_name}: inflow not settled (delta_inflow={inflow_delta:.4e})"
         )
 
     def test_solver_cancels_baseline_disturbance(self, defn, model_name):
@@ -183,7 +178,6 @@ class TestTrimSolver:
         solver's trim cyclic the same moment is small."""
         aero  = create_aero(defn, model=model_name)
         state = aero.initial_rotor_state()
-        state.omega_rad_s = _OMEGA
         wind = np.array([0.0, 10.0, 0.0])
 
         # Settle inflow at zero cyclic, then read baseline moment.
@@ -191,10 +185,11 @@ class TestTrimSolver:
             inputs = RotorInputs(
                 collective_rad=_COLLECTIVE, tilt_lon=0.0, tilt_lat=0.0,
                 R_hub=_level_R(), v_hub_world=np.zeros(3), wind_world=wind, t=0.0,
+                rho_kg_m3=1.225,
+                omega_rad_s=_OMEGA,
             )
             _, deriv = aero.compute_forces(inputs, state)
             arr = state.to_array() + 0.005 * deriv.to_array()
-            arr[-2] = _OMEGA   # hold ω fixed
             state = state.from_array(arr)
         Mx0, My0 = _moments_at(
             aero, state,
@@ -209,6 +204,7 @@ class TestTrimSolver:
             collective_rad=_COLLECTIVE,
             R_hub=_level_R(),
             v_hub_world=np.zeros(3), wind_world=wind,
+            omega_rad_s=_OMEGA,
             tolerance_Nm=_TOL_NM,
         )
         trim_mag = math.hypot(result.Mx_residual, result.My_residual)
@@ -229,7 +225,6 @@ def test_trim_clips_to_bounds(defn):
     """Trim cyclic is clipped to the requested [tilt_min, tilt_max]."""
     aero  = create_aero(defn, model="oye")
     state = aero.initial_rotor_state()
-    state.omega_rad_s = _OMEGA
 
     tight = math.radians(1.0)
     result = solve_trim_cyclic(
@@ -238,6 +233,7 @@ def test_trim_clips_to_bounds(defn):
         R_hub=np.eye(3),
         v_hub_world=np.zeros(3),
         wind_world=np.array([0.0, 10.0, 0.0]),
+        omega_rad_s=_OMEGA,
         tilt_min=-tight, tilt_max=tight,
         tolerance_Nm=0.01,
         max_iterations=20,

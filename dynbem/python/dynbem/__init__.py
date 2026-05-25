@@ -13,7 +13,6 @@ from ._dynbem import (  # noqa: F401
     prandtl_hub_loss,
     LinearPolar,
     TabulatedPolar,
-    BladeGeometry,
     QuasiStaticRotorState,
     PittPetersRotorState,
     OyeRotorState,
@@ -22,6 +21,7 @@ from ._dynbem import (  # noqa: F401
     TrimResult,
 )
 from .rotor_definition import (  # noqa: F401
+    BladeGeometry,
     KamanFlap,
     InertiaProperties,
     AirfoilProperties,
@@ -34,6 +34,7 @@ from ._dynbem import PittPetersModel as _PittPetersModel  # noqa: F401
 from ._dynbem import OyeBEMModel as _OyeBEMModel  # noqa: F401
 from .factory import create_aero, build_polar, load_tabulated_polar  # noqa: F401
 from .trim import solve_trim_cyclic, relax_inflow  # noqa: F401
+from .mechanical import omega_derivative, euler_step_omega  # noqa: F401
 
 
 def cyclic_coeffs(tilt_lon, tilt_lat, control=None):  # noqa: F401
@@ -59,12 +60,10 @@ def _rust_defn(defn):
 
 
 class QuasiStaticBEM(_QuasiStaticBEM):
-    def __new__(cls, defn, polar=None, n_psi_elements=36):
-        if polar is None:
-            polar = build_polar(defn.airfoil)
+    def __new__(cls, defn, polar, n_psi_elements):
         return _QuasiStaticBEM.__new__(cls, _rust_defn(defn), polar, n_psi_elements)
 
-    def __init__(self, defn, polar=None, n_psi_elements=36):
+    def __init__(self, defn, polar, n_psi_elements):
         self._defn = defn
 
     @property
@@ -80,12 +79,10 @@ BEMModel = QuasiStaticBEM
 
 
 class PittPetersModel(_PittPetersModel):
-    def __new__(cls, defn, polar=None, n_psi_elements=36):
-        if polar is None:
-            polar = build_polar(defn.airfoil)
+    def __new__(cls, defn, polar, n_psi_elements):
         return _PittPetersModel.__new__(cls, _rust_defn(defn), polar, n_psi_elements)
 
-    def __init__(self, defn, polar=None, n_psi_elements=36):
+    def __init__(self, defn, polar, n_psi_elements):
         self._defn = defn
 
     @property
@@ -94,14 +91,12 @@ class PittPetersModel(_PittPetersModel):
 
 
 class OyeBEMModel(_OyeBEMModel):
-    def __new__(cls, defn, polar=None, n_psi_elements=36, coupling_k=0.6):
-        if polar is None:
-            polar = build_polar(defn.airfoil)
+    def __new__(cls, defn, polar, n_psi_elements, coupling_k):
         return _OyeBEMModel.__new__(
             cls, _rust_defn(defn), polar, n_psi_elements, coupling_k,
         )
 
-    def __init__(self, defn, polar=None, n_psi_elements=36, coupling_k=0.6):
+    def __init__(self, defn, polar, n_psi_elements, coupling_k):
         self._defn = defn
 
     @property

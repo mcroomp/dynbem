@@ -83,7 +83,7 @@ def build_dynbem_model(cfg: dict) -> BEMModel:
         cd       =np.array([p["cd"] for p in pts]),
     )
     defn = RotorDefinition(blade=blade, airfoil=airfoil)
-    return BEMModel(defn=defn, polar=polar)
+    return BEMModel(defn, polar, 36)
 
 
 def dynbem_hover_thrust(model: BEMModel, pitch_deg: float,
@@ -98,8 +98,9 @@ def dynbem_hover_thrust(model: BEMModel, pitch_deg: float,
         wind_world=np.zeros(3),  # hover: no axial wind
         t=0.0,
         rho_kg_m3=rho,
+        omega_rad_s=omega,
     )
-    state = QuasiStaticRotorState(omega_rad_s=omega)
+    state = QuasiStaticRotorState()
     result, _ = model.compute_forces(inp, state)
     T = -float(result.F_world[2])
     Q = float(result.Q_spin)

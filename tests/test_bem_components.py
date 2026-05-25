@@ -28,7 +28,7 @@ from dynbem.rotor_definition import (
     AirfoilProperties, AutorotationProperties, BladeGeometry, RotorDefinition,
 )
 from dynbem.rotor_state import QuasiStaticRotorState
-
+from tests.helpers import hover_inputs, make_bem
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -45,10 +45,8 @@ def _ct_rotor(model: BEMModel, coll_deg: float, omega_rpm: float) -> float:
     R = model.defn.blade.radius_m
     rho = 1.225
     A = math.pi * R**2
-    inp = RotorInputs(collective_rad=math.radians(coll_deg),
-                     tilt_lon=0.0, tilt_lat=0.0, R_hub=np.eye(3),
-                     v_hub_world=np.zeros(3), wind_world=np.zeros(3), t=0.0)
-    state = QuasiStaticRotorState(omega_rad_s=omega)
+    inp = hover_inputs(coll_deg, omega)
+    state = QuasiStaticRotorState()
     result, _ = model.compute_forces(inp, state)
     T = -result.F_world[2]
     return T / (rho * A * (omega * R)**2)
@@ -60,10 +58,8 @@ def _cp_rotor(model: BEMModel, coll_deg: float, omega_rpm: float) -> float:
     R = model.defn.blade.radius_m
     rho = 1.225
     A = math.pi * R**2
-    inp = RotorInputs(collective_rad=math.radians(coll_deg),
-                     tilt_lon=0.0, tilt_lat=0.0, R_hub=np.eye(3),
-                     v_hub_world=np.zeros(3), wind_world=np.zeros(3), t=0.0)
-    state = QuasiStaticRotorState(omega_rad_s=omega)
+    inp = hover_inputs(coll_deg, omega)
+    state = QuasiStaticRotorState()
     result, _ = model.compute_forces(inp, state)
     Q = result.Q_spin
     return Q * omega / (rho * A * (omega * R)**3)
@@ -103,7 +99,7 @@ def ct_rotor_defn():
 
 @pytest.fixture
 def ct_model(ct_rotor_defn):
-    return BEMModel(defn=ct_rotor_defn)
+    return make_bem(ct_rotor_defn)
 
 
 # ===========================================================================
@@ -318,7 +314,7 @@ class TestHoverCTAnalytical:
         airfoil = AirfoilProperties(Re_design=500_000, CL0=0.0,
                                     CL_alpha_per_rad=cl_alpha, CD0=0.001,
                                     alpha_stall_deg=15.0, tip_loss=False)
-        model = BEMModel(defn=RotorDefinition(blade=blade, airfoil=airfoil))
+        model = make_bem(RotorDefinition(blade=blade, airfoil=airfoil))
 
         CT_bem = _ct_rotor(model, coll_deg, 1250.0)
         CT_leishman = _leishman_hover_ct(sigma, cl_alpha, math.radians(coll_deg))
@@ -459,7 +455,7 @@ def h1_rotor_defn():
 
 @pytest.fixture
 def h1_model(h1_rotor_defn):
-    return BEMModel(defn=h1_rotor_defn)
+    return make_bem(h1_rotor_defn)
 
 
 _H1_RPM = 382.0   # ΩR = 500 ft/s = 152.4 m/s, R = 3.810 m

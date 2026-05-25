@@ -63,7 +63,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from dynbem.bem import BEMModel
-from dynbem import RotorInputs
+from dynbem import RotorInputs, create_aero
 from dynbem.rotor_definition import load as load_rotor
 from dynbem.rotor_state import QuasiStaticRotorState
 
@@ -149,8 +149,10 @@ def dynbem_at_point(model: BEMModel, U_wind_ms: float, Omega_rpm: float,
         v_hub_world=np.zeros(3),
         wind_world=np.array([0.0, 0.0, -U_wind_ms]),
         t=0.0,
+        rho_kg_m3=rho,
+        omega_rad_s=omega,
     )
-    state = QuasiStaticRotorState(omega_rad_s=omega)
+    state = QuasiStaticRotorState()
     result, _ = model.compute_forces(inp, state)
     T = -result.F_world[2]
     CT = T / (rho * A * (omega * R)**2)
@@ -161,7 +163,7 @@ def dynbem_at_point(model: BEMModel, U_wind_ms: float, Omega_rpm: float,
 def run_survey(sample: int | None = None) -> Survey:
     if not CCBLADE_CSV.exists() or not ROTOR_YAML.exists():
         return Survey(sample=sample)
-    model = BEMModel(defn=load_rotor(str(ROTOR_YAML)))
+    model = create_aero(load_rotor(str(ROTOR_YAML)), "bem")
     R = model.defn.blade.radius_m
     rows = _sample_evenly(load_ccblade_csv(CCBLADE_CSV), sample)
 

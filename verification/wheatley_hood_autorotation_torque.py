@@ -47,7 +47,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from dynbem.bem import BEMModel
-from dynbem import RotorInputs
+from dynbem import RotorInputs, create_aero
 from dynbem.rotor_definition import load as load_rotor
 from dynbem.rotor_state import QuasiStaticRotorState
 from dynbem.trim import solve_trim_cyclic
@@ -133,7 +133,7 @@ def load_model() -> BEMModel | None:
     Returns None if the rotor.yaml is missing."""
     if not YAML.exists():
         return None
-    return BEMModel(defn=load_rotor(str(YAML)), n_psi_elements=12)
+    return create_aero(load_rotor(str(YAML)), "bem", n_psi_elements=12)
 
 
 def measured_CT(mu: float, alpha_deg: float, CL: float, CD: float) -> float:
@@ -170,21 +170,24 @@ def _bem_at_point(model: BEMModel, mu: float, alpha_deg: float, N_rpm: float,
 
     if trim:
         tr = solve_trim_cyclic(
-            model, QuasiStaticRotorState(omega_rad_s=omega),
+            model, QuasiStaticRotorState(),
             collective_rad=math.radians(pitch_deg),
             R_hub=R_hub, v_hub_world=v_hub_world, wind_world=wind_world,
+            omega_rad_s=omega,
             tilt_min=-math.radians(25.0), tilt_max=math.radians(25.0),
             tolerance_Nm=1.0, max_iterations=20, n_inflow_relax=0,
         )
         tilt_lon, tilt_lat, state = tr.tilt_lon, tr.tilt_lat, tr.final_state
     else:
         tilt_lon = tilt_lat = 0.0
-        state = QuasiStaticRotorState(omega_rad_s=omega)
+        state = QuasiStaticRotorState()
 
     inp = RotorInputs(
         collective_rad=math.radians(pitch_deg),
         tilt_lon=tilt_lon, tilt_lat=tilt_lat,
         R_hub=R_hub, v_hub_world=v_hub_world, wind_world=wind_world, t=0.0,
+        rho_kg_m3=RHO,
+        omega_rad_s=omega,
     )
     res, _ = model.compute_forces(inp, state)
     F_hub = R_hub.T @ res.F_world

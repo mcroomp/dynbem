@@ -38,6 +38,7 @@ from typing import Optional
 import numpy as np
 
 from dynbem import AeroBase, RotorInputs, create_aero
+from dynbem.mechanical import omega_derivative
 from dynbem.rotor_definition import RotorDefinition
 
 G = 9.81  # m/s²
@@ -55,20 +56,9 @@ G = 9.81  # m/s²
 # method (returns ∞ for mechanical states, which then integrate as
 # plain Euler).
 
-def _clip_state(arr: np.ndarray, state) -> np.ndarray:
-    """Model-agnostic state clip.  Convention: ``arr[-2] = omega_rad_s``,
-    ``arr[-1] = spin_angle_rad``, everything before is an inflow state.
-
-    Inflow states clamped to ±10 (well beyond any physical λ ≈ 0.05);
-    omega clamped to [0.5, 300] rad/s; spin angle is unbounded.  Returns
-    a new array.
-    """
-    out = arr.copy()
-    n = arr.size
-    if n >= 3:
-        out[:-2] = np.clip(out[:-2], -10.0, 10.0)
-    out[-2] = max(0.5, min(300.0, out[-2]))
-    return out
+def _clip_state(arr: np.ndarray, state=None) -> np.ndarray:
+    """Clip inflow states to +/-10.  Omega is tracked outside the state."""
+    return np.clip(arr, -10.0, 10.0)
 
 
 def _step_state_semi_implicit(model, state, dstate, dt: float,
@@ -84,18 +74,9 @@ def _step_state_semi_implicit(model, state, dstate, dt: float,
     arr = state.to_array()
     darr = dstate.to_array()
 
-    # Backward/forward compatibility:
-    # - Older models may return per-state taus (same size as state array).
-    # - Current RotorStateExt returns inflow-only taus; omega/spin are
-    #   mechanical states at arr[-2:], integrated explicitly (tau = inf).
-    if taus.size == arr.size - 2:
-        taus_full = np.full(arr.shape, np.inf, dtype=float)
-        taus_full[:-2] = taus
-        taus = taus_full
-    elif taus.size != arr.size:
+    if taus.size != arr.size:
         raise ValueError(
-            f"inflow_taus size mismatch: got {taus.size}, expected "
-            f"{arr.size} (full) or {arr.size - 2} (inflow-only)"
+            f"inflow_taus size mismatch: got {taus.size}, expected {arr.size}"
         )
 
     # damp = 1/(1+dt/τ); =1 when τ=∞ (plain Euler)
@@ -195,20 +176,16 @@ def simulate_point(
     f_grav_along = mass_kg * gravity_mps2 * float(t_hat[2])   # gravity component along tether
 
     # Generic state initialisation — works with any AeroBase subclass.
-    # warm_start carries the previous call's state.to_array() under
-    # "state_arr"; otherwise we ask the model for its zero state and
-    # poke omega_init into the second-from-last slot (arr[-2] = ω is the
-    # convention enforced by all RotorState subclasses).
+    I_ode = float(model.defn.autorotation.I_ode_kgm2 or 1.0)
     if warm_start is not None and "state_arr" in warm_start:
         state = model.initial_rotor_state().from_array(np.asarray(warm_start["state_arr"]))
+        omega = float(warm_start.get("omega", omega_init))
         v_along = float(warm_start.get("v_along", v_along_init))
         col_now = float(warm_start.get("col", col_rad))
         int_vcol = float(warm_start.get("int_vcol", 0.0))
     else:
-        zero = model.initial_rotor_state()
-        arr0 = zero.to_array()
-        arr0[-2] = omega_init                       # set ω
-        state = zero.from_array(arr0)
+        state = model.initial_rotor_state()
+        omega = omega_init
         v_along = v_along_init
         col_now = col_rad
         int_vcol = 0.0
@@ -235,18 +212,17 @@ def simulate_point(
             v_hub_world=vel,
             wind_world=wind_world,
             t=i * dt,
+            omega_rad_s=omega,
         )
 
         aero, dstate = model.compute_forces(inputs, state)
 
         # Integrate rotor state: semi-implicit on dynamic-inflow states
-        # (τ may be ≪ dt), explicit Euler on ω and ψ.  Model-agnostic.
+        # (tau may be << dt).  Model-agnostic.
         arr = _step_state_semi_implicit(model, state, dstate, dt, inputs)
-        state = state.from_array(arr)
-        if state.omega_rad_s < 1.0:
-            arr2 = state.to_array()
-            arr2[-2] = 1.0   # ω is second-to-last by convention
-            state = state.from_array(arr2)
+        state = state.from_array(_clip_state(arr))
+        omega = max(0.5, min(300.0,
+                             omega + dt * omega_derivative(aero.Q_spin, 0.0, I_ode)))
 
         # 1-D force integration along tether (explicit Euler).  The previous
         # semi-implicit form used a finite-difference probe of ∂F/∂v_along
@@ -266,15 +242,15 @@ def simulate_point(
             col_now = max(col_min, min(col_max, col_raw))
 
         v_hist.append(v_along)
-        om_hist.append(state.omega_rad_s)
+        om_hist.append(omega)
 
         if i % log_every == 0:
             history.append({
                 "t": i * dt,
                 "v_along": v_along,
-                "omega": state.omega_rad_s,
+                "omega": omega,
                 "col": col_now,
-                "lambda_0": state.lambda_0,
+                "lambda_0": getattr(state, "lambda_0", 0.0),
             })
 
     converged = False
@@ -296,9 +272,10 @@ def simulate_point(
         "converged": converged,
         "col_saturated": col_saturated,
         "final_state": {
-            # Model-agnostic state serialisation: pass state_arr back to a
-            # later simulate_point() call via warm_start to resume.
+            # Model-agnostic state serialisation: pass state_arr + omega back
+            # to a later simulate_point() call via warm_start to resume.
             "state_arr": state.to_array(),
+            "omega":     omega,
             "v_along":   v_along,
             "col":       col_now,
             "int_vcol":  int_vcol,
@@ -379,11 +356,11 @@ def ramp_column_worker(args: dict) -> dict:
     f_grav_along = mass_kg * gravity_mps2 * float(t_hat_arr[2])
     int_max = (col_max - col_min) / max(ki_col, 1e-9)
 
-    # Model-agnostic initial state: ω in arr[-2] by convention.
-    zero_state = model.initial_rotor_state()
-    _init_arr = zero_state.to_array()
-    _init_arr[-2] = omega_init
-    state = zero_state.from_array(_init_arr)
+    I_ode = float(model.defn.autorotation.I_ode_kgm2 or 1.0)
+
+    # Model-agnostic initial state.
+    state = model.initial_rotor_state()
+    omega = omega_init
     v_along = 0.0
     col_now = 0.0
     int_vcol = 0.0
@@ -392,7 +369,7 @@ def ramp_column_worker(args: dict) -> dict:
 
     def _step(tension_now: float, sim_t: float, dt_in: float) -> None:
         """Single explicit step of (state, v_along, PI) at the given dt."""
-        nonlocal state, v_along, col_now, int_vcol, col_saturated, aero_clamped
+        nonlocal state, omega, v_along, col_now, int_vcol, col_saturated, aero_clamped
 
         f_load = tension_now * t_hat_arr + np.array([0.0, 0.0, mass_kg * gravity_mps2])
         bz = f_load / float(np.linalg.norm(f_load))
@@ -407,15 +384,21 @@ def ramp_column_worker(args: dict) -> dict:
             v_hub_world=vel,
             wind_world=wind_world,
             t=sim_t,
+            omega_rad_s=omega,
         )
         aero, dstate = model.compute_forces(inputs, state)
 
-        # Semi-implicit Euler on dynamic-inflow states; explicit on ω, ψ.
+        # Semi-implicit Euler on dynamic-inflow states.
         arr_raw = _step_state_semi_implicit(model, state, dstate, dt_in, inputs)
-        arr_clipped = _clip_state(arr_raw, state)
+        arr_clipped = _clip_state(arr_raw)
         if not np.array_equal(arr_raw, arr_clipped):
             aero_clamped = True
         state = state.from_array(arr_clipped)
+        omega_new = omega + dt_in * omega_derivative(aero.Q_spin, 0.0, I_ode)
+        omega_clipped = max(0.5, min(300.0, omega_new))
+        if omega_clipped != omega_new:
+            aero_clamped = True
+        omega = omega_clipped
 
         # Explicit Euler on v_along.
         f_thrust_along = float(np.dot(aero.F_world, t_hat_arr))
@@ -525,7 +508,7 @@ def ramp_column_worker(args: dict) -> dict:
                 col_samples.append(col_now)
                 v_samples.append(v_along)
                 sat_samples.append(col_saturated)
-                omega_samples.append(state.omega_rad_s)
+                omega_samples.append(omega)
                 tilt_samples.append(_tilt_deg(next_sample_t))
                 lamc_samples.append(_lam_c(state))
                 lams_samples.append(_lam_s(state))

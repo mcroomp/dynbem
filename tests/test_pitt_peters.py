@@ -23,6 +23,7 @@ from dynbem.bem import BEMModel
 from dynbem import RotorInputs
 import dynbem.rotor_definition as rotor_definition
 from dynbem.rotor_state import PittPetersRotorState, QuasiStaticRotorState
+from tests.helpers import make_bem, make_pitt_peters
 
 _ROTOR_YAML = str(
     Path(__file__).parent.parent / "rotors" / "castles_gray_6ft" / "rotor.yaml"
@@ -41,12 +42,12 @@ def defn():
 
 @pytest.fixture(scope="module")
 def pp_model(defn):
-    return PittPetersModel(defn=defn)
+    return make_pitt_peters(defn)
 
 
 @pytest.fixture(scope="module")
 def bem_model(defn):
-    return BEMModel(defn=defn)
+    return make_bem(defn)
 
 
 # ---------------------------------------------------------------------------
@@ -70,10 +71,12 @@ def _euler_to_steady(model, theta_deg: float, rpm: float, v_climb_ms: float,
         v_hub_world=np.zeros(3),
         wind_world=np.array([0.0, 0.0, v_climb_ms]),
         t=0.0,
+        rho_kg_m3=_RHO,
+        omega_rad_s=omega,
     )
     lam0 = lam0_init
     for _ in range(n_steps):
-        state = PittPetersRotorState(lambda_0=lam0, omega_rad_s=omega)
+        state = PittPetersRotorState(lam0, 0.0, 0.0)
         res, drv = model.compute_forces(inp, state)
         lam0 += drv.lambda_0 * dt
 
@@ -93,8 +96,10 @@ def _bem_ct(model: BEMModel, theta_deg: float, rpm: float, v_climb_ms: float) ->
         v_hub_world=np.zeros(3),
         wind_world=np.array([0.0, 0.0, v_climb_ms]),
         t=0.0,
+        rho_kg_m3=_RHO,
+        omega_rad_s=omega,
     )
-    res, _ = model.compute_forces(inp, QuasiStaticRotorState(omega_rad_s=omega))
+    res, _ = model.compute_forces(inp, QuasiStaticRotorState())
     return -res.F_world[2] / (_RHO * A * (omega * R) ** 2)
 
 
@@ -166,7 +171,7 @@ class TestPittPetersVRS:
         A = math.pi * R**2
 
         # Find hover equilibrium first, then apply descent
-        hover_ct_bem = _bem_ct(BEMModel(defn=defn), theta_deg, rpm, 0.0)
+        hover_ct_bem = _bem_ct(make_bem(defn), theta_deg, rpm, 0.0)
         _ct, _, lam0_hover = _euler_to_steady(pp_model, theta_deg, rpm, 0.0)
 
         v_or_target = 0.020  # V/OR = 0.020, lambda2 ~ 0.4 in Level-1 blow-up zone
@@ -224,41 +229,45 @@ class TestPittPetersWBS:
             collective_rad=math.radians(theta_deg),
             tilt_lon=0.0, tilt_lat=0.0, R_hub=np.eye(3),
             v_hub_world=np.zeros(3), wind_world=np.zeros(3), t=0.0,
+            rho_kg_m3=_RHO,
+            omega_rad_s=omega,
         )
         for _ in range(5000):
-            state = PittPetersRotorState(lambda_0=lam0_eq, omega_rad_s=omega)
+            state = PittPetersRotorState(lam0_eq, 0.0, 0.0)
             res, drv = pp_model.compute_forces(inp_hover, state)
             lam0_eq += drv.lambda_0 * 0.001
         lam0_hover = lam0_eq
 
-        # At hover equilibrium: dλ_0/dt should be near zero
-        state_hover = PittPetersRotorState(lambda_0=lam0_hover, omega_rad_s=omega)
+        # At hover equilibrium: dlam0/dt should be near zero
+        state_hover = PittPetersRotorState(lam0_hover, 0.0, 0.0)
         _, drv_hover = pp_model.compute_forces(inp_hover, state_hover)
         assert abs(drv_hover.lambda_0) < 0.01, (
-            f"At hover equilibrium dλ_0/dt = {drv_hover.lambda_0:.4f}/s, expected ≈0"
+            f"At hover equilibrium dlam0/dt = {drv_hover.lambda_0:.4f}/s, expected ~0"
         )
 
-        # Step up collective by 2°; new target lam0 is higher
+        # Step up collective by 2 deg; new target lam0 is higher
         inp_step = RotorInputs(
             collective_rad=math.radians(theta_deg + 2.0),
             tilt_lon=0.0, tilt_lat=0.0, R_hub=np.eye(3),
             v_hub_world=np.zeros(3), wind_world=np.zeros(3), t=0.0,
+            rho_kg_m3=_RHO,
+            omega_rad_s=omega,
         )
         # Immediately after step: lam0 is still at hover value, ODE is active
-        state_step = PittPetersRotorState(lambda_0=lam0_hover, omega_rad_s=omega)
+        state_step = PittPetersRotorState(lam0_hover, 0.0, 0.0)
         _, drv_step = pp_model.compute_forces(inp_step, state_step)
         assert drv_step.lambda_0 > 0.1, (
-            f"dλ_0/dt = {drv_step.lambda_0:.4f}/s after +2° collective step; "
+            f"dlam0/dt = {drv_step.lambda_0:.4f}/s after +2 deg collective step; "
             f"should be positive and large (driving lam0 upward)"
         )
 
         # After 20 ms (short relative to tau_0 ~ 0.14 s) lam0 should have moved
-        # noticeably but not converged — demonstrates the inflow lag is present.
+        # noticeably but not converged -- demonstrates the inflow lag is present.
         dt = 0.001
         n_short = 20  # 20 ms
         lam0 = lam0_hover
         for _ in range(n_short):
-            state = PittPetersRotorState(lambda_0=lam0, omega_rad_s=omega)
+            state = PittPetersRotorState(lam0, 0.0, 0.0)
             _, drv = pp_model.compute_forces(inp_step, state)
             lam0 += drv.lambda_0 * dt
         lam0_at_20ms = lam0

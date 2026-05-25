@@ -128,7 +128,6 @@ fn _dynbem(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyBladeGeometry>()?;
     m.add_class::<PyAirfoilProperties>()?;
     m.add_class::<PyControlProperties>()?;
-    m.add_class::<PyAutorotationProperties>()?;
     m.add_class::<PyRotorDefinition>()?;
     m.add_class::<PyQuasiStaticRotorState>()?;
     m.add_class::<PyPittPetersRotorState>()?;

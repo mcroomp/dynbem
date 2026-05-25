@@ -18,11 +18,34 @@ import yaml
 
 from ._dynbem import (
     AirfoilProperties as _RustAirfoilProperties,
-    AutorotationProperties as _RustAutorotationProperties,
-    BladeGeometry,
+    BladeGeometry as _RustBladeGeometry,
     ControlProperties as _RustControlProperties,
     RotorDefinition as _RustRotorDefinition,
 )
+
+
+# ---------------------------------------------------------------------------
+# BladeGeometry: Python subclass with optional station-override arrays.
+# All physics dimensions are required; station arrays default to None
+# (treated as empty lists = uniform blade).
+# ---------------------------------------------------------------------------
+
+class BladeGeometry(_RustBladeGeometry):
+    def __new__(
+        cls, n_blades, radius_m, root_cutout_m, chord_m,
+        twist_deg=0.0, n_elements=20,
+        r_stations_m=None, chord_stations_m=None, twist_stations_deg=None,
+    ):
+        return _RustBladeGeometry.__new__(
+            cls, n_blades, radius_m, root_cutout_m, chord_m,
+            twist_deg, n_elements,
+            r_stations_m if r_stations_m is not None else [],
+            chord_stations_m if chord_stations_m is not None else [],
+            twist_stations_deg if twist_stations_deg is not None else [],
+        )
+
+    def __init__(self, *args, **kwargs):
+        pass
 
 __all__ = [
     "AirfoilProperties",
@@ -116,12 +139,12 @@ class AirfoilProperties(_Immutable):
 
     def __init__(
         self,
+        CL0,
+        CL_alpha_per_rad,
+        CD0,
+        alpha_stall_deg,
+        tip_loss,
         Re_design=None,
-        CL0=0.0,
-        CL_alpha_per_rad=0.0,
-        CD0=0.0,
-        alpha_stall_deg=15.0,
-        tip_loss=True,
         name="",
         source="",
         polar_csv=None,
@@ -154,7 +177,7 @@ class ControlProperties(_Immutable):
 
     def __init__(
         self,
-        swashplate_pitch_gain_rad=1.0,
+        swashplate_pitch_gain_rad,
         axle_attachment_length_m=None,
         K_cyc=None,
         swashplate_phase_deg=None,
@@ -177,7 +200,7 @@ class ControlProperties(_Immutable):
 
 
 class AutorotationProperties(_Immutable):
-    """Autorotation properties: I_ode_kgm2 to Rust, equilibrium speeds Python-only."""
+    """Autorotation metadata (Python-only; I_ode_kgm2 used by mechanical utilities)."""
 
     def __init__(
         self,
@@ -188,7 +211,6 @@ class AutorotationProperties(_Immutable):
         self.I_ode_kgm2 = I_ode_kgm2
         self.omega_min_rad_s = omega_min_rad_s
         self.omega_eq_rad_s = omega_eq_rad_s
-        self._rust = _RustAutorotationProperties(I_ode_kgm2=I_ode_kgm2)
         self._finish_init()
 
 
@@ -222,7 +244,6 @@ class RotorDefinition(_Immutable):
             blade=blade,
             airfoil=airfoil._rust,
             control=control._rust if control is not None else None,
-            autorotation=auto._rust,
             name=name,
             description=description,
         )

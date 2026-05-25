@@ -183,7 +183,7 @@ pub fn resolve_polar(
 // Rotor definition pieces
 // ===========================================================================
 
-#[pyclass(name = "BladeGeometry", module = "dynbem._dynbem")]
+#[pyclass(name = "BladeGeometry", module = "dynbem._dynbem", subclass)]
 #[derive(Clone, Debug)]
 pub struct PyBladeGeometry(pub core_::rotor_definition::BladeGeometry);
 
@@ -192,10 +192,8 @@ impl PyBladeGeometry {
     #[new]
     #[pyo3(signature = (
         n_blades, radius_m, root_cutout_m, chord_m,
-        twist_deg = 0.0, n_elements = 10,
-        r_stations_m = Vec::<f64>::new(),
-        chord_stations_m = Vec::<f64>::new(),
-        twist_stations_deg = Vec::<f64>::new(),
+        twist_deg, n_elements,
+        r_stations_m, chord_stations_m, twist_stations_deg,
     ))]
     fn new(
         n_blades: usize,
@@ -299,7 +297,7 @@ pub struct PyAirfoilProperties(pub core_::rotor_definition::AirfoilProperties);
 #[pymethods]
 impl PyAirfoilProperties {
     #[new]
-    #[pyo3(signature = (CL0, CL_alpha_per_rad, CD0, alpha_stall_deg, tip_loss = true))]
+    #[pyo3(signature = (CL0, CL_alpha_per_rad, CD0, alpha_stall_deg, tip_loss))]
     #[allow(non_snake_case)]
     fn new(
         CL0: f64,
@@ -326,28 +324,11 @@ pub struct PyControlProperties(pub core_::rotor_definition::ControlProperties);
 #[pymethods]
 impl PyControlProperties {
     #[new]
-    #[pyo3(signature = (swashplate_pitch_gain_rad, swashplate_phase_deg = None))]
+    #[pyo3(signature = (swashplate_pitch_gain_rad, swashplate_phase_deg))]
     fn new(swashplate_pitch_gain_rad: f64, swashplate_phase_deg: Option<f64>) -> Self {
         PyControlProperties(core_::rotor_definition::ControlProperties {
             swashplate_pitch_gain_rad,
             swashplate_phase_deg,
-        })
-    }
-
-}
-
-#[pyclass(name = "AutorotationProperties", module = "dynbem._dynbem")]
-#[derive(Clone, Debug, Default)]
-pub struct PyAutorotationProperties(pub core_::rotor_definition::AutorotationProperties);
-
-#[pymethods]
-impl PyAutorotationProperties {
-    #[new]
-    #[pyo3(signature = (I_ode_kgm2 = None))]
-    #[allow(non_snake_case)]
-    fn new(I_ode_kgm2: Option<f64>) -> Self {
-        PyAutorotationProperties(core_::rotor_definition::AutorotationProperties {
-            I_ode_kgm2,
         })
     }
 
@@ -360,18 +341,11 @@ pub struct PyRotorDefinition(pub core_::rotor_definition::RotorDefinition);
 #[pymethods]
 impl PyRotorDefinition {
     #[new]
-    #[pyo3(signature = (
-        blade, airfoil,
-        control = None,
-        autorotation = PyAutorotationProperties::default(),
-        name = String::new(),
-        description = String::new(),
-    ))]
+    #[pyo3(signature = (blade, airfoil, control, name, description))]
     fn new(
         blade: PyBladeGeometry,
         airfoil: PyAirfoilProperties,
         control: Option<PyControlProperties>,
-        autorotation: PyAutorotationProperties,
         name: String,
         description: String,
     ) -> Self {
@@ -379,7 +353,6 @@ impl PyRotorDefinition {
             blade: blade.0,
             airfoil: airfoil.0,
             control: control.map(|c| c.0),
-            autorotation: autorotation.0,
             name,
             description,
         })
@@ -398,49 +371,23 @@ pub struct PyQuasiStaticRotorState(pub core_::rotor_state::QuasiStaticRotorState
 #[pymethods]
 impl PyQuasiStaticRotorState {
     #[new]
-    #[pyo3(signature = (omega_rad_s = 0.0, spin_angle_rad = 0.0))]
-    fn new(omega_rad_s: f64, spin_angle_rad: f64) -> Self {
-        PyQuasiStaticRotorState(core_::rotor_state::QuasiStaticRotorState {
-            omega_rad_s,
-            spin_angle_rad,
-        })
-    }
-
-    #[getter]
-    fn omega_rad_s(&self) -> f64 {
-        self.0.omega_rad_s
-    }
-    #[setter]
-    fn set_omega_rad_s(&mut self, v: f64) {
-        self.0.omega_rad_s = v;
-    }
-    #[getter]
-    fn spin_angle_rad(&self) -> f64 {
-        self.0.spin_angle_rad
-    }
-    #[setter]
-    fn set_spin_angle_rad(&mut self, v: f64) {
-        self.0.spin_angle_rad = v;
+    fn new() -> Self {
+        PyQuasiStaticRotorState(core_::rotor_state::QuasiStaticRotorState)
     }
 
     fn to_array<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
-        vec![self.0.omega_rad_s, self.0.spin_angle_rad].into_pyarray_bound(py)
+        Vec::<f64>::new().into_pyarray_bound(py)
     }
 
     fn from_array(&self, arr: PyReadonlyArray1<'_, f64>) -> PyResult<Self> {
         let a = arr.as_slice()?;
-        if a.len() != 2 {
+        if !a.is_empty() {
             return Err(PyValueError::new_err(format!(
-                "QuasiStaticRotorState expects 2 states, got {}",
+                "QuasiStaticRotorState expects 0 states, got {}",
                 a.len(),
             )));
         }
-        Ok(PyQuasiStaticRotorState(
-            core_::rotor_state::QuasiStaticRotorState {
-                omega_rad_s: a[0],
-                spin_angle_rad: a[1],
-            },
-        ))
+        Ok(PyQuasiStaticRotorState(core_::rotor_state::QuasiStaticRotorState))
     }
 }
 
@@ -451,23 +398,12 @@ pub struct PyPittPetersRotorState(pub core_::rotor_state::PittPetersRotorState);
 #[pymethods]
 impl PyPittPetersRotorState {
     #[new]
-    #[pyo3(signature = (
-        lambda_0 = 0.0, lambda_c = 0.0, lambda_s = 0.0,
-        omega_rad_s = 0.0, spin_angle_rad = 0.0,
-    ))]
-    fn new(
-        lambda_0: f64,
-        lambda_c: f64,
-        lambda_s: f64,
-        omega_rad_s: f64,
-        spin_angle_rad: f64,
-    ) -> Self {
+    #[pyo3(signature = (lambda_0, lambda_c, lambda_s))]
+    fn new(lambda_0: f64, lambda_c: f64, lambda_s: f64) -> Self {
         PyPittPetersRotorState(core_::rotor_state::PittPetersRotorState {
             lambda_0,
             lambda_c,
             lambda_s,
-            omega_rad_s,
-            spin_angle_rad,
         })
     }
 
@@ -495,39 +431,16 @@ impl PyPittPetersRotorState {
     fn set_lambda_s(&mut self, v: f64) {
         self.0.lambda_s = v;
     }
-    #[getter]
-    fn omega_rad_s(&self) -> f64 {
-        self.0.omega_rad_s
-    }
-    #[setter]
-    fn set_omega_rad_s(&mut self, v: f64) {
-        self.0.omega_rad_s = v;
-    }
-    #[getter]
-    fn spin_angle_rad(&self) -> f64 {
-        self.0.spin_angle_rad
-    }
-    #[setter]
-    fn set_spin_angle_rad(&mut self, v: f64) {
-        self.0.spin_angle_rad = v;
-    }
 
     fn to_array<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
-        vec![
-            self.0.lambda_0,
-            self.0.lambda_c,
-            self.0.lambda_s,
-            self.0.omega_rad_s,
-            self.0.spin_angle_rad,
-        ]
-        .into_pyarray_bound(py)
+        vec![self.0.lambda_0, self.0.lambda_c, self.0.lambda_s].into_pyarray_bound(py)
     }
 
     fn from_array(&self, arr: PyReadonlyArray1<'_, f64>) -> PyResult<Self> {
         let a = arr.as_slice()?;
-        if a.len() != 5 {
+        if a.len() != 3 {
             return Err(PyValueError::new_err(format!(
-                "PittPetersRotorState expects 5 states, got {}",
+                "PittPetersRotorState expects 3 states, got {}",
                 a.len(),
             )));
         }
@@ -536,8 +449,6 @@ impl PyPittPetersRotorState {
                 lambda_0: a[0],
                 lambda_c: a[1],
                 lambda_s: a[2],
-                omega_rad_s: a[3],
-                spin_angle_rad: a[4],
             },
         ))
     }
@@ -550,13 +461,11 @@ pub struct PyOyeRotorState(pub core_::rotor_state::OyeRotorState);
 #[pymethods]
 impl PyOyeRotorState {
     #[new]
-    #[pyo3(signature = (W_int, W, omega_rad_s = 0.0, spin_angle_rad = 0.0))]
+    #[pyo3(signature = (W_int, W))]
     #[allow(non_snake_case)]
     fn new<'py>(
         W_int: PyReadonlyArray1<'py, f64>,
         W: PyReadonlyArray1<'py, f64>,
-        omega_rad_s: f64,
-        spin_angle_rad: f64,
     ) -> PyResult<Self> {
         let wi = W_int.as_slice()?.to_vec();
         let w = W.as_slice()?.to_vec();
@@ -564,20 +473,15 @@ impl PyOyeRotorState {
             return Err(PyValueError::new_err("W_int and W must have equal length"));
         }
         let n = wi.len();
-        let mut s = core_::rotor_state::OyeRotorState::zeros(n, omega_rad_s);
-        s.spin_angle_rad = spin_angle_rad;
+        let mut s = core_::rotor_state::OyeRotorState::zeros(n);
         s.W_int[..n].copy_from_slice(&wi);
         s.W[..n].copy_from_slice(&w);
         Ok(PyOyeRotorState(s))
     }
 
     #[staticmethod]
-    #[pyo3(signature = (n_elements, omega_rad_s = 0.0))]
-    fn zeros(n_elements: usize, omega_rad_s: f64) -> Self {
-        PyOyeRotorState(core_::rotor_state::OyeRotorState::zeros(
-            n_elements,
-            omega_rad_s,
-        ))
+    fn zeros(n_elements: usize) -> Self {
+        PyOyeRotorState(core_::rotor_state::OyeRotorState::zeros(n_elements))
     }
 
     #[getter]
@@ -590,45 +494,26 @@ impl PyOyeRotorState {
     fn W<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
         self.0.w_slice().to_vec().into_pyarray_bound(py)
     }
-    #[getter]
-    fn omega_rad_s(&self) -> f64 {
-        self.0.omega_rad_s
-    }
-    #[setter]
-    fn set_omega_rad_s(&mut self, v: f64) {
-        self.0.omega_rad_s = v;
-    }
-    #[getter]
-    fn spin_angle_rad(&self) -> f64 {
-        self.0.spin_angle_rad
-    }
-    #[setter]
-    fn set_spin_angle_rad(&mut self, v: f64) {
-        self.0.spin_angle_rad = v;
-    }
 
     fn to_array<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
         let n = self.0.n_elements;
-        let mut v = Vec::with_capacity(2 * n + 2);
+        let mut v = Vec::with_capacity(2 * n);
         v.extend_from_slice(self.0.w_int_slice());
         v.extend_from_slice(self.0.w_slice());
-        v.push(self.0.omega_rad_s);
-        v.push(self.0.spin_angle_rad);
         v.into_pyarray_bound(py)
     }
 
     fn from_array(&self, arr: PyReadonlyArray1<'_, f64>) -> PyResult<Self> {
         let a = arr.as_slice()?;
         let n_total = a.len();
-        if n_total < 4 || (n_total - 2) % 2 != 0 {
+        if n_total % 2 != 0 {
             return Err(PyValueError::new_err(format!(
-                "OyeRotorState array length {} invalid; expected 2*n_elements + 2",
+                "OyeRotorState array length {} invalid; expected 2*n_elements",
                 n_total,
             )));
         }
-        let n = (n_total - 2) / 2;
-        let mut s = core_::rotor_state::OyeRotorState::zeros(n, a[n_total - 2]);
-        s.spin_angle_rad = a[n_total - 1];
+        let n = n_total / 2;
+        let mut s = core_::rotor_state::OyeRotorState::zeros(n);
         s.W_int[..n].copy_from_slice(&a[..n]);
         s.W[..n].copy_from_slice(&a[n..2 * n]);
         Ok(PyOyeRotorState(s))
@@ -649,7 +534,7 @@ impl PyRotorInputs {
     #[pyo3(signature = (
         collective_rad, tilt_lon, tilt_lat,
         R_hub, v_hub_world, wind_world,
-        t = 0.0, rho_kg_m3 = 1.225, motor_torque_Nm = 0.0,
+        omega_rad_s, t, rho_kg_m3,
     ))]
     #[allow(non_snake_case)]
     fn new<'py>(
@@ -659,9 +544,9 @@ impl PyRotorInputs {
         R_hub: PyReadonlyArray2<'py, f64>,
         v_hub_world: PyReadonlyArray1<'py, f64>,
         wind_world: PyReadonlyArray1<'py, f64>,
+        omega_rad_s: f64,
         t: f64,
         rho_kg_m3: f64,
-        motor_torque_Nm: f64,
     ) -> PyResult<Self> {
         Ok(PyRotorInputs(core_::aero_io::RotorInputs {
             collective_rad,
@@ -672,7 +557,7 @@ impl PyRotorInputs {
             wind_world: read_vec3(wind_world, "wind_world")?,
             t,
             rho_kg_m3,
-            motor_torque_Nm,
+            omega_rad_s,
         }))
     }
 
@@ -717,14 +602,12 @@ impl PyRotorInputs {
         self.0.rho_kg_m3 = v;
     }
     #[getter]
-    #[allow(non_snake_case)]
-    fn motor_torque_Nm(&self) -> f64 {
-        self.0.motor_torque_Nm
+    fn omega_rad_s(&self) -> f64 {
+        self.0.omega_rad_s
     }
     #[setter]
-    #[allow(non_snake_case)]
-    fn set_motor_torque_Nm(&mut self, v: f64) {
-        self.0.motor_torque_Nm = v;
+    fn set_omega_rad_s(&mut self, v: f64) {
+        self.0.omega_rad_s = v;
     }
 
     #[getter]
@@ -790,7 +673,7 @@ pub struct PyQuasiStaticBEM(pub Box<core_::quasi_static_bem::QuasiStaticBEM>);
 #[pymethods]
 impl PyQuasiStaticBEM {
     #[new]
-    #[pyo3(signature = (defn, polar = None, n_psi_elements = 36))]
+    #[pyo3(signature = (defn, polar, n_psi_elements))]
     fn new(
         defn: PyRotorDefinition,
         polar: Option<&Bound<'_, PyAny>>,
@@ -843,7 +726,7 @@ pub struct PyPittPetersModel(pub Box<core_::pitt_peters::PittPetersModel>);
 #[pymethods]
 impl PyPittPetersModel {
     #[new]
-    #[pyo3(signature = (defn, polar = None, n_psi_elements = 36))]
+    #[pyo3(signature = (defn, polar, n_psi_elements))]
     fn new(
         defn: PyRotorDefinition,
         polar: Option<&Bound<'_, PyAny>>,
@@ -896,7 +779,7 @@ pub struct PyOyeBEMModel(pub Box<core_::oye::OyeBEMModel>);
 #[pymethods]
 impl PyOyeBEMModel {
     #[new]
-    #[pyo3(signature = (defn, polar = None, n_psi_elements = 36, coupling_k = core_::oye::OYE_K))]
+    #[pyo3(signature = (defn, polar, n_psi_elements, coupling_k))]
     fn new(
         defn: PyRotorDefinition,
         polar: Option<&Bound<'_, PyAny>>,
