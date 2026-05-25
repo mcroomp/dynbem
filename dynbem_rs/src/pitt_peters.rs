@@ -5,13 +5,12 @@ use std::f64::consts::PI;
 
 use crate::aero_io::{AeroResult, RotorInputs};
 use crate::aero_model::AeroModel;
-use crate::bem_common::{
-    assemble_result, element_force, kinematics, v_t_disk, vrs_regime, ElementCtx, PsiKernel,
+use crate::bem_common::{    assemble_result, element_force, kinematics, v_t_disk, vrs_regime, ElementCtx, PsiKernel,
     RadialGrid, SweepCtx,
 };
 use crate::common::{vrs_lambda1, EPS_DENOM, EPS_OMEGA_R, MAX_BEM_ELEMENTS, MU_T_FLOOR};
 use crate::cyclic::cyclic_coeffs;
-use crate::polar::PolarKind;
+use crate::polar::Polar;
 use crate::rotor_definition::RotorDefinition;
 use crate::rotor_state::PittPetersRotorState;
 
@@ -20,7 +19,7 @@ use crate::rotor_state::PittPetersRotorState;
 /// (n_psi=1, zero cyclic, zero in-plane wind) and calls element_force
 /// directly with the prescribed v_a = lambda_total * omega_r.
 #[allow(clippy::too_many_arguments)]
-fn axial_forces(
+fn axial_forces<P: Polar>(
     grid: &RadialGrid,
     col: f64,
     omega: f64,
@@ -28,7 +27,7 @@ fn axial_forces(
     lambda_total: f64,
     rho: f64,
     n_b: usize,
-    polar: &PolarKind,
+    polar: &P,
 ) -> (f64, f64) {
     let sweep = SweepCtx {
         grid,
@@ -93,7 +92,7 @@ struct PpKernel<'a> {
 
 impl<'a> PsiKernel for PpKernel<'a> {
     #[inline(always)]
-    fn element(&mut self, sweep: &SweepCtx<'_>, ctx: &ElementCtx) -> (f64, f64) {
+    fn element<P: Polar>(&mut self, sweep: &SweepCtx<'_, P>, ctx: &ElementCtx) -> (f64, f64) {
         let lam = self.lambda_total
             + self.x_mid[ctx.i] * (self.lam_c * ctx.cos_psi + self.lam_s * ctx.sin_psi);
         let v_a = lam * sweep.omega_r;
@@ -102,15 +101,15 @@ impl<'a> PsiKernel for PpKernel<'a> {
 }
 
 #[derive(Clone)]
-pub struct PittPetersModel {
+pub struct PittPetersModel<P: Polar> {
     pub defn: RotorDefinition,
     pub n_psi_elements: usize,
-    pub polar: PolarKind,
+    pub polar: P,
     pub grid: RadialGrid,
 }
 
-impl PittPetersModel {
-    pub fn build(defn: RotorDefinition, n_psi_elements: usize, polar: PolarKind) -> Self {
+impl<P: Polar + Clone> PittPetersModel<P> {
+    pub fn build(defn: RotorDefinition, n_psi_elements: usize, polar: P) -> Self {
         let grid = RadialGrid::from_blade(&defn.blade);
         Self {
             defn,
@@ -121,7 +120,7 @@ impl PittPetersModel {
     }
 }
 
-impl AeroModel for PittPetersModel {
+impl<P: Polar + Clone> AeroModel for PittPetersModel<P> {
     type State = PittPetersRotorState;
 
     fn initial_state(&self) -> Self::State {

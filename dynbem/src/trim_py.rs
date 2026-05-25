@@ -2,32 +2,47 @@
 // The actual trim math is in dynbem_rs::trim, generic over AeroModel.
 
 use crate::wrappers::{
-    PyOyeBEMModel, PyOyeRotorState, PyPittPetersModel, PyPittPetersRotorState, PyQuasiStaticBEM,
-    PyQuasiStaticRotorState, PyRotorInputs,
+    PyOyeBEMModelLinear, PyOyeBEMModelTabulated, PyOyeRotorState,
+    PyPittPetersModelLinear, PyPittPetersModelTabulated, PyPittPetersRotorState,
+    PyQuasiStaticBEMLinear, PyQuasiStaticBEMTabulated, PyQuasiStaticRotorState,
+    PyRotorInputs,
 };
+use dynbem_rs::polar::{LinearPolar, TabulatedPolar};
 use dynbem_rs::trim::{relax_inflow, solve_trim_cyclic};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
 enum AeroAny {
-    QuasiStaticBEM(dynbem_rs::quasi_static_bem::QuasiStaticBEM),
-    PittPeters(dynbem_rs::pitt_peters::PittPetersModel),
-    Oye(dynbem_rs::oye::OyeBEMModel),
+    QuasiStaticBEMLinear(dynbem_rs::quasi_static_bem::QuasiStaticBEM<LinearPolar>),
+    QuasiStaticBEMTabulated(dynbem_rs::quasi_static_bem::QuasiStaticBEM<TabulatedPolar>),
+    PittPetersLinear(dynbem_rs::pitt_peters::PittPetersModel<LinearPolar>),
+    PittPetersTabulated(dynbem_rs::pitt_peters::PittPetersModel<TabulatedPolar>),
+    OyeLinear(dynbem_rs::oye::OyeBEMModel<LinearPolar>),
+    OyeTabulated(dynbem_rs::oye::OyeBEMModel<TabulatedPolar>),
 }
 
 impl AeroAny {
     fn from_py(obj: &Bound<'_, PyAny>) -> PyResult<Self> {
-        if let Ok(m) = obj.extract::<PyQuasiStaticBEM>() {
-            return Ok(AeroAny::QuasiStaticBEM(*m.0));
+        if let Ok(m) = obj.extract::<PyQuasiStaticBEMLinear>() {
+            return Ok(AeroAny::QuasiStaticBEMLinear(*m.0));
         }
-        if let Ok(m) = obj.extract::<PyPittPetersModel>() {
-            return Ok(AeroAny::PittPeters(*m.0));
+        if let Ok(m) = obj.extract::<PyQuasiStaticBEMTabulated>() {
+            return Ok(AeroAny::QuasiStaticBEMTabulated(*m.0));
         }
-        if let Ok(m) = obj.extract::<PyOyeBEMModel>() {
-            return Ok(AeroAny::Oye(*m.0));
+        if let Ok(m) = obj.extract::<PyPittPetersModelLinear>() {
+            return Ok(AeroAny::PittPetersLinear(*m.0));
+        }
+        if let Ok(m) = obj.extract::<PyPittPetersModelTabulated>() {
+            return Ok(AeroAny::PittPetersTabulated(*m.0));
+        }
+        if let Ok(m) = obj.extract::<PyOyeBEMModelLinear>() {
+            return Ok(AeroAny::OyeLinear(*m.0));
+        }
+        if let Ok(m) = obj.extract::<PyOyeBEMModelTabulated>() {
+            return Ok(AeroAny::OyeTabulated(*m.0));
         }
         Err(PyValueError::new_err(
-            "aero must be QuasiStaticBEM, PittPetersModel, or OyeBEMModel",
+            "aero must be a QuasiStaticBEM, PittPetersModel, or OyeBEMModel instance",
         ))
     }
 }
@@ -101,94 +116,31 @@ pub fn solve_trim_cyclic_py(
     n_settle: usize,
 ) -> PyResult<PyTrimResult> {
     let model = AeroAny::from_py(aero)?;
+    macro_rules! do_trim {
+        ($m:expr, $s_ty:ty, $fs_variant:ident) => {{
+            let s = state.extract::<$s_ty>()?.0;
+            let out = solve_trim_cyclic(
+                &$m, s, &base_inputs.0,
+                target_moment.0, target_moment.1,
+                tilt_lon_init, tilt_lat_init, tilt_min, tilt_max,
+                tolerance_Nm, max_iterations, probe_rad,
+                dt_relax, n_inflow_relax, n_settle,
+            );
+            Ok(PyTrimResult {
+                tilt_lon: out.tilt_lon, tilt_lat: out.tilt_lat,
+                Mx_residual: out.mx_residual, My_residual: out.my_residual,
+                iterations: out.iterations, converged: out.converged,
+                final_state: FinalState::$fs_variant(out.final_state),
+            })
+        }};
+    }
     match model {
-        AeroAny::QuasiStaticBEM(m) => {
-            let s = state.extract::<PyQuasiStaticRotorState>()?.0;
-            let out = solve_trim_cyclic(
-                &m,
-                s,
-                &base_inputs.0,
-                target_moment.0,
-                target_moment.1,
-                tilt_lon_init,
-                tilt_lat_init,
-                tilt_min,
-                tilt_max,
-                tolerance_Nm,
-                max_iterations,
-                probe_rad,
-                dt_relax,
-                n_inflow_relax,
-                n_settle,
-            );
-            Ok(PyTrimResult {
-                tilt_lon: out.tilt_lon,
-                tilt_lat: out.tilt_lat,
-                Mx_residual: out.mx_residual,
-                My_residual: out.my_residual,
-                iterations: out.iterations,
-                converged: out.converged,
-                final_state: FinalState::QuasiStatic(out.final_state),
-            })
-        }
-        AeroAny::PittPeters(m) => {
-            let s = state.extract::<PyPittPetersRotorState>()?.0;
-            let out = solve_trim_cyclic(
-                &m,
-                s,
-                &base_inputs.0,
-                target_moment.0,
-                target_moment.1,
-                tilt_lon_init,
-                tilt_lat_init,
-                tilt_min,
-                tilt_max,
-                tolerance_Nm,
-                max_iterations,
-                probe_rad,
-                dt_relax,
-                n_inflow_relax,
-                n_settle,
-            );
-            Ok(PyTrimResult {
-                tilt_lon: out.tilt_lon,
-                tilt_lat: out.tilt_lat,
-                Mx_residual: out.mx_residual,
-                My_residual: out.my_residual,
-                iterations: out.iterations,
-                converged: out.converged,
-                final_state: FinalState::PittPeters(out.final_state),
-            })
-        }
-        AeroAny::Oye(m) => {
-            let s = state.extract::<PyOyeRotorState>()?.0;
-            let out = solve_trim_cyclic(
-                &m,
-                s,
-                &base_inputs.0,
-                target_moment.0,
-                target_moment.1,
-                tilt_lon_init,
-                tilt_lat_init,
-                tilt_min,
-                tilt_max,
-                tolerance_Nm,
-                max_iterations,
-                probe_rad,
-                dt_relax,
-                n_inflow_relax,
-                n_settle,
-            );
-            Ok(PyTrimResult {
-                tilt_lon: out.tilt_lon,
-                tilt_lat: out.tilt_lat,
-                Mx_residual: out.mx_residual,
-                My_residual: out.my_residual,
-                iterations: out.iterations,
-                converged: out.converged,
-                final_state: FinalState::Oye(out.final_state),
-            })
-        }
+        AeroAny::QuasiStaticBEMLinear(m)    => do_trim!(m, PyQuasiStaticRotorState,  QuasiStatic),
+        AeroAny::QuasiStaticBEMTabulated(m) => do_trim!(m, PyQuasiStaticRotorState,  QuasiStatic),
+        AeroAny::PittPetersLinear(m)        => do_trim!(m, PyPittPetersRotorState,   PittPeters),
+        AeroAny::PittPetersTabulated(m)     => do_trim!(m, PyPittPetersRotorState,   PittPeters),
+        AeroAny::OyeLinear(m)               => do_trim!(m, PyOyeRotorState,          Oye),
+        AeroAny::OyeTabulated(m)            => do_trim!(m, PyOyeRotorState,          Oye),
     }
 }
 
@@ -203,21 +155,19 @@ pub fn relax_inflow_py(
     dt: f64,
 ) -> PyResult<PyObject> {
     let model = AeroAny::from_py(aero)?;
+    macro_rules! do_relax {
+        ($m:expr, $s_ty:ty, $out_wrapper:expr) => {{
+            let s = state.extract::<$s_ty>()?.0;
+            let out = relax_inflow(&$m, s, &inputs.0, n_steps, dt);
+            Ok($out_wrapper(out).into_py(py))
+        }};
+    }
     match model {
-        AeroAny::QuasiStaticBEM(m) => {
-            let s = state.extract::<PyQuasiStaticRotorState>()?.0;
-            let out = relax_inflow(&m, s, &inputs.0, n_steps, dt);
-            Ok(PyQuasiStaticRotorState(out).into_py(py))
-        }
-        AeroAny::PittPeters(m) => {
-            let s = state.extract::<PyPittPetersRotorState>()?.0;
-            let out = relax_inflow(&m, s, &inputs.0, n_steps, dt);
-            Ok(PyPittPetersRotorState(out).into_py(py))
-        }
-        AeroAny::Oye(m) => {
-            let s = state.extract::<PyOyeRotorState>()?.0;
-            let out = relax_inflow(&m, s, &inputs.0, n_steps, dt);
-            Ok(PyOyeRotorState(out).into_py(py))
-        }
+        AeroAny::QuasiStaticBEMLinear(m)    => do_relax!(m, PyQuasiStaticRotorState, PyQuasiStaticRotorState),
+        AeroAny::QuasiStaticBEMTabulated(m) => do_relax!(m, PyQuasiStaticRotorState, PyQuasiStaticRotorState),
+        AeroAny::PittPetersLinear(m)        => do_relax!(m, PyPittPetersRotorState,  PyPittPetersRotorState),
+        AeroAny::PittPetersTabulated(m)     => do_relax!(m, PyPittPetersRotorState,  PyPittPetersRotorState),
+        AeroAny::OyeLinear(m)               => do_relax!(m, PyOyeRotorState,         PyOyeRotorState),
+        AeroAny::OyeTabulated(m)            => do_relax!(m, PyOyeRotorState,         PyOyeRotorState),
     }
 }

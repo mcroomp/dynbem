@@ -5,7 +5,7 @@ use crate::aero_io::{AeroResult, Mat3, RotorInputs, Vec3};
 use crate::common::{
     AlignedBEMF64, EPS_OMEGA_R, MAX_BEM_ELEMENTS, VRS_DESCENT_THRESHOLD, V_T_HOVER_FLOOR_FRAC,
 };
-use crate::polar::{Polar, PolarKind};
+use crate::polar::Polar;
 use crate::rotor_definition::BladeGeometry;
 use std::f64::consts::PI;
 
@@ -68,28 +68,27 @@ pub struct PolarTable {
 }
 
 impl PolarTable {
-    pub fn from_polar(polar: &PolarKind) -> Self {
-        match polar {
-            PolarKind::Tabulated(p) => Self {
-                alpha: p.alpha.clone(),
-                cl: p.cl.clone(),
-                cd: p.cd.clone(),
-            },
-            PolarKind::Linear(_) => {
-                let n = 4001usize;
-                let mut alpha = Vec::with_capacity(n);
-                let mut cl = vec![0.0; n];
-                let mut cd = vec![0.0; n];
-                let amin = -0.5 * PI;
-                let amax = 0.5 * PI;
-                let step = (amax - amin) / ((n - 1) as f64);
-                for i in 0..n {
-                    alpha.push(amin + (i as f64) * step);
-                }
-                polar.cl_cd_into(&alpha, &mut cl, &mut cd);
-                Self { alpha, cl, cd }
-            }
+    pub fn from_polar<P: Polar>(polar: &P) -> Self {
+        if let Some((alpha, cl, cd)) = polar.table_data() {
+            return Self {
+                alpha: alpha.to_vec(),
+                cl: cl.to_vec(),
+                cd: cd.to_vec(),
+            };
         }
+        // Analytical polar: sample 4001 points over [-pi/2, pi/2].
+        let n = 4001usize;
+        let mut alpha = Vec::with_capacity(n);
+        let mut cl = vec![0.0; n];
+        let mut cd = vec![0.0; n];
+        let amin = -0.5 * PI;
+        let amax = 0.5 * PI;
+        let step = (amax - amin) / ((n - 1) as f64);
+        for i in 0..n {
+            alpha.push(amin + (i as f64) * step);
+        }
+        polar.cl_cd_into(&alpha, &mut cl, &mut cd);
+        Self { alpha, cl, cd }
     }
 
     /// Scalar interp at one alpha; same semantics as numpy.interp + the
@@ -245,7 +244,7 @@ pub fn assemble_result(
 // ---------------------------------------------------------------------------
 
 #[inline(always)]
-pub fn element_force(v_a: f64, sweep: &SweepCtx<'_>, ctx: &ElementCtx) -> (f64, f64) {
+pub fn element_force<P: Polar>(v_a: f64, sweep: &SweepCtx<'_, P>, ctx: &ElementCtx) -> (f64, f64) {
     let v_t = ctx.v_t;
     let phi = v_a.atan2(v_t);
     let alpha = ctx.col_psi + ctx.twist - phi;
@@ -293,7 +292,7 @@ pub trait PsiKernel {
     /// Models with prescribed inflow (Pitt-Peters, Oye) compute `lam`
     /// directly and then call `element_force`; BEM-style models can run
     /// their own per-element solver here.
-    fn element(&mut self, sweep: &SweepCtx<'_>, ctx: &ElementCtx) -> (f64, f64);
+    fn element<P: Polar>(&mut self, sweep: &SweepCtx<'_, P>, ctx: &ElementCtx) -> (f64, f64);
 }
 
 /// Whole-sweep configuration: the call-invariant inputs that describe one
@@ -301,9 +300,9 @@ pub trait PsiKernel {
 /// compute_forces, then handed to run_psi_loop, which derives per-element
 /// `ElementCtx` values from these fields each iteration. Symmetric with
 /// `ElementCtx` (which describes one element rather than one sweep).
-pub struct SweepCtx<'a> {
+pub struct SweepCtx<'a, P: Polar> {
     pub grid: &'a RadialGrid,
-    pub polar: &'a PolarKind,
+    pub polar: &'a P,
     /// Base collective pitch (rad). Per-azimuth pitch is `col + theta_1c*cos psi + theta_1s*sin psi`.
     pub col: f64,
     pub omega: f64,
@@ -319,7 +318,7 @@ pub struct SweepCtx<'a> {
     pub theta_1s: f64,
 }
 
-impl<'a> SweepCtx<'a> {
+impl<'a, P: Polar> SweepCtx<'a, P> {
     /// Run one full psi x radial sweep with the given kernel. Returns the
     /// azimuth-averaged (T, Q, Mx_hub, My_hub) over the rotor disk.
     ///

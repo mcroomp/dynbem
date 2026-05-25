@@ -4,7 +4,6 @@ Maturin builds the compiled extension `_dynbem`; this shim re-exports
 the public surface. (Formerly published as `dynbem_rs`; the original
 pure-Python implementation lives on as `dynbem_old` for reference.)
 """
-from abc import ABC
 
 from ._dynbem import (  # noqa: F401
     vrs_lambda1,
@@ -20,6 +19,9 @@ from ._dynbem import (  # noqa: F401
     AeroResult,
     TrimResult,
 )
+from ._dynbem import _QuasiStaticBEMLinear, _QuasiStaticBEMTabulated  # noqa: F401
+from ._dynbem import _PittPetersModelLinear, _PittPetersModelTabulated  # noqa: F401
+from ._dynbem import _OyeBEMModelLinear, _OyeBEMModelTabulated  # noqa: F401
 from .rotor_definition import (  # noqa: F401
     BladeGeometry,
     KamanFlap,
@@ -28,108 +30,54 @@ from .rotor_definition import (  # noqa: F401
     ControlProperties,
     AutorotationProperties,
     RotorDefinition,
+    _to_rust_defn,
+    _to_rust_control,
 )
-from ._dynbem import QuasiStaticBEM as _QuasiStaticBEM  # noqa: F401
-from ._dynbem import PittPetersModel as _PittPetersModel  # noqa: F401
-from ._dynbem import OyeBEMModel as _OyeBEMModel  # noqa: F401
-from .factory import create_aero, build_polar, load_tabulated_polar  # noqa: F401
+from .factory import create_aero, build_polar, load_tabulated_polar, _build_polar_from_defn  # noqa: F401
 from .trim import solve_trim_cyclic, relax_inflow  # noqa: F401
 from .mechanical import omega_derivative, euler_step_omega  # noqa: F401
 
 
 def cyclic_coeffs(tilt_lon, tilt_lat, control=None):  # noqa: F401
-    """Compute (theta_1c, theta_1s) cyclic coefficients.
-
-    Accepts either a _dynbem.ControlProperties (lean Rust class) or a
-    dynbem.ControlProperties Python wrapper; in the latter case the internal
-    ``._rust`` handle is forwarded to the Rust implementation.
-    """
-    rust_ctrl = getattr(control, "_rust", control)
-    return _cyclic_coeffs_rust(tilt_lon, tilt_lat, rust_ctrl)
+    """Compute (theta_1c, theta_1s) cyclic coefficients."""
+    return _cyclic_coeffs_rust(tilt_lon, tilt_lat, _to_rust_control(control))
 
 
 # ---------------------------------------------------------------------------
-# Python subclasses of the Rust model pyclasses that auto-build a polar
-# from the rotor's AirfoilProperties when none is given and extract the
-# lean ._rust RotorDefinition from the Python wrapper before passing to Rust.
+# Factory functions — build the concrete Rust model depending on polar type.
+# These replace the old Python subclasses (which needed __new__ tricks to
+# wrap PyO3 pyclasses). Duck-typed: isinstance checks work via the Rust
+# pyclasses themselves (_QuasiStaticBEMLinear / _QuasiStaticBEMTabulated etc.)
 # ---------------------------------------------------------------------------
 
-def _rust_defn(defn):
-    """Extract the lean _dynbem.RotorDefinition from a Python wrapper."""
-    return getattr(defn, "_rust", defn)
+
+def QuasiStaticBEM(defn, polar=None, n_psi_elements=36):  # noqa: N802
+    polar_rs = _build_polar_from_defn(defn, polar)
+    defn_rs = _to_rust_defn(defn)
+    if isinstance(polar_rs, LinearPolar):
+        return _QuasiStaticBEMLinear(defn_rs, polar_rs, n_psi_elements)
+    return _QuasiStaticBEMTabulated(defn_rs, polar_rs, n_psi_elements)
 
 
-class QuasiStaticBEM(_QuasiStaticBEM):
-    def __new__(cls, defn, polar, n_psi_elements):
-        return _QuasiStaticBEM.__new__(cls, _rust_defn(defn), polar, n_psi_elements)
-
-    def __init__(self, defn, polar, n_psi_elements):
-        self._defn = defn
-
-    @property
-    def defn(self):
-        return self._defn
-
-
-# Backwards-compat alias. The model used to be named `BEMModel`, but
-# "BEM" is the family that PittPetersModel and OyeBEMModel also belong
-# to -- the distinguishing feature of this one is quasi-static inflow.
-# Existing callers and YAML configs that reference `BEMModel` keep working.
+# Backwards-compat alias (was BEMModel before the quasi-static qualifier was added).
 BEMModel = QuasiStaticBEM
 
 
-class PittPetersModel(_PittPetersModel):
-    def __new__(cls, defn, polar, n_psi_elements):
-        return _PittPetersModel.__new__(cls, _rust_defn(defn), polar, n_psi_elements)
-
-    def __init__(self, defn, polar, n_psi_elements):
-        self._defn = defn
-
-    @property
-    def defn(self):
-        return self._defn
+def PittPetersModel(defn, polar=None, n_psi_elements=36):  # noqa: N802
+    polar_rs = _build_polar_from_defn(defn, polar)
+    defn_rs = _to_rust_defn(defn)
+    if isinstance(polar_rs, LinearPolar):
+        return _PittPetersModelLinear(defn_rs, polar_rs, n_psi_elements)
+    return _PittPetersModelTabulated(defn_rs, polar_rs, n_psi_elements)
 
 
-class OyeBEMModel(_OyeBEMModel):
-    def __new__(cls, defn, polar, n_psi_elements, coupling_k):
-        return _OyeBEMModel.__new__(
-            cls, _rust_defn(defn), polar, n_psi_elements, coupling_k,
-        )
+def OyeBEMModel(defn, polar=None, n_psi_elements=36, coupling_k=0.6):  # noqa: N802
+    polar_rs = _build_polar_from_defn(defn, polar)
+    defn_rs = _to_rust_defn(defn)
+    if isinstance(polar_rs, LinearPolar):
+        return _OyeBEMModelLinear(defn_rs, polar_rs, n_psi_elements, coupling_k)
+    return _OyeBEMModelTabulated(defn_rs, polar_rs, n_psi_elements, coupling_k)
 
-    def __init__(self, defn, polar, n_psi_elements, coupling_k):
-        self._defn = defn
-
-    @property
-    def defn(self):
-        return self._defn
-
-
-# ---------------------------------------------------------------------------
-# Virtual ABCs for isinstance() compatibility with the legacy Python API.
-#
-# The Rust pyclasses don't inherit from Python ABCs, so we declare two
-# marker base classes and register the concrete types with them.
-# ---------------------------------------------------------------------------
-
-class RotorState(ABC):
-    """Virtual base for rotor state vectors. The three concrete types
-    (QuasiStaticRotorState, PittPetersRotorState, OyeRotorState) are
-    registered with this ABC at import time."""
-
-
-RotorState.register(QuasiStaticRotorState)
-RotorState.register(PittPetersRotorState)
-RotorState.register(OyeRotorState)
-
-
-class AeroBase(ABC):
-    """Virtual base for aero models. The three concrete model classes
-    (QuasiStaticBEM, PittPetersModel, OyeBEMModel) are registered at import."""
-
-
-AeroBase.register(QuasiStaticBEM)
-AeroBase.register(PittPetersModel)
-AeroBase.register(OyeBEMModel)
 
 
 # Legacy alias: dynbem_old exposed `AirfoilPolar` as a marker for the
@@ -152,6 +100,5 @@ __all__ = [
     "RotorInputs", "AeroResult",
     "QuasiStaticBEM", "BEMModel", "PittPetersModel", "OyeBEMModel",
     "TrimResult",
-    # virtual ABCs
-    "AeroBase", "RotorState",
 ]
+

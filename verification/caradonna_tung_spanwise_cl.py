@@ -60,7 +60,7 @@ sys.path.insert(0, str(ROOT))
 from dynbem.bem import solve_bem_element
 from dynbem.rotor_definition import (
     AirfoilProperties, AutorotationProperties, BladeGeometry, RotorDefinition)
-from dynbem.polar import LinearPolar
+from dynbem.factory import build_polar
 
 CSV_DIR = ROOT / "Research" / "csv" / "CaradonnaTung"
 
@@ -76,8 +76,7 @@ ROTOR = RotorDefinition(
     autorotation=AutorotationProperties(I_ode_kgm2=1.0),
     name="Caradonna-Tung",
 )
-POLAR = LinearPolar(ROTOR.airfoil.CL0, ROTOR.airfoil.CL_alpha_per_rad,
-                    ROTOR.airfoil.CD0, math.radians(ROTOR.airfoil.alpha_stall_deg))
+POLAR = build_polar(ROTOR.airfoil)
 
 # Operating points: one entry per Cp table (table 1-32) in C-T.
 # (table_num, collective_deg, omega_rpm, M_tip) - the M_tip column is for

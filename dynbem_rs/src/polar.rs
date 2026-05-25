@@ -16,13 +16,20 @@ pub trait Polar: Send + Sync {
 
     /// Batched scalar fallback. Override for vectorized implementations.
     fn cl_cd_into(&self, alpha: &[f64], cl: &mut [f64], cd: &mut [f64]) {
-        debug_assert_eq!(alpha.len(), cl.len());
-        debug_assert_eq!(alpha.len(), cd.len());
+        assert_eq!(alpha.len(), cl.len());
+        assert_eq!(alpha.len(), cd.len());
         for i in 0..alpha.len() {
             let (l, d) = self.cl_cd(alpha[i]);
             cl[i] = l;
             cd[i] = d;
         }
+    }
+
+    /// Return raw table arrays `(alpha, cl, cd)` if this polar is already
+    /// tabulated, so callers can clone them directly instead of resampling.
+    /// Returns `None` for analytical polars (default).
+    fn table_data(&self) -> Option<(&[f64], &[f64], &[f64])> {
+        None
     }
 }
 
@@ -48,6 +55,16 @@ impl LinearPolar {
             CD0,
             alpha_stall_rad,
         }
+    }
+
+    /// Build from `AirfoilProperties`, converting `alpha_stall_deg` to radians.
+    pub fn from_properties(props: &crate::rotor_definition::AirfoilProperties) -> Self {
+        Self::new(
+            props.CL0,
+            props.CL_alpha_per_rad,
+            props.CD0,
+            props.alpha_stall_deg.to_radians(),
+        )
     }
 }
 
@@ -148,31 +165,9 @@ impl Polar for TabulatedPolar {
     fn cl_cd(&self, alpha: f64) -> (f64, f64) {
         self.interp_at(alpha)
     }
-}
 
-// ---------------------------------------------------------------------------
-// PolarKind: enum used internally by models so they hold the polar by value
-// without a Box<dyn>. Keeps the inner loop call site monomorphic.
-// ---------------------------------------------------------------------------
-
-#[derive(Clone, Debug)]
-pub enum PolarKind {
-    Linear(LinearPolar),
-    Tabulated(TabulatedPolar),
-}
-
-impl Polar for PolarKind {
-    #[inline]
-    fn cl_cd(&self, alpha: f64) -> (f64, f64) {
-        match self {
-            PolarKind::Linear(p) => p.cl_cd(alpha),
-            PolarKind::Tabulated(p) => p.cl_cd(alpha),
-        }
-    }
-    fn cl_cd_into(&self, alpha: &[f64], cl: &mut [f64], cd: &mut [f64]) {
-        match self {
-            PolarKind::Linear(p) => p.cl_cd_into(alpha, cl, cd),
-            PolarKind::Tabulated(p) => p.cl_cd_into(alpha, cl, cd),
-        }
+    fn table_data(&self) -> Option<(&[f64], &[f64], &[f64])> {
+        Some((&self.alpha, &self.cl, &self.cd))
     }
 }
+

@@ -13,7 +13,7 @@ use crate::common::{
     vrs_lambda1, EPS_OMEGA_R, MIN_LOSS_FACTOR, VRS_DESCENT_THRESHOLD, V_T_HOVER_FLOOR_FRAC,
 };
 use crate::cyclic::cyclic_coeffs;
-use crate::polar::PolarKind;
+use crate::polar::Polar;
 use crate::quasi_static_bem::{prandtl_hub_loss, prandtl_tip_loss};
 use crate::rotor_definition::RotorDefinition;
 use crate::rotor_state::OyeRotorState;
@@ -60,7 +60,7 @@ struct OyeKernel<'a> {
 
 impl<'a> PsiKernel for OyeKernel<'a> {
     #[inline(always)]
-    fn element(&mut self, sweep: &SweepCtx<'_>, ctx: &ElementCtx) -> (f64, f64) {
+    fn element<P: Polar>(&mut self, sweep: &SweepCtx<'_, P>, ctx: &ElementCtx) -> (f64, f64) {
         let lam = self.lambda_climb + self.w[ctx.i];
         let v_a = lam * sweep.omega_r;
         let (dt, dq) = element_force(v_a, sweep, ctx);
@@ -109,15 +109,31 @@ fn oye_taus(r_tip: f64, x_arr: &[f64], v_inf: f64, a_avg: f64, n_active: usize) 
 }
 
 #[derive(Clone)]
-pub struct OyeBEMModel {
+pub struct OyeBEMModel<P: Polar> {
     pub defn: RotorDefinition,
     pub n_psi_elements: usize,
     pub coupling_k: f64,
-    pub polar: PolarKind,
+    pub polar: P,
     pub grid: RadialGrid,
 }
 
-impl AeroModel for OyeBEMModel {
+impl<P: Polar + Clone> OyeBEMModel<P> {
+    pub fn build(defn: RotorDefinition, n_psi_elements: usize, polar: P) -> Self {
+        Self::build_with_k(defn, n_psi_elements, polar, OYE_K)
+    }
+
+    pub fn build_with_k(
+        defn: RotorDefinition,
+        n_psi_elements: usize,
+        polar: P,
+        coupling_k: f64,
+    ) -> Self {
+        let grid = RadialGrid::from_blade(&defn.blade);
+        Self { defn, n_psi_elements, coupling_k, polar, grid }
+    }
+}
+
+impl<P: Polar + Clone> AeroModel for OyeBEMModel<P> {
     type State = OyeRotorState;
 
     fn initial_state(&self) -> Self::State {

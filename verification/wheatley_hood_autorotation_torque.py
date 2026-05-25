@@ -171,9 +171,11 @@ def _bem_at_point(model: BEMModel, mu: float, alpha_deg: float, N_rpm: float,
     if trim:
         tr = solve_trim_cyclic(
             model, QuasiStaticRotorState(),
-            collective_rad=math.radians(pitch_deg),
-            R_hub=R_hub, v_hub_world=v_hub_world, wind_world=wind_world,
-            omega_rad_s=omega,
+            RotorInputs(
+                collective_rad=math.radians(pitch_deg), tilt_lon=0.0, tilt_lat=0.0,
+                R_hub=R_hub, v_hub_world=v_hub_world, wind_world=wind_world,
+                rho_kg_m3=RHO, omega_rad_s=omega, t=0.0,
+            ),
             tilt_min=-math.radians(25.0), tilt_max=math.radians(25.0),
             tolerance_Nm=1.0, max_iterations=20, n_inflow_relax=0,
         )

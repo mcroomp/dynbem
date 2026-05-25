@@ -22,6 +22,7 @@ import numpy as np
 import pytest
 
 from dynbem import RotorInputs, create_aero
+from dynbem import _OyeBEMModelLinear, _OyeBEMModelTabulated
 from dynbem.oye import OyeBEMModel
 from dynbem.rotor_state import OyeRotorState, PittPetersRotorState
 import dynbem.rotor_definition as rotor_definition
@@ -97,7 +98,7 @@ class TestOyeRotorState:
 class TestFactory:
     def test_create_aero_oye(self, defn):
         m = create_aero(defn, model="oye")
-        assert isinstance(m, OyeBEMModel)
+        assert isinstance(m, (_OyeBEMModelLinear, _OyeBEMModelTabulated))
         state = m.initial_rotor_state()
         assert isinstance(state, OyeRotorState)
         assert state.W.shape == (defn.blade.n_elements,)

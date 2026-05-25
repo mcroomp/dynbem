@@ -37,7 +37,7 @@ from typing import Optional
 
 import numpy as np
 
-from dynbem import AeroBase, RotorInputs, create_aero
+from dynbem import RotorInputs, create_aero
 from dynbem.mechanical import omega_derivative
 from dynbem.rotor_definition import RotorDefinition
 
@@ -121,7 +121,7 @@ def _build_r_hub(body_z: np.ndarray) -> np.ndarray:
 # ---------------------------------------------------------------------------
 
 def simulate_point(
-    model: AeroBase,
+    model,
     mass_kg: float,
     col_rad: float,
     elevation_deg: float,

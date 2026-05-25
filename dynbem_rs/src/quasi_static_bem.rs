@@ -8,7 +8,7 @@ use crate::aero_model::AeroModel;
 use crate::bem_common::{assemble_result, kinematics, ElementCtx, PsiKernel, RadialGrid, SweepCtx};
 use crate::common::{EPS_DENOM, EPS_OMEGA_R, MIN_LOSS_FACTOR};
 use crate::cyclic::cyclic_coeffs;
-use crate::polar::{Polar, PolarKind};
+use crate::polar::Polar;
 use crate::rotor_definition::RotorDefinition;
 use crate::rotor_state::QuasiStaticRotorState;
 
@@ -72,7 +72,7 @@ pub struct BEMElementResult {
 /// region (v_t < 0) breaks out early and returns zero forces -- caller
 /// is responsible for the surrounding ψ-loop's reverse-flow skip.
 #[allow(clippy::too_many_arguments)]
-pub fn solve_bem_element(
+pub fn solve_bem_element<P: Polar>(
     r: f64,
     dr: f64,
     chord: f64,
@@ -83,7 +83,7 @@ pub fn solve_bem_element(
     rho: f64,
     n_blades: usize,
     radius_m: f64,
-    polar: &PolarKind,
+    polar: &P,
     use_tip_loss: bool,
     v_t_extra: f64,
     root_cutout_m: f64,
@@ -316,7 +316,7 @@ struct WindmillInductions {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn induction_at_phi(
+fn induction_at_phi<P: Polar>(
     phi: f64,
     theta: f64,
     lam_local: f64,
@@ -324,7 +324,7 @@ fn induction_at_phi(
     n_blades: usize,
     x: f64,
     x_hub: f64,
-    polar: &PolarKind,
+    polar: &P,
     use_tip_loss: bool,
 ) -> Option<WindmillInductions> {
     let sin_phi = phi.sin();
@@ -399,7 +399,7 @@ fn induction_at_phi(
 /// (0 < a < 1 and Cn > 0) -- caller falls back to the helicopter
 /// quadratic in those cases.
 #[allow(clippy::too_many_arguments)]
-fn solve_bem_element_windmill(
+fn solve_bem_element_windmill<P: Polar>(
     r: f64,
     dr: f64,
     chord: f64,
@@ -410,7 +410,7 @@ fn solve_bem_element_windmill(
     rho: f64,
     n_blades: usize,
     radius_m: f64,
-    polar: &PolarKind,
+    polar: &P,
     use_tip_loss: bool,
     root_cutout_m: f64,
 ) -> Option<BEMElementResult> {
@@ -511,7 +511,7 @@ struct BemKernel {
 
 impl PsiKernel for BemKernel {
     #[inline(always)]
-    fn element(&mut self, sweep: &SweepCtx<'_>, ctx: &ElementCtx) -> (f64, f64) {
+    fn element<P: Polar>(&mut self, sweep: &SweepCtx<'_, P>, ctx: &ElementCtx) -> (f64, f64) {
         // run_psi_loop already filtered v_t > 0; reconstruct v_t_extra from
         // the convention v_t = omega*r + v_t_extra so we don't add another
         // parameter to ElementCtx just for the BEM solver.
@@ -541,15 +541,15 @@ impl PsiKernel for BemKernel {
 // ---------------------------------------------------------------------------
 
 #[derive(Clone)]
-pub struct QuasiStaticBEM {
+pub struct QuasiStaticBEM<P: Polar> {
     pub defn: RotorDefinition,
     pub n_psi_elements: usize,
-    pub polar: PolarKind,
+    pub polar: P,
     pub grid: RadialGrid,
 }
 
-impl QuasiStaticBEM {
-    pub fn build(defn: RotorDefinition, n_psi_elements: usize, polar: PolarKind) -> Self {
+impl<P: Polar + Clone> QuasiStaticBEM<P> {
+    pub fn build(defn: RotorDefinition, n_psi_elements: usize, polar: P) -> Self {
         let grid = RadialGrid::from_blade(&defn.blade);
         Self {
             defn,
@@ -560,7 +560,7 @@ impl QuasiStaticBEM {
     }
 }
 
-impl AeroModel for QuasiStaticBEM {
+impl<P: Polar + Clone> AeroModel for QuasiStaticBEM<P> {
     type State = QuasiStaticRotorState;
 
     fn initial_state(&self) -> Self::State {

@@ -39,7 +39,7 @@ Oye filter -- all load-bearing physics.
     +-- cyclic.rs             swashplate -> theta_1c, theta_1s mapping
     +-- oye.rs                OyeBEMModel (annular 2-stage filter)
     +-- pitt_peters.rs        PittPetersModel (3-state L-matrix ODE)
-    +-- polar.rs              LinearPolar, TabulatedPolar, PolarKind
+    +-- polar.rs              LinearPolar, TabulatedPolar, Polar trait
     +-- rotor_definition.rs   Blade / Airfoil / Control / Inertia / etc.
     +-- rotor_state.rs        QuasiStatic / PittPeters / Oye state structs
     +-- rotor_yaml.rs         YAML loader for RotorDefinition (only file

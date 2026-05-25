@@ -4,7 +4,7 @@ use dynbem_rs::aero_model::AeroModel;
 use dynbem_rs::bem_common::{element_force, ElementCtx, PsiKernel, RadialGrid, SweepCtx};
 use dynbem_rs::oye::{OyeBEMModel, OYE_K};
 use dynbem_rs::pitt_peters::PittPetersModel;
-use dynbem_rs::polar::{LinearPolar, PolarKind};
+use dynbem_rs::polar::LinearPolar;
 use dynbem_rs::quasi_static_bem::{solve_bem_element, QuasiStaticBEM};
 use dynbem_rs::rotor_definition::{
     AirfoilProperties, BladeGeometry, RotorDefinition,
@@ -20,7 +20,7 @@ struct PrescribedKernel<'a> {
 
 impl<'a> PsiKernel for PrescribedKernel<'a> {
     #[inline(always)]
-    fn element(&mut self, sweep: &SweepCtx<'_>, ctx: &ElementCtx) -> (f64, f64) {
+    fn element<P: Polar>(&mut self, sweep: &SweepCtx<'_, P>, ctx: &ElementCtx) -> (f64, f64) {
         let lam = self.lambda_total
             + self.x_mid[ctx.i] * (self.lam_c * ctx.cos_psi + self.lam_s * ctx.sin_psi);
         element_force(lam * sweep.omega_r, sweep, ctx)
@@ -68,7 +68,7 @@ fn make_inputs() -> RotorInputs {
 }
 
 fn bench_solve_bem_element(c: &mut Criterion) {
-    let polar = PolarKind::Linear(LinearPolar::new(0.0, 5.7, 0.01, 15.0_f64.to_radians()));
+    let polar = LinearPolar::new(0.0, 5.7, 0.01, 15.0_f64.to_radians());
     c.bench_function("solve_bem_element", |b| {
         b.iter(|| {
             black_box(solve_bem_element(
@@ -92,7 +92,7 @@ fn bench_solve_bem_element(c: &mut Criterion) {
 }
 
 fn bench_scalar_sweep(c: &mut Criterion) {
-    let polar = PolarKind::Linear(LinearPolar::new(0.0, 5.7, 0.01, 15.0_f64.to_radians()));
+    let polar = LinearPolar::new(0.0, 5.7, 0.01, 15.0_f64.to_radians());
     let mut group = c.benchmark_group("sweep_scalar");
 
     for &(n_r, n_psi) in &[(30usize, 36usize), (30, 72), (80, 72)] {
@@ -133,7 +133,7 @@ fn bench_scalar_sweep(c: &mut Criterion) {
 
 fn bench_model_compute_forces(c: &mut Criterion) {
     let defn = make_rotor_definition(30);
-    let polar = PolarKind::Linear(LinearPolar::new(0.0, 5.7, 0.01, 15.0_f64.to_radians()));
+    let polar = LinearPolar::new(0.0, 5.7, 0.01, 15.0_f64.to_radians());
     let inputs = make_inputs();
 
     let bem = QuasiStaticBEM::build(defn.clone(), 72, polar.clone());

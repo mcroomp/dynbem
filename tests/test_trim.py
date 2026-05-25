@@ -67,10 +67,11 @@ class TestTrimSolver:
 
         result = solve_trim_cyclic(
             aero, state,
-            collective_rad=_COLLECTIVE,
-            R_hub=_level_R(),
-            v_hub_world=np.zeros(3), wind_world=np.zeros(3),
-            omega_rad_s=_OMEGA,
+            RotorInputs(
+                collective_rad=_COLLECTIVE, tilt_lon=0.0, tilt_lat=0.0,
+                R_hub=_level_R(), v_hub_world=np.zeros(3), wind_world=np.zeros(3),
+                rho_kg_m3=1.225, omega_rad_s=_OMEGA, t=0.0,
+            ),
             tolerance_Nm=_TOL_NM,
         )
         assert result.converged, (
@@ -88,11 +89,12 @@ class TestTrimSolver:
 
         result = solve_trim_cyclic(
             aero, state,
-            collective_rad=_COLLECTIVE,
-            R_hub=_level_R(),
-            v_hub_world=np.zeros(3),
-            wind_world=np.array([0.0, 10.0, 0.0]),
-            omega_rad_s=_OMEGA,
+            RotorInputs(
+                collective_rad=_COLLECTIVE, tilt_lon=0.0, tilt_lat=0.0,
+                R_hub=_level_R(), v_hub_world=np.zeros(3),
+                wind_world=np.array([0.0, 10.0, 0.0]),
+                rho_kg_m3=1.225, omega_rad_s=_OMEGA, t=0.0,
+            ),
             tolerance_Nm=_TOL_NM,
         )
         assert result.converged, (
@@ -112,10 +114,11 @@ class TestTrimSolver:
 
         result = solve_trim_cyclic(
             aero, state,
-            collective_rad=_COLLECTIVE,
-            R_hub=_level_R(),
-            v_hub_world=np.zeros(3), wind_world=wind,
-            omega_rad_s=_OMEGA,
+            RotorInputs(
+                collective_rad=_COLLECTIVE, tilt_lon=0.0, tilt_lat=0.0,
+                R_hub=_level_R(), v_hub_world=np.zeros(3), wind_world=wind,
+                rho_kg_m3=1.225, omega_rad_s=_OMEGA, t=0.0,
+            ),
             tolerance_Nm=_TOL_NM,
         )
         Mx, My = _moments_at(
@@ -137,10 +140,11 @@ class TestTrimSolver:
 
         result = solve_trim_cyclic(
             aero, state,
-            collective_rad=_COLLECTIVE,
-            R_hub=_level_R(),
-            v_hub_world=np.zeros(3), wind_world=wind,
-            omega_rad_s=_OMEGA,
+            RotorInputs(
+                collective_rad=_COLLECTIVE, tilt_lon=0.0, tilt_lat=0.0,
+                R_hub=_level_R(), v_hub_world=np.zeros(3), wind_world=wind,
+                rho_kg_m3=1.225, omega_rad_s=_OMEGA, t=0.0,
+            ),
             target_moment=(0.0, M_target),
             tolerance_Nm=_TOL_NM,
         )
@@ -159,15 +163,14 @@ class TestTrimSolver:
         aero = create_aero(defn, model=model_name)
         s0   = aero.initial_rotor_state()
 
-        kw = dict(
+        inputs = RotorInputs(
             collective_rad=_COLLECTIVE, tilt_lon=0.0, tilt_lat=0.0,
             R_hub=_level_R(), v_hub_world=np.zeros(3),
             wind_world=np.array([0.0, 10.0, 0.0]),
-            omega_rad_s=_OMEGA,
-            n_steps=500, dt=0.005,
+            rho_kg_m3=1.225, omega_rad_s=_OMEGA, t=0.0,
         )
-        s1 = relax_inflow(aero, s0, **kw)
-        s2 = relax_inflow(aero, s1, **kw)
+        s1 = relax_inflow(aero, s0, inputs, n_steps=500, dt=0.005)
+        s2 = relax_inflow(aero, s1, inputs, n_steps=500, dt=0.005)
         inflow_delta = float(np.linalg.norm(s2.to_array() - s1.to_array()))
         assert inflow_delta < 1e-4, (
             f"{model_name}: inflow not settled (delta_inflow={inflow_delta:.4e})"
@@ -201,10 +204,11 @@ class TestTrimSolver:
         # Now run the solver from this state.
         result = solve_trim_cyclic(
             aero, state,
-            collective_rad=_COLLECTIVE,
-            R_hub=_level_R(),
-            v_hub_world=np.zeros(3), wind_world=wind,
-            omega_rad_s=_OMEGA,
+            RotorInputs(
+                collective_rad=_COLLECTIVE, tilt_lon=0.0, tilt_lat=0.0,
+                R_hub=_level_R(), v_hub_world=np.zeros(3), wind_world=wind,
+                rho_kg_m3=1.225, omega_rad_s=_OMEGA, t=0.0,
+            ),
             tolerance_Nm=_TOL_NM,
         )
         trim_mag = math.hypot(result.Mx_residual, result.My_residual)
@@ -229,11 +233,12 @@ def test_trim_clips_to_bounds(defn):
     tight = math.radians(1.0)
     result = solve_trim_cyclic(
         aero, state,
-        collective_rad=_COLLECTIVE,
-        R_hub=np.eye(3),
-        v_hub_world=np.zeros(3),
-        wind_world=np.array([0.0, 10.0, 0.0]),
-        omega_rad_s=_OMEGA,
+        RotorInputs(
+            collective_rad=_COLLECTIVE, tilt_lon=0.0, tilt_lat=0.0,
+            R_hub=np.eye(3), v_hub_world=np.zeros(3),
+            wind_world=np.array([0.0, 10.0, 0.0]),
+            rho_kg_m3=1.225, omega_rad_s=_OMEGA, t=0.0,
+        ),
         tilt_min=-tight, tilt_max=tight,
         tolerance_Nm=0.01,
         max_iterations=20,

@@ -105,7 +105,3 @@ class TestRotorDefinition:
 
     def test_autorotation_defaults(self, defn):
         assert defn.autorotation.omega_eq_rad_s is None
-
-    def test_frozen(self, defn):
-        with pytest.raises((TypeError, AttributeError)):
-            defn.name = "modified"

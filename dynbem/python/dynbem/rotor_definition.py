@@ -63,28 +63,10 @@ __all__ = [
 
 
 # ---------------------------------------------------------------------------
-# Immutability mixin
-# ---------------------------------------------------------------------------
-
-class _Immutable:
-    """Mixin that makes instances read-only after _finish_init() is called."""
-
-    def _finish_init(self):
-        self.__dict__["_frozen"] = True
-
-    def __setattr__(self, name, value):
-        if self.__dict__.get("_frozen"):
-            raise AttributeError(
-                f"cannot set '{name}': {type(self).__name__} is immutable"
-            )
-        object.__setattr__(self, name, value)
-
-
-# ---------------------------------------------------------------------------
 # Pure-Python metadata classes (no Rust backing needed)
 # ---------------------------------------------------------------------------
 
-class KamanFlap(_Immutable):
+class KamanFlap:
     """Kaman servo-flap geometry data (Python-only, not used in Rust math)."""
 
     def __init__(
@@ -104,10 +86,9 @@ class KamanFlap(_Immutable):
         self.CM_gamma_per_rad = CM_gamma_per_rad
         self.swashplate_load_fraction = swashplate_load_fraction
         self.notes = notes
-        self._finish_init()
 
 
-class InertiaProperties(_Immutable):
+class InertiaProperties:
     """Rotor inertia data (Python-only, not used in Rust math)."""
 
     def __init__(
@@ -127,15 +108,10 @@ class InertiaProperties(_Immutable):
         self.stationary_assembly_mass_kg = stationary_assembly_mass_kg
         self.spinning_hub_shell_mass_kg = spinning_hub_shell_mass_kg
         self.I_blade_flap_kgm2 = I_blade_flap_kgm2
-        self._finish_init()
 
 
-# ---------------------------------------------------------------------------
-# Python classes with containment: hold all fields + a lean ``_rust`` copy.
-# ---------------------------------------------------------------------------
-
-class AirfoilProperties(_Immutable):
-    """Airfoil properties: math fields forwarded to Rust, metadata Python-only."""
+class AirfoilProperties:
+    """Airfoil aerodynamic properties."""
 
     def __init__(
         self,
@@ -162,18 +138,10 @@ class AirfoilProperties(_Immutable):
         self.polar_csv = polar_csv
         self.CD_structural = CD_structural
         self.Re_operating = Re_operating
-        self._rust = _RustAirfoilProperties(
-            CL0=CL0,
-            CL_alpha_per_rad=CL_alpha_per_rad,
-            CD0=CD0,
-            alpha_stall_deg=alpha_stall_deg,
-            tip_loss=tip_loss,
-        )
-        self._finish_init()
 
 
-class ControlProperties(_Immutable):
-    """Control properties: swashplate math fields to Rust, rest Python-only."""
+class ControlProperties:
+    """Control / swashplate properties."""
 
     def __init__(
         self,
@@ -192,14 +160,9 @@ class ControlProperties(_Immutable):
         self.servo_slew_rate_deg_s = servo_slew_rate_deg_s
         self.servo_travel_deg = servo_travel_deg
         self.kaman_flap = kaman_flap
-        self._rust = _RustControlProperties(
-            swashplate_pitch_gain_rad=swashplate_pitch_gain_rad,
-            swashplate_phase_deg=swashplate_phase_deg,
-        )
-        self._finish_init()
 
 
-class AutorotationProperties(_Immutable):
+class AutorotationProperties:
     """Autorotation metadata (Python-only; I_ode_kgm2 used by mechanical utilities)."""
 
     def __init__(
@@ -211,15 +174,13 @@ class AutorotationProperties(_Immutable):
         self.I_ode_kgm2 = I_ode_kgm2
         self.omega_min_rad_s = omega_min_rad_s
         self.omega_eq_rad_s = omega_eq_rad_s
-        self._finish_init()
 
 
-class RotorDefinition(_Immutable):
-    """Rotor definition: all fields in Python, lean Rust copy in ``_rust``.
+class RotorDefinition:
+    """Rotor definition (all fields in Python).
 
-    Pass ``defn._rust`` to Rust model constructors (PittPetersModel, etc.).
-    The dynbem model wrapper classes (QuasiStaticBEM, PittPetersModel,
-    OyeBEMModel) do this automatically.
+    Pass to ``create_aero`` or the model constructors.  The Python model
+    wrappers build the Rust representation on-demand via ``_to_rust_defn``.
     """
 
     def __init__(
@@ -240,14 +201,6 @@ class RotorDefinition(_Immutable):
         self.autorotation = auto
         self.name = name
         self.description = description
-        self._rust = _RustRotorDefinition(
-            blade=blade,
-            airfoil=airfoil._rust,
-            control=control._rust if control is not None else None,
-            name=name,
-            description=description,
-        )
-        self._finish_init()
 
     # Convenience geometry properties that delegate to blade.
     @property
@@ -310,6 +263,42 @@ def _validate_definition(self) -> List[ValidationIssue]:
 BladeGeometry.validate = _validate_blade
 AirfoilProperties.validate = _validate_airfoil
 RotorDefinition.validate = _validate_definition
+
+
+def _to_rust_control(control):
+    """Build a lean ``_dynbem.ControlProperties`` from a Python wrapper.
+
+    Returns ``None`` for ``None`` input; passes through a Rust object unchanged.
+    """
+    if control is None or isinstance(control, _RustControlProperties):
+        return control
+    return _RustControlProperties(
+        swashplate_pitch_gain_rad=control.swashplate_pitch_gain_rad,
+        swashplate_phase_deg=control.swashplate_phase_deg,
+    )
+
+
+def _to_rust_defn(defn):
+    if isinstance(defn, _RustRotorDefinition):
+        return defn
+    airfoil = defn.airfoil
+    control = defn.control
+    return _RustRotorDefinition(
+        blade=defn.blade,
+        airfoil=_RustAirfoilProperties(
+            CL0=airfoil.CL0,
+            CL_alpha_per_rad=airfoil.CL_alpha_per_rad,
+            CD0=airfoil.CD0,
+            alpha_stall_deg=airfoil.alpha_stall_deg,
+            tip_loss=airfoil.tip_loss,
+        ),
+        control=_RustControlProperties(
+            swashplate_pitch_gain_rad=control.swashplate_pitch_gain_rad,
+            swashplate_phase_deg=control.swashplate_phase_deg,
+        ) if control is not None else None,
+        name=defn.name,
+        description=defn.description,
+    )
 
 
 def load(path: str) -> RotorDefinition:

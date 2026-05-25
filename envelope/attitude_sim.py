@@ -357,9 +357,11 @@ def simulate_attitude(
     vel_eq = v_along * t_hat
     trim   = solve_trim_cyclic(
         aero, rotor_state,
-        collective_rad=col_now,
-        R_hub=R_hub_eq, v_hub_world=vel_eq, wind_world=wind,
-        omega_rad_s=omega_init,
+        RotorInputs(
+            collective_rad=col_now, tilt_lon=0.0, tilt_lat=0.0,
+            R_hub=R_hub_eq, v_hub_world=vel_eq, wind_world=wind,
+            rho_kg_m3=1.225, omega_rad_s=omega_init, t=0.0,
+        ),
         tilt_min=tilt_min, tilt_max=tilt_max,
         tolerance_Nm=trim_tolerance_Nm,
         dt_relax=dt, n_inflow_relax=100,

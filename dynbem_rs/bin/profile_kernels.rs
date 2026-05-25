@@ -13,7 +13,7 @@ use dynbem_rs::aero_model::AeroModel;
 use dynbem_rs::bem_common::RadialGrid;
 use dynbem_rs::oye::{OyeBEMModel, OYE_K};
 use dynbem_rs::pitt_peters::PittPetersModel;
-use dynbem_rs::polar::{LinearPolar, PolarKind};
+use dynbem_rs::polar::LinearPolar;
 use dynbem_rs::quasi_static_bem::{solve_bem_element, QuasiStaticBEM};
 use dynbem_rs::rotor_definition::{
     AirfoilProperties, BladeGeometry, RotorDefinition,
@@ -63,7 +63,7 @@ fn make_inputs() -> RotorInputs {
 }
 
 fn bench_solve_bem_element(iterations: usize) {
-    let polar = PolarKind::Linear(LinearPolar::new(0.0, 5.7, 0.01, 15.0_f64.to_radians()));
+    let polar = LinearPolar::new(0.0, 5.7, 0.01, 15.0_f64.to_radians());
     let start = Instant::now();
     for _ in 0..iterations {
         let _ = solve_bem_element(
@@ -94,7 +94,7 @@ fn bench_solve_bem_element(iterations: usize) {
 
 fn bench_pitt_peters(iterations: usize) {
     let defn = make_rotor_definition(30);
-    let polar = PolarKind::Linear(LinearPolar::new(0.0, 5.7, 0.01, 15.0_f64.to_radians()));
+    let polar = LinearPolar::new(0.0, 5.7, 0.01, 15.0_f64.to_radians());
     let inputs = make_inputs();
 
     let pp = PittPetersModel::build(defn, 72, polar);
@@ -119,7 +119,7 @@ fn bench_pitt_peters(iterations: usize) {
 
 fn bench_oye(iterations: usize) {
     let defn = make_rotor_definition(30);
-    let polar = PolarKind::Linear(LinearPolar::new(0.0, 5.7, 0.01, 15.0_f64.to_radians()));
+    let polar = LinearPolar::new(0.0, 5.7, 0.01, 15.0_f64.to_radians());
     let inputs = make_inputs();
 
     let oye = OyeBEMModel {
@@ -147,7 +147,7 @@ fn bench_oye(iterations: usize) {
 
 fn bench_sweep(iterations: usize) {
     let defn = make_rotor_definition(30);
-    let polar = PolarKind::Linear(LinearPolar::new(0.0, 5.7, 0.01, 15.0_f64.to_radians()));
+    let polar = LinearPolar::new(0.0, 5.7, 0.01, 15.0_f64.to_radians());
     let inputs = make_inputs();
 
     let bem = QuasiStaticBEM::build(defn, 72, polar);

@@ -37,6 +37,28 @@ pub struct BladeGeometry {
 }
 
 impl BladeGeometry {
+    /// Construct a uniform blade (constant chord and twist, no radial stations).
+    pub fn uniform(
+        n_blades: usize,
+        radius_m: f64,
+        root_cutout_m: f64,
+        chord_m: f64,
+        twist_deg: f64,
+        n_elements: usize,
+    ) -> Self {
+        Self {
+            n_blades,
+            radius_m,
+            root_cutout_m,
+            chord_m,
+            twist_deg,
+            n_elements,
+            r_stations_m: vec![],
+            chord_stations_m: vec![],
+            twist_stations_deg: vec![],
+        }
+    }
+
     pub fn span_m(&self) -> f64 {
         self.radius_m - self.root_cutout_m
     }

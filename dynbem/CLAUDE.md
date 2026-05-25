@@ -31,7 +31,7 @@ package binds.
     |   +-- polar.py           compat shim + AirfoilPolar tuple alias
     |   +-- rotor_definition.py  compat shim + YAML load() + ValidationIssue
     |   +-- rotor_state.py     compat shim + RotorState ABC
-    |   +-- trim.py            solve_trim_cyclic / relax_inflow with dual signature
+    |   +-- trim.py            solve_trim_cyclic / relax_inflow (thin re-exports)
     +-- tests/                 (intentionally empty -- repo-wide tests live in /tests)
     +-- benchmarks/
         +-- bench_rust_only.py
@@ -60,10 +60,8 @@ fills the gap so existing `import dynbem` callers keep working:
   in `__init__.py` with `ABC.register(...)` so `isinstance(model, AeroBase)`
   works. The Rust classes don't actually inherit from these; the ABC is
   a marker only.
-- **`solve_trim_cyclic` / `relax_inflow` dual signature**: the legacy
-  Python accepted `collective_rad=..., R_hub=..., v_hub_world=..., wind_world=...`
-  directly; the Rust pyfunction takes a pre-built `RotorInputs`. The
-  Python `trim.py` shim accepts either form.
+- **`solve_trim_cyclic` / `relax_inflow`**: thin re-exports of the Rust
+  pyfunctions; both require a pre-built `RotorInputs` as the third argument.
 - **Auto polar inference**: `BEMModel(defn=...)` without a polar argument
   builds one from `defn.airfoil` automatically (including `polar_csv`
   CSV loading). Implemented as Python subclasses of the Rust pyclasses

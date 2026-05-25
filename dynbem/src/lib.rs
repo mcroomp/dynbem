@@ -90,22 +90,16 @@ fn solve_bem_element(
     root_cutout_m: f64,
 ) -> PyResult<PyBEMElementResult> {
     let polar = wrappers::extract_polar(polar)?;
-    let res = dynbem_rs::quasi_static_bem::solve_bem_element(
-        r,
-        dr,
-        chord,
-        twist_rad,
-        collective_rad,
-        omega,
-        v_climb,
-        rho,
-        n_blades,
-        radius_m,
-        &polar,
-        use_tip_loss,
-        v_t_extra,
-        root_cutout_m,
-    );
+    let res = match polar {
+        wrappers::ResolvedPolar::Linear(p) => dynbem_rs::quasi_static_bem::solve_bem_element(
+            r, dr, chord, twist_rad, collective_rad, omega, v_climb,
+            rho, n_blades, radius_m, &p, use_tip_loss, v_t_extra, root_cutout_m,
+        ),
+        wrappers::ResolvedPolar::Tabulated(p) => dynbem_rs::quasi_static_bem::solve_bem_element(
+            r, dr, chord, twist_rad, collective_rad, omega, v_climb,
+            rho, n_blades, radius_m, &p, use_tip_loss, v_t_extra, root_cutout_m,
+        ),
+    };
     Ok(PyBEMElementResult {
         lambda_r: res.lambda_r,
         a_prime: res.a_prime,
@@ -134,9 +128,12 @@ fn _dynbem(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyOyeRotorState>()?;
     m.add_class::<PyRotorInputs>()?;
     m.add_class::<PyAeroResult>()?;
-    m.add_class::<PyQuasiStaticBEM>()?;
-    m.add_class::<PyPittPetersModel>()?;
-    m.add_class::<PyOyeBEMModel>()?;
+    m.add_class::<PyQuasiStaticBEMLinear>()?;
+    m.add_class::<PyQuasiStaticBEMTabulated>()?;
+    m.add_class::<PyPittPetersModelLinear>()?;
+    m.add_class::<PyPittPetersModelTabulated>()?;
+    m.add_class::<PyOyeBEMModelLinear>()?;
+    m.add_class::<PyOyeBEMModelTabulated>()?;
     m.add_class::<PyTrimResult>()?;
     m.add_function(wrap_pyfunction!(solve_trim_cyclic_py, m)?)?;
     m.add_function(wrap_pyfunction!(relax_inflow_py, m)?)?;

@@ -63,6 +63,13 @@ def load_tabulated_polar(path: Union[str, Path]) -> TabulatedPolar:
     )
 
 
+def _build_polar_from_defn(defn, polar):
+    """Return ``polar`` if given, else auto-build from ``defn.airfoil``."""
+    if polar is not None:
+        return polar
+    return build_polar(defn.airfoil)
+
+
 def create_aero(
     defn: RotorDefinition,
     model: str,

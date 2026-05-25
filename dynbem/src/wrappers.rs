@@ -140,43 +140,21 @@ impl PyTabulatedPolar {
     }
 }
 
-pub fn extract_polar(obj: &Bound<'_, PyAny>) -> PyResult<core_::polar::PolarKind> {
+pub enum ResolvedPolar {
+    Linear(core_::polar::LinearPolar),
+    Tabulated(core_::polar::TabulatedPolar),
+}
+
+pub fn extract_polar(obj: &Bound<'_, PyAny>) -> PyResult<ResolvedPolar> {
     if let Ok(p) = obj.extract::<PyLinearPolar>() {
-        return Ok(core_::polar::PolarKind::Linear(p.0));
+        return Ok(ResolvedPolar::Linear(p.0));
     }
     if let Ok(p) = obj.extract::<PyTabulatedPolar>() {
-        return Ok(core_::polar::PolarKind::Tabulated(p.0));
+        return Ok(ResolvedPolar::Tabulated(p.0));
     }
     Err(PyValueError::new_err(
         "Expected LinearPolar or TabulatedPolar",
     ))
-}
-
-/// Build a default LinearPolar from a RotorDefinition's airfoil. Used when
-/// the model constructor is called without an explicit polar argument
-/// (mirrors the legacy Python dynbem behaviour where polar was optional).
-pub fn default_polar_from_defn(
-    defn: &core_::rotor_definition::RotorDefinition,
-) -> core_::polar::PolarKind {
-    let a = &defn.airfoil;
-    core_::polar::PolarKind::Linear(core_::polar::LinearPolar::new(
-        a.CL0,
-        a.CL_alpha_per_rad,
-        a.CD0,
-        a.alpha_stall_deg.to_radians(),
-    ))
-}
-
-/// Resolve the optional `polar` constructor argument: if provided, extract
-/// it; otherwise build a LinearPolar from the rotor's airfoil properties.
-pub fn resolve_polar(
-    polar: Option<&Bound<'_, PyAny>>,
-    defn: &core_::rotor_definition::RotorDefinition,
-) -> PyResult<core_::polar::PolarKind> {
-    match polar {
-        Some(obj) => extract_polar(obj),
-        None => Ok(default_polar_from_defn(defn)),
-    }
 }
 
 // ===========================================================================
@@ -315,6 +293,11 @@ impl PyAirfoilProperties {
         })
     }
 
+    #[getter] #[allow(non_snake_case)] fn CL0(&self) -> f64 { self.0.CL0 }
+    #[getter] #[allow(non_snake_case)] fn CL_alpha_per_rad(&self) -> f64 { self.0.CL_alpha_per_rad }
+    #[getter] #[allow(non_snake_case)] fn CD0(&self) -> f64 { self.0.CD0 }
+    #[getter] fn alpha_stall_deg(&self) -> f64 { self.0.alpha_stall_deg }
+    #[getter] fn tip_loss(&self) -> bool { self.0.tip_loss }
 }
 
 #[pyclass(name = "ControlProperties", module = "dynbem._dynbem")]
@@ -332,6 +315,8 @@ impl PyControlProperties {
         })
     }
 
+    #[getter] fn swashplate_pitch_gain_rad(&self) -> f64 { self.0.swashplate_pitch_gain_rad }
+    #[getter] fn swashplate_phase_deg(&self) -> Option<f64> { self.0.swashplate_phase_deg }
 }
 
 #[pyclass(name = "RotorDefinition", module = "dynbem._dynbem")]
@@ -358,6 +343,11 @@ impl PyRotorDefinition {
         })
     }
 
+    #[getter] fn blade(&self) -> PyBladeGeometry { PyBladeGeometry(self.0.blade.clone()) }
+    #[getter] fn airfoil(&self) -> PyAirfoilProperties { PyAirfoilProperties(self.0.airfoil.clone()) }
+    #[getter] fn name(&self) -> &str { &self.0.name }
+    #[getter] fn description(&self) -> &str { &self.0.description }
+    #[getter] fn control(&self) -> Option<PyControlProperties> { self.0.control.clone().map(PyControlProperties) }
 }
 
 // ===========================================================================
@@ -661,176 +651,166 @@ impl PyAeroResult {
 }
 
 // ===========================================================================
-// Aero models (BEM, Pitt-Peters, Oye)
+// Aero models (BEM, Pitt-Peters, Oye) — two variants each (Linear / Tabulated)
 // ===========================================================================
 
 use dynbem_rs::aero_model::AeroModel as _;
 
-#[pyclass(name = "QuasiStaticBEM", module = "dynbem._dynbem", subclass)]
+// ---------------------------------------------------------------------------
+// QuasiStaticBEM
+// ---------------------------------------------------------------------------
+
+#[pyclass(name = "_QuasiStaticBEMLinear", module = "dynbem._dynbem", subclass)]
 #[derive(Clone)]
-pub struct PyQuasiStaticBEM(pub Box<core_::quasi_static_bem::QuasiStaticBEM>);
+pub struct PyQuasiStaticBEMLinear(pub Box<core_::quasi_static_bem::QuasiStaticBEM<core_::polar::LinearPolar>>);
 
 #[pymethods]
-impl PyQuasiStaticBEM {
+impl PyQuasiStaticBEMLinear {
     #[new]
     #[pyo3(signature = (defn, polar, n_psi_elements))]
-    fn new(
-        defn: PyRotorDefinition,
-        polar: Option<&Bound<'_, PyAny>>,
-        n_psi_elements: usize,
-    ) -> PyResult<Self> {
-        let polar = resolve_polar(polar, &defn.0)?;
-        Ok(PyQuasiStaticBEM(Box::new(
-            core_::quasi_static_bem::QuasiStaticBEM::build(defn.0, n_psi_elements, polar),
-        )))
+    fn new(defn: PyRotorDefinition, polar: PyLinearPolar, n_psi_elements: usize) -> Self {
+        PyQuasiStaticBEMLinear(Box::new(
+            core_::quasi_static_bem::QuasiStaticBEM::build(defn.0, n_psi_elements, polar.0),
+        ))
     }
-
-    fn initial_rotor_state(&self) -> PyQuasiStaticRotorState {
-        PyQuasiStaticRotorState(self.0.initial_state())
+    fn initial_rotor_state(&self) -> PyQuasiStaticRotorState { PyQuasiStaticRotorState(self.0.initial_state()) }
+    fn compute_forces(&self, inputs: &PyRotorInputs, state: &PyQuasiStaticRotorState) -> (PyAeroResult, PyQuasiStaticRotorState) {
+        let (r, s) = self.0.compute_forces(&inputs.0, &state.0); (PyAeroResult(r), PyQuasiStaticRotorState(s))
     }
-
-    fn compute_forces(
-        &self,
-        inputs: &PyRotorInputs,
-        state: &PyQuasiStaticRotorState,
-    ) -> (PyAeroResult, PyQuasiStaticRotorState) {
-        let (r, s) = self.0.compute_forces(&inputs.0, &state.0);
-        (PyAeroResult(r), PyQuasiStaticRotorState(s))
+    fn inflow_taus<'py>(&self, py: Python<'py>, inputs: &PyRotorInputs, state: &PyQuasiStaticRotorState) -> Bound<'py, PyArray1<f64>> {
+        self.0.inflow_taus(&inputs.0, &state.0).into_pyarray_bound(py)
     }
-
-    fn inflow_taus<'py>(
-        &self,
-        py: Python<'py>,
-        inputs: &PyRotorInputs,
-        state: &PyQuasiStaticRotorState,
-    ) -> Bound<'py, PyArray1<f64>> {
-        self.0
-            .inflow_taus(&inputs.0, &state.0)
-            .into_pyarray_bound(py)
-    }
-
-    #[getter]
-    fn defn(&self) -> PyRotorDefinition {
-        PyRotorDefinition(self.0.defn.clone())
-    }
-    #[getter]
-    fn n_psi_elements(&self) -> usize {
-        self.0.n_psi_elements
-    }
+    #[getter] fn defn(&self) -> PyRotorDefinition { PyRotorDefinition(self.0.defn.clone()) }
+    #[getter] fn n_psi_elements(&self) -> usize { self.0.n_psi_elements }
 }
 
-#[pyclass(name = "PittPetersModel", module = "dynbem._dynbem", subclass)]
+#[pyclass(name = "_QuasiStaticBEMTabulated", module = "dynbem._dynbem", subclass)]
 #[derive(Clone)]
-pub struct PyPittPetersModel(pub Box<core_::pitt_peters::PittPetersModel>);
+pub struct PyQuasiStaticBEMTabulated(pub Box<core_::quasi_static_bem::QuasiStaticBEM<core_::polar::TabulatedPolar>>);
 
 #[pymethods]
-impl PyPittPetersModel {
+impl PyQuasiStaticBEMTabulated {
     #[new]
     #[pyo3(signature = (defn, polar, n_psi_elements))]
-    fn new(
-        defn: PyRotorDefinition,
-        polar: Option<&Bound<'_, PyAny>>,
-        n_psi_elements: usize,
-    ) -> PyResult<Self> {
-        let polar = resolve_polar(polar, &defn.0)?;
-        Ok(PyPittPetersModel(Box::new(
-            core_::pitt_peters::PittPetersModel::build(defn.0, n_psi_elements, polar),
-        )))
+    fn new(defn: PyRotorDefinition, polar: PyTabulatedPolar, n_psi_elements: usize) -> Self {
+        PyQuasiStaticBEMTabulated(Box::new(
+            core_::quasi_static_bem::QuasiStaticBEM::build(defn.0, n_psi_elements, polar.0),
+        ))
     }
-
-    fn initial_rotor_state(&self) -> PyPittPetersRotorState {
-        PyPittPetersRotorState(self.0.initial_state())
+    fn initial_rotor_state(&self) -> PyQuasiStaticRotorState { PyQuasiStaticRotorState(self.0.initial_state()) }
+    fn compute_forces(&self, inputs: &PyRotorInputs, state: &PyQuasiStaticRotorState) -> (PyAeroResult, PyQuasiStaticRotorState) {
+        let (r, s) = self.0.compute_forces(&inputs.0, &state.0); (PyAeroResult(r), PyQuasiStaticRotorState(s))
     }
-
-    fn compute_forces(
-        &self,
-        inputs: &PyRotorInputs,
-        state: &PyPittPetersRotorState,
-    ) -> (PyAeroResult, PyPittPetersRotorState) {
-        let (r, s) = self.0.compute_forces(&inputs.0, &state.0);
-        (PyAeroResult(r), PyPittPetersRotorState(s))
+    fn inflow_taus<'py>(&self, py: Python<'py>, inputs: &PyRotorInputs, state: &PyQuasiStaticRotorState) -> Bound<'py, PyArray1<f64>> {
+        self.0.inflow_taus(&inputs.0, &state.0).into_pyarray_bound(py)
     }
-
-    fn inflow_taus<'py>(
-        &self,
-        py: Python<'py>,
-        inputs: &PyRotorInputs,
-        state: &PyPittPetersRotorState,
-    ) -> Bound<'py, PyArray1<f64>> {
-        self.0
-            .inflow_taus(&inputs.0, &state.0)
-            .into_pyarray_bound(py)
-    }
-
-    #[getter]
-    fn defn(&self) -> PyRotorDefinition {
-        PyRotorDefinition(self.0.defn.clone())
-    }
-    #[getter]
-    fn n_psi_elements(&self) -> usize {
-        self.0.n_psi_elements
-    }
+    #[getter] fn defn(&self) -> PyRotorDefinition { PyRotorDefinition(self.0.defn.clone()) }
+    #[getter] fn n_psi_elements(&self) -> usize { self.0.n_psi_elements }
 }
 
-#[pyclass(name = "OyeBEMModel", module = "dynbem._dynbem", subclass)]
+// ---------------------------------------------------------------------------
+// PittPetersModel
+// ---------------------------------------------------------------------------
+
+#[pyclass(name = "_PittPetersModelLinear", module = "dynbem._dynbem", subclass)]
 #[derive(Clone)]
-pub struct PyOyeBEMModel(pub Box<core_::oye::OyeBEMModel>);
+pub struct PyPittPetersModelLinear(pub Box<core_::pitt_peters::PittPetersModel<core_::polar::LinearPolar>>);
 
 #[pymethods]
-impl PyOyeBEMModel {
+impl PyPittPetersModelLinear {
+    #[new]
+    #[pyo3(signature = (defn, polar, n_psi_elements))]
+    fn new(defn: PyRotorDefinition, polar: PyLinearPolar, n_psi_elements: usize) -> Self {
+        PyPittPetersModelLinear(Box::new(
+            core_::pitt_peters::PittPetersModel::build(defn.0, n_psi_elements, polar.0),
+        ))
+    }
+    fn initial_rotor_state(&self) -> PyPittPetersRotorState { PyPittPetersRotorState(self.0.initial_state()) }
+    fn compute_forces(&self, inputs: &PyRotorInputs, state: &PyPittPetersRotorState) -> (PyAeroResult, PyPittPetersRotorState) {
+        let (r, s) = self.0.compute_forces(&inputs.0, &state.0); (PyAeroResult(r), PyPittPetersRotorState(s))
+    }
+    fn inflow_taus<'py>(&self, py: Python<'py>, inputs: &PyRotorInputs, state: &PyPittPetersRotorState) -> Bound<'py, PyArray1<f64>> {
+        self.0.inflow_taus(&inputs.0, &state.0).into_pyarray_bound(py)
+    }
+    #[getter] fn defn(&self) -> PyRotorDefinition { PyRotorDefinition(self.0.defn.clone()) }
+    #[getter] fn n_psi_elements(&self) -> usize { self.0.n_psi_elements }
+}
+
+#[pyclass(name = "_PittPetersModelTabulated", module = "dynbem._dynbem", subclass)]
+#[derive(Clone)]
+pub struct PyPittPetersModelTabulated(pub Box<core_::pitt_peters::PittPetersModel<core_::polar::TabulatedPolar>>);
+
+#[pymethods]
+impl PyPittPetersModelTabulated {
+    #[new]
+    #[pyo3(signature = (defn, polar, n_psi_elements))]
+    fn new(defn: PyRotorDefinition, polar: PyTabulatedPolar, n_psi_elements: usize) -> Self {
+        PyPittPetersModelTabulated(Box::new(
+            core_::pitt_peters::PittPetersModel::build(defn.0, n_psi_elements, polar.0),
+        ))
+    }
+    fn initial_rotor_state(&self) -> PyPittPetersRotorState { PyPittPetersRotorState(self.0.initial_state()) }
+    fn compute_forces(&self, inputs: &PyRotorInputs, state: &PyPittPetersRotorState) -> (PyAeroResult, PyPittPetersRotorState) {
+        let (r, s) = self.0.compute_forces(&inputs.0, &state.0); (PyAeroResult(r), PyPittPetersRotorState(s))
+    }
+    fn inflow_taus<'py>(&self, py: Python<'py>, inputs: &PyRotorInputs, state: &PyPittPetersRotorState) -> Bound<'py, PyArray1<f64>> {
+        self.0.inflow_taus(&inputs.0, &state.0).into_pyarray_bound(py)
+    }
+    #[getter] fn defn(&self) -> PyRotorDefinition { PyRotorDefinition(self.0.defn.clone()) }
+    #[getter] fn n_psi_elements(&self) -> usize { self.0.n_psi_elements }
+}
+
+// ---------------------------------------------------------------------------
+// OyeBEMModel
+// ---------------------------------------------------------------------------
+
+#[pyclass(name = "_OyeBEMModelLinear", module = "dynbem._dynbem", subclass)]
+#[derive(Clone)]
+pub struct PyOyeBEMModelLinear(pub Box<core_::oye::OyeBEMModel<core_::polar::LinearPolar>>);
+
+#[pymethods]
+impl PyOyeBEMModelLinear {
     #[new]
     #[pyo3(signature = (defn, polar, n_psi_elements, coupling_k))]
-    fn new(
-        defn: PyRotorDefinition,
-        polar: Option<&Bound<'_, PyAny>>,
-        n_psi_elements: usize,
-        coupling_k: f64,
-    ) -> PyResult<Self> {
-        let polar = resolve_polar(polar, &defn.0)?;
-        let grid = core_::bem_common::RadialGrid::from_blade(&defn.0.blade);
-        Ok(PyOyeBEMModel(Box::new(core_::oye::OyeBEMModel {
-            defn: defn.0,
-            n_psi_elements,
-            coupling_k,
-            polar,
-            grid,
-        })))
+    fn new(defn: PyRotorDefinition, polar: PyLinearPolar, n_psi_elements: usize, coupling_k: f64) -> Self {
+        PyOyeBEMModelLinear(Box::new(
+            core_::oye::OyeBEMModel::build_with_k(defn.0, n_psi_elements, polar.0, coupling_k),
+        ))
     }
-
-    fn initial_rotor_state(&self) -> PyOyeRotorState {
-        PyOyeRotorState(self.0.initial_state())
+    fn initial_rotor_state(&self) -> PyOyeRotorState { PyOyeRotorState(self.0.initial_state()) }
+    fn compute_forces(&self, inputs: &PyRotorInputs, state: &PyOyeRotorState) -> (PyAeroResult, PyOyeRotorState) {
+        let (r, s) = self.0.compute_forces(&inputs.0, &state.0); (PyAeroResult(r), PyOyeRotorState(s))
     }
-
-    fn compute_forces(
-        &self,
-        inputs: &PyRotorInputs,
-        state: &PyOyeRotorState,
-    ) -> (PyAeroResult, PyOyeRotorState) {
-        let (r, s) = self.0.compute_forces(&inputs.0, &state.0);
-        (PyAeroResult(r), PyOyeRotorState(s))
+    fn inflow_taus<'py>(&self, py: Python<'py>, inputs: &PyRotorInputs, state: &PyOyeRotorState) -> Bound<'py, PyArray1<f64>> {
+        self.0.inflow_taus(&inputs.0, &state.0).into_pyarray_bound(py)
     }
-
-    fn inflow_taus<'py>(
-        &self,
-        py: Python<'py>,
-        inputs: &PyRotorInputs,
-        state: &PyOyeRotorState,
-    ) -> Bound<'py, PyArray1<f64>> {
-        self.0
-            .inflow_taus(&inputs.0, &state.0)
-            .into_pyarray_bound(py)
-    }
-
-    #[getter]
-    fn defn(&self) -> PyRotorDefinition {
-        PyRotorDefinition(self.0.defn.clone())
-    }
-    #[getter]
-    fn n_psi_elements(&self) -> usize {
-        self.0.n_psi_elements
-    }
-    #[getter]
-    fn coupling_k(&self) -> f64 {
-        self.0.coupling_k
-    }
+    #[getter] fn defn(&self) -> PyRotorDefinition { PyRotorDefinition(self.0.defn.clone()) }
+    #[getter] fn n_psi_elements(&self) -> usize { self.0.n_psi_elements }
+    #[getter] fn coupling_k(&self) -> f64 { self.0.coupling_k }
 }
+
+#[pyclass(name = "_OyeBEMModelTabulated", module = "dynbem._dynbem", subclass)]
+#[derive(Clone)]
+pub struct PyOyeBEMModelTabulated(pub Box<core_::oye::OyeBEMModel<core_::polar::TabulatedPolar>>);
+
+#[pymethods]
+impl PyOyeBEMModelTabulated {
+    #[new]
+    #[pyo3(signature = (defn, polar, n_psi_elements, coupling_k))]
+    fn new(defn: PyRotorDefinition, polar: PyTabulatedPolar, n_psi_elements: usize, coupling_k: f64) -> Self {
+        PyOyeBEMModelTabulated(Box::new(
+            core_::oye::OyeBEMModel::build_with_k(defn.0, n_psi_elements, polar.0, coupling_k),
+        ))
+    }
+    fn initial_rotor_state(&self) -> PyOyeRotorState { PyOyeRotorState(self.0.initial_state()) }
+    fn compute_forces(&self, inputs: &PyRotorInputs, state: &PyOyeRotorState) -> (PyAeroResult, PyOyeRotorState) {
+        let (r, s) = self.0.compute_forces(&inputs.0, &state.0); (PyAeroResult(r), PyOyeRotorState(s))
+    }
+    fn inflow_taus<'py>(&self, py: Python<'py>, inputs: &PyRotorInputs, state: &PyOyeRotorState) -> Bound<'py, PyArray1<f64>> {
+        self.0.inflow_taus(&inputs.0, &state.0).into_pyarray_bound(py)
+    }
+    #[getter] fn defn(&self) -> PyRotorDefinition { PyRotorDefinition(self.0.defn.clone()) }
+    #[getter] fn n_psi_elements(&self) -> usize { self.0.n_psi_elements }
+    #[getter] fn coupling_k(&self) -> f64 { self.0.coupling_k }
+}
+

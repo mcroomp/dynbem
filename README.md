@@ -103,18 +103,8 @@ result, derivative = model.compute_forces(inputs, state)
 #   omega += dt * omega_derivative(result.Q_spin, motor_torque_Nm, I_ode_kgm2)
 ```
 
-[`dynbem/python/dynbem/__init__.py`](dynbem/python/dynbem/__init__.py)
-lists the full public surface — models (`BEMModel`, `PittPetersModel`,
-`OyeBEMModel`, the `create_aero` factory), inputs/outputs
-(`RotorInputs`, `AeroResult`), state types (`QuasiStaticRotorState`,
-`PittPetersRotorState`, `OyeRotorState`), polars (`AirfoilPolar`,
-`LinearPolar`, `TabulatedPolar`), rotor-definition types
-(`RotorDefinition`, `BladeGeometry`, `AirfoilProperties`,
-`ControlProperties`, etc.), and the `vrs_lambda1` / `cyclic_coeffs`
-helpers. Cyclic mapping (`tilt_lon`/`tilt_lat` → blade-pitch
-coefficients) is implemented in
-[dynbem_rs/src/cyclic.rs](dynbem_rs/src/cyclic.rs) and exposed as
-`dynbem.cyclic_coeffs`.
+For the full API reference — all classes, fields, keyword arguments, and
+return types — see **[API.md](API.md)**.
 
 ## Flight envelope sweep
 

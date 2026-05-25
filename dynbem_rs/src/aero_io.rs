@@ -114,8 +114,13 @@ impl std::ops::Mul<Vec3> for Mat3 {
 // ---------------------------------------------------------------------------
 
 /// Inputs supplied by the caller on every compute_forces call.
-/// The caller owns the mechanical DOF (omega_rad_s) and integrates it
-/// externally; the model only reads it here.
+/// The caller owns omega_rad_s and advances it externally each step:
+///
+///   omega += dt * (motor_torque - result.Q_spin) / I_kgm2;
+///
+/// Use the same dt as the inflow-state integration loop.  The returned
+/// `Q_spin` is the aerodynamic reaction torque on the shaft (positive
+/// opposes rotation), so no sign flip is needed in the formula above.
 #[derive(Clone, Debug)]
 #[allow(non_snake_case)]
 pub struct RotorInputs {
