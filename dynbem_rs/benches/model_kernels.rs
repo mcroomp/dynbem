@@ -1,13 +1,13 @@
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use dynbem_rs::aero_io::{Mat3, RotorInputs, Vec3};
 use dynbem_rs::aero_model::AeroModel;
-use dynbem_rs::bem_common::{PsiKernel, RadialGrid, SweepCtx};
+use dynbem_rs::bem_common::{element_force, ElementCtx, PsiKernel, RadialGrid, SweepCtx};
 use dynbem_rs::oye::{OyeBEMModel, OYE_K};
 use dynbem_rs::pitt_peters::PittPetersModel;
 use dynbem_rs::polar::{LinearPolar, PolarKind};
 use dynbem_rs::quasi_static_bem::{solve_bem_element, QuasiStaticBEM};
 use dynbem_rs::rotor_definition::{
-    AirfoilProperties, AutorotationProperties, BladeGeometry, InertiaProperties, RotorDefinition,
+    AirfoilProperties, AutorotationProperties, BladeGeometry, RotorDefinition,
 };
 use dynbem_rs::rotor_state::{OyeRotorState, PittPetersRotorState, QuasiStaticRotorState};
 
@@ -20,8 +20,10 @@ struct PrescribedKernel<'a> {
 
 impl<'a> PsiKernel for PrescribedKernel<'a> {
     #[inline(always)]
-    fn lam_local(&self, i: usize, cos_psi: f64, sin_psi: f64) -> f64 {
-        self.lambda_total + self.x_mid[i] * (self.lam_c * cos_psi + self.lam_s * sin_psi)
+    fn element(&mut self, sweep: &SweepCtx<'_>, ctx: &ElementCtx) -> (f64, f64) {
+        let lam = self.lambda_total
+            + self.x_mid[ctx.i] * (self.lam_c * ctx.cos_psi + self.lam_s * ctx.sin_psi);
+        element_force(lam * sweep.omega_r, sweep, ctx)
     }
 }
 
@@ -39,20 +41,13 @@ fn make_rotor_definition(n_elements: usize) -> RotorDefinition {
             twist_stations_deg: Vec::new(),
         },
         airfoil: AirfoilProperties {
-            Re_design: 1_000_000,
             CL0: 0.0,
             CL_alpha_per_rad: 5.7,
             CD0: 0.01,
             alpha_stall_deg: 15.0,
             tip_loss: true,
-            name: "bench_linear".to_string(),
-            source: "criterion".to_string(),
-            polar_csv: None,
-            CD_structural: 0.0,
-            Re_operating: None,
         },
         control: None,
-        inertia: InertiaProperties::default(),
         autorotation: AutorotationProperties::default(),
         name: "bench_rotor".to_string(),
         description: "criterion baseline rotor".to_string(),

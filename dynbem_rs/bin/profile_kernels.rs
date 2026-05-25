@@ -16,7 +16,7 @@ use dynbem_rs::pitt_peters::PittPetersModel;
 use dynbem_rs::polar::{LinearPolar, PolarKind};
 use dynbem_rs::quasi_static_bem::{solve_bem_element, QuasiStaticBEM};
 use dynbem_rs::rotor_definition::{
-    AirfoilProperties, AutorotationProperties, BladeGeometry, InertiaProperties, RotorDefinition,
+    AirfoilProperties, AutorotationProperties, BladeGeometry, RotorDefinition,
 };
 use dynbem_rs::rotor_state::{OyeRotorState, PittPetersRotorState, QuasiStaticRotorState};
 use std::env;
@@ -36,20 +36,13 @@ fn make_rotor_definition(n_elements: usize) -> RotorDefinition {
             twist_stations_deg: Vec::new(),
         },
         airfoil: AirfoilProperties {
-            Re_design: 1_000_000,
             CL0: 0.0,
             CL_alpha_per_rad: 5.7,
             CD0: 0.01,
             alpha_stall_deg: 15.0,
             tip_loss: true,
-            name: "bench_linear".to_string(),
-            source: "profile_kernels".to_string(),
-            polar_csv: None,
-            CD_structural: 0.0,
-            Re_operating: None,
         },
         control: None,
-        inertia: InertiaProperties::default(),
         autorotation: AutorotationProperties::default(),
         name: "bench_rotor".to_string(),
         description: "standalone harness rotor".to_string(),
