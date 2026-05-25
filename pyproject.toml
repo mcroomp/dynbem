@@ -4,11 +4,8 @@ version = "0.1.0"
 description = "Repo-wide development environment for dynbem + dynbem_rs. Not published to PyPI; the publishable package is `dynbem/` (Rust-backed)."
 requires-python = ">=3.11"
 dependencies = [
-    # Rotor-YAML loading lives in dynbem_rs (Rust, via serde_yaml) so
-    # the dynbem package itself no longer needs PyYAML. The `verification/`
-    # scripts that drive Docker tools (xrotor, openfast, ccblade) still
-    # write/read YAML in Python, so PyYAML is listed directly here.
-    # Numpy is a transitive dep of dynbem.
+    # PyYAML is used by dynbem.rotor_definition (Python-side YAML loading)
+    # and by the verification/ scripts that drive Docker tools.
     "dynbem",
     "PyYAML>=6",
     # Plot output from envelope.compute_map and the verification scripts.

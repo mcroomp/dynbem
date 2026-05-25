@@ -21,10 +21,9 @@ fn lerp_clamped(x: f64, xs: &[f64], ys: &[f64]) -> f64 {
     ys[i - 1] + t * (ys[i] - ys[i - 1])
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 #[allow(non_snake_case)]
 pub struct KamanFlap {
-    pub enabled: bool,
     pub chord_fraction: Option<f64>,
     pub span_start_m: Option<f64>,
     pub span_end_m: Option<f64>,
@@ -118,7 +117,7 @@ pub struct ControlProperties {
     pub swashplate_phase_deg: Option<f64>,
     pub servo_slew_rate_deg_s: Option<f64>,
     pub servo_travel_deg: Option<f64>,
-    pub kaman_flap: KamanFlap,
+    pub kaman_flap: Option<KamanFlap>,
 }
 
 #[derive(Clone, Debug, Default)]

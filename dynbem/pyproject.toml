@@ -23,10 +23,11 @@ keywords = ["rotor", "aerodynamics", "BEM", "blade-element-momentum",
             "wind-turbine", "autorotation", "VRS"]
 dependencies = [
     "numpy>=1.24",
+    "PyYAML>=6",
 ]
 
-# YAML loading is handled by the Rust core (dynbem_rs::rotor_yaml via
-# serde_yaml). The `yaml` extra is retained as an empty alias so that
+# YAML loading is handled in pure Python (dynbem.rotor_definition uses
+# yaml.safe_load). The `yaml` extra is retained as an empty alias so that
 # existing installs of `dynbem[yaml]` continue to resolve.
 [project.optional-dependencies]
 yaml = []

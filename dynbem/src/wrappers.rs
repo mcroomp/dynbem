@@ -176,19 +176,18 @@ pub fn resolve_polar(
 // ===========================================================================
 
 #[pyclass(name = "KamanFlap", module = "dynbem._dynbem")]
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct PyKamanFlap(pub core_::rotor_definition::KamanFlap);
 
 #[pymethods]
 impl PyKamanFlap {
     #[new]
     #[pyo3(signature = (
-        enabled = false, chord_fraction = None, span_start_m = None, span_end_m = None,
+        chord_fraction = None, span_start_m = None, span_end_m = None,
         tau = None, CM_gamma_per_rad = None, swashplate_load_fraction = None, notes = String::new()
     ))]
     #[allow(non_snake_case)]
     fn new(
-        enabled: bool,
         chord_fraction: Option<f64>,
         span_start_m: Option<f64>,
         span_end_m: Option<f64>,
@@ -198,7 +197,6 @@ impl PyKamanFlap {
         notes: String,
     ) -> Self {
         PyKamanFlap(core_::rotor_definition::KamanFlap {
-            enabled,
             chord_fraction,
             span_start_m,
             span_end_m,
@@ -209,10 +207,6 @@ impl PyKamanFlap {
         })
     }
 
-    #[getter]
-    fn enabled(&self) -> bool {
-        self.0.enabled
-    }
     #[getter]
     fn chord_fraction(&self) -> Option<f64> {
         self.0.chord_fraction
@@ -246,7 +240,6 @@ impl PyKamanFlap {
     fn __reduce__(&self, py: Python<'_>) -> PyResult<(PyObject, PyObject)> {
         let cls: PyObject = Self::type_object_bound(py).into_any().unbind();
         let args = (
-            self.0.enabled,
             self.0.chord_fraction,
             self.0.span_start_m,
             self.0.span_end_m,
@@ -575,7 +568,7 @@ impl PyControlProperties {
         swashplate_pitch_gain_rad,
         axle_attachment_length_m = None, K_cyc = None,
         swashplate_phase_deg = None, servo_slew_rate_deg_s = None,
-        servo_travel_deg = None, kaman_flap = PyKamanFlap::default(),
+        servo_travel_deg = None, kaman_flap = None,
     ))]
     #[allow(non_snake_case)]
     fn new(
@@ -585,7 +578,7 @@ impl PyControlProperties {
         swashplate_phase_deg: Option<f64>,
         servo_slew_rate_deg_s: Option<f64>,
         servo_travel_deg: Option<f64>,
-        kaman_flap: PyKamanFlap,
+        kaman_flap: Option<PyKamanFlap>,
     ) -> Self {
         PyControlProperties(core_::rotor_definition::ControlProperties {
             swashplate_pitch_gain_rad,
@@ -594,7 +587,7 @@ impl PyControlProperties {
             swashplate_phase_deg,
             servo_slew_rate_deg_s,
             servo_travel_deg,
-            kaman_flap: kaman_flap.0,
+            kaman_flap: kaman_flap.map(|k| k.0),
         })
     }
 
@@ -624,8 +617,8 @@ impl PyControlProperties {
         self.0.servo_travel_deg
     }
     #[getter]
-    fn kaman_flap(&self) -> PyKamanFlap {
-        PyKamanFlap(self.0.kaman_flap.clone())
+    fn kaman_flap(&self) -> Option<PyKamanFlap> {
+        self.0.kaman_flap.clone().map(PyKamanFlap)
     }
 
     fn __reduce__(&self, py: Python<'_>) -> PyResult<(PyObject, PyObject)> {
@@ -637,7 +630,7 @@ impl PyControlProperties {
             self.0.swashplate_phase_deg,
             self.0.servo_slew_rate_deg_s,
             self.0.servo_travel_deg,
-            PyKamanFlap(self.0.kaman_flap.clone()),
+            self.0.kaman_flap.clone().map(PyKamanFlap),
         )
             .into_py(py);
         Ok((cls, args))
@@ -1186,7 +1179,7 @@ use dynbem_rs::aero_model::AeroModel as _;
 
 #[pyclass(name = "QuasiStaticBEM", module = "dynbem._dynbem", subclass)]
 #[derive(Clone)]
-pub struct PyQuasiStaticBEM(pub core_::quasi_static_bem::QuasiStaticBEM);
+pub struct PyQuasiStaticBEM(pub Box<core_::quasi_static_bem::QuasiStaticBEM>);
 
 #[pymethods]
 impl PyQuasiStaticBEM {
@@ -1198,9 +1191,9 @@ impl PyQuasiStaticBEM {
         n_psi_elements: usize,
     ) -> PyResult<Self> {
         let polar = resolve_polar(polar, &defn.0)?;
-        Ok(PyQuasiStaticBEM(
+        Ok(PyQuasiStaticBEM(Box::new(
             core_::quasi_static_bem::QuasiStaticBEM::build(defn.0, n_psi_elements, polar),
-        ))
+        )))
     }
 
     fn initial_rotor_state(&self) -> PyQuasiStaticRotorState {
@@ -1239,7 +1232,7 @@ impl PyQuasiStaticBEM {
 
 #[pyclass(name = "PittPetersModel", module = "dynbem._dynbem", subclass)]
 #[derive(Clone)]
-pub struct PyPittPetersModel(pub core_::pitt_peters::PittPetersModel);
+pub struct PyPittPetersModel(pub Box<core_::pitt_peters::PittPetersModel>);
 
 #[pymethods]
 impl PyPittPetersModel {
@@ -1251,9 +1244,9 @@ impl PyPittPetersModel {
         n_psi_elements: usize,
     ) -> PyResult<Self> {
         let polar = resolve_polar(polar, &defn.0)?;
-        Ok(PyPittPetersModel(
+        Ok(PyPittPetersModel(Box::new(
             core_::pitt_peters::PittPetersModel::build(defn.0, n_psi_elements, polar),
-        ))
+        )))
     }
 
     fn initial_rotor_state(&self) -> PyPittPetersRotorState {
@@ -1292,7 +1285,7 @@ impl PyPittPetersModel {
 
 #[pyclass(name = "OyeBEMModel", module = "dynbem._dynbem", subclass)]
 #[derive(Clone)]
-pub struct PyOyeBEMModel(pub core_::oye::OyeBEMModel);
+pub struct PyOyeBEMModel(pub Box<core_::oye::OyeBEMModel>);
 
 #[pymethods]
 impl PyOyeBEMModel {
@@ -1306,13 +1299,13 @@ impl PyOyeBEMModel {
     ) -> PyResult<Self> {
         let polar = resolve_polar(polar, &defn.0)?;
         let grid = core_::bem_common::RadialGrid::from_blade(&defn.0.blade);
-        Ok(PyOyeBEMModel(core_::oye::OyeBEMModel {
+        Ok(PyOyeBEMModel(Box::new(core_::oye::OyeBEMModel {
             defn: defn.0,
             n_psi_elements,
             coupling_k,
             polar,
             grid,
-        }))
+        })))
     }
 
     fn initial_rotor_state(&self) -> PyOyeRotorState {

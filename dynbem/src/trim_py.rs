@@ -18,13 +18,13 @@ enum AeroAny {
 impl AeroAny {
     fn from_py(obj: &Bound<'_, PyAny>) -> PyResult<Self> {
         if let Ok(m) = obj.extract::<PyQuasiStaticBEM>() {
-            return Ok(AeroAny::QuasiStaticBEM(m.0));
+            return Ok(AeroAny::QuasiStaticBEM(*m.0));
         }
         if let Ok(m) = obj.extract::<PyPittPetersModel>() {
-            return Ok(AeroAny::PittPeters(m.0));
+            return Ok(AeroAny::PittPeters(*m.0));
         }
         if let Ok(m) = obj.extract::<PyOyeBEMModel>() {
-            return Ok(AeroAny::Oye(m.0));
+            return Ok(AeroAny::Oye(*m.0));
         }
         Err(PyValueError::new_err(
             "aero must be QuasiStaticBEM, PittPetersModel, or OyeBEMModel",

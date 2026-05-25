@@ -60,7 +60,6 @@ control:
   servo_slew_rate_deg_s:     545.0
   servo_travel_deg:          100.0
   kaman_flap:
-    enabled:                  true
     chord_fraction:           0.25
     span_start_m:             1.2
     span_end_m:               2.5

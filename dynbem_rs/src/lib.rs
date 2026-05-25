@@ -16,5 +16,4 @@ pub mod polar;
 pub mod quasi_static_bem;
 pub mod rotor_definition;
 pub mod rotor_state;
-pub mod rotor_yaml;
 pub mod trim;
