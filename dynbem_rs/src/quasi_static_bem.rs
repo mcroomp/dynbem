@@ -573,7 +573,7 @@ impl<P: Polar + Clone> AeroModel for QuasiStaticBEM<P> {
     fn compute_forces(
         &self,
         inputs: &RotorInputs,
-        state: &QuasiStaticRotorState,
+        _state: &QuasiStaticRotorState,
     ) -> (AeroResult, QuasiStaticRotorState) {
         let blade = &self.defn.blade;
         let omega = inputs.omega_rad_s;
