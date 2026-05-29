@@ -5,7 +5,9 @@ use std::f64::consts::PI;
 
 use crate::aero_io::{AeroResult, RotorInputs};
 use crate::aero_model::AeroModel;
-use crate::bem_common::{assemble_result, kinematics, ElementCtx, PsiKernel, RadialGrid, SweepCtx};
+use crate::bem_common::{
+    assemble_result, build_psi_trig_table, kinematics, ElementCtx, PsiKernel, RadialGrid, SweepCtx,
+};
 use crate::common::{EPS_DENOM, EPS_OMEGA_R, MIN_LOSS_FACTOR};
 use crate::cyclic::cyclic_coeffs;
 use crate::polar::Polar;
@@ -544,6 +546,7 @@ impl PsiKernel for BemKernel {
 pub struct QuasiStaticBEM<P: Polar> {
     pub defn: RotorDefinition,
     pub n_psi_elements: usize,
+    pub psi_trig: Vec<(f64, f64)>,
     pub polar: P,
     pub grid: RadialGrid,
 }
@@ -551,9 +554,11 @@ pub struct QuasiStaticBEM<P: Polar> {
 impl<P: Polar + Clone> QuasiStaticBEM<P> {
     pub fn build(defn: RotorDefinition, n_psi_elements: usize, polar: P) -> Self {
         let grid = RadialGrid::from_blade(&defn.blade);
+        let psi_trig = build_psi_trig_table(n_psi_elements);
         Self {
             defn,
             n_psi_elements,
+            psi_trig,
             polar,
             grid,
         }
@@ -625,6 +630,7 @@ impl<P: Polar + Clone> AeroModel for QuasiStaticBEM<P> {
                 n_b: n_blades,
                 n_psi: self.n_psi_elements,
                 n_psi_inv: 1.0 / (self.n_psi_elements as f64),
+                psi_trig: &self.psi_trig,
                 v_in_hub_x: v_inplane_hub[0],
                 v_in_hub_y: v_inplane_hub[1],
                 theta_1c,

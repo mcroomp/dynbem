@@ -10,7 +10,6 @@
 
 use dynbem_rs::aero_io::{Mat3, RotorInputs, Vec3};
 use dynbem_rs::aero_model::AeroModel;
-use dynbem_rs::bem_common::RadialGrid;
 use dynbem_rs::oye::{OyeBEMModel, OYE_K};
 use dynbem_rs::pitt_peters::PittPetersModel;
 use dynbem_rs::polar::LinearPolar;
@@ -120,13 +119,7 @@ fn bench_oye(iterations: usize) {
     let polar = LinearPolar::new(0.0, 5.7, 0.01, 15.0_f64.to_radians());
     let inputs = make_inputs();
 
-    let oye = OyeBEMModel {
-        defn: defn.clone(),
-        n_psi_elements: 72,
-        coupling_k: OYE_K,
-        polar,
-        grid: RadialGrid::from_blade(&defn.blade),
-    };
+    let oye = OyeBEMModel::build_with_k(defn.clone(), 72, polar, OYE_K);
 
     let oye_state = OyeRotorState::zeros(defn.blade.n_elements);
 

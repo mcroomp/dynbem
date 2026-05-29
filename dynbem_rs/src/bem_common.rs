@@ -9,6 +9,22 @@ use crate::polar::Polar;
 use crate::rotor_definition::BladeGeometry;
 use std::f64::consts::PI;
 
+/// Build a fixed trig table for a given azimuth resolution.
+///
+/// Entry i stores (cos(psi_i), sin(psi_i)) where
+/// psi_i = 2*pi*i/n_psi.
+pub fn build_psi_trig_table(n_psi: usize) -> Vec<(f64, f64)> {
+    assert!(n_psi > 0);
+
+    let inv_n_psi = 1.0 / (n_psi as f64);
+    let mut out = Vec::with_capacity(n_psi);
+    for i in 0..n_psi {
+        let psi = 2.0 * PI * (i as f64) * inv_n_psi;
+        out.push((psi.cos(), psi.sin()));
+    }
+    out
+}
+
 /// Cached fixed radial geometry for a BEM kernel.
 ///
 /// Per-station chord/twist arrays mean we can support BladeGeometry with
@@ -311,6 +327,7 @@ pub struct SweepCtx<'a, P: Polar> {
     pub n_b: usize,
     pub n_psi: usize,
     pub n_psi_inv: f64,
+    pub psi_trig: &'a [(f64, f64)],
     /// In-plane wind in hub frame; `v_t_extra = v_in_hub_x*sin psi + v_in_hub_y*cos psi`.
     pub v_in_hub_x: f64,
     pub v_in_hub_y: f64,
@@ -334,17 +351,17 @@ impl<'a, P: Polar> SweepCtx<'a, P> {
         let inv_n_psi = self.n_psi_inv;
         let grid = self.grid;
         let n_r = grid.n_elements;
+        let n_psi = self.n_psi;
 
         assert!(n_r < MAX_BEM_ELEMENTS);
+        assert_eq!(self.psi_trig.len(), n_psi);
 
         let r_mid = &grid.r_mid;
         let chord = &grid.chord;
         let twist = &grid.twist_rad;
 
-        for i_psi in 0..self.n_psi {
-            let psi = 2.0 * PI * (i_psi as f64) * inv_n_psi;
-            let cos_psi = psi.cos();
-            let sin_psi = psi.sin();
+        for i_psi in 0..n_psi {
+            let (cos_psi, sin_psi) = self.psi_trig[i_psi];
             let v_t_extra = self.v_in_hub_x * sin_psi + self.v_in_hub_y * cos_psi;
             let col_psi = self.col + self.theta_1c * cos_psi + self.theta_1s * sin_psi;
             let mut rdt_sum = 0.0;

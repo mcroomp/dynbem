@@ -6,8 +6,8 @@ use std::f64::consts::PI;
 use crate::aero_io::{AeroResult, RotorInputs};
 use crate::aero_model::AeroModel;
 use crate::bem_common::{
-    assemble_result, element_force, kinematics, v_t_disk, vrs_regime, ElementCtx, PsiKernel,
-    RadialGrid, SweepCtx,
+    assemble_result, build_psi_trig_table, element_force, kinematics, v_t_disk, vrs_regime,
+    ElementCtx, PsiKernel, RadialGrid, SweepCtx,
 };
 use crate::common::{vrs_lambda1, EPS_DENOM, EPS_OMEGA_R, MAX_BEM_ELEMENTS, MU_T_FLOOR};
 use crate::cyclic::cyclic_coeffs;
@@ -40,6 +40,7 @@ fn axial_forces<P: Polar>(
         n_b,
         n_psi: 1,
         n_psi_inv: 1.0,
+        psi_trig: &[(1.0, 0.0)],
         v_in_hub_x: 0.0,
         v_in_hub_y: 0.0,
         theta_1c: 0.0,
@@ -105,6 +106,7 @@ impl<'a> PsiKernel for PpKernel<'a> {
 pub struct PittPetersModel<P: Polar> {
     pub defn: RotorDefinition,
     pub n_psi_elements: usize,
+    pub psi_trig: Vec<(f64, f64)>,
     pub polar: P,
     pub grid: RadialGrid,
 }
@@ -112,9 +114,11 @@ pub struct PittPetersModel<P: Polar> {
 impl<P: Polar + Clone> PittPetersModel<P> {
     pub fn build(defn: RotorDefinition, n_psi_elements: usize, polar: P) -> Self {
         let grid = RadialGrid::from_blade(&defn.blade);
+        let psi_trig = build_psi_trig_table(n_psi_elements);
         Self {
             defn,
             n_psi_elements,
+            psi_trig,
             polar,
             grid,
         }
@@ -193,6 +197,7 @@ impl<P: Polar + Clone> AeroModel for PittPetersModel<P> {
                     n_b: blade.n_blades,
                     n_psi: self.n_psi_elements,
                     n_psi_inv: 1.0 / (self.n_psi_elements as f64),
+                    psi_trig: &self.psi_trig,
                     v_in_hub_x: v_inplane_hub[0],
                     v_in_hub_y: v_inplane_hub[1],
                     theta_1c,

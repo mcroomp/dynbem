@@ -6,8 +6,8 @@ use std::f64::consts::PI;
 use crate::aero_io::{AeroResult, RotorInputs};
 use crate::aero_model::AeroModel;
 use crate::bem_common::{
-    assemble_result, element_force, kinematics, v_t_disk, vrs_regime, ElementCtx, PsiKernel,
-    RadialGrid, SweepCtx,
+    assemble_result, build_psi_trig_table, element_force, kinematics, v_t_disk, vrs_regime,
+    ElementCtx, PsiKernel, RadialGrid, SweepCtx,
 };
 use crate::common::{
     vrs_lambda1, EPS_OMEGA_R, MIN_LOSS_FACTOR, VRS_DESCENT_THRESHOLD, V_T_HOVER_FLOOR_FRAC,
@@ -112,6 +112,7 @@ fn oye_taus(r_tip: f64, x_arr: &[f64], v_inf: f64, a_avg: f64, n_active: usize) 
 pub struct OyeBEMModel<P: Polar> {
     pub defn: RotorDefinition,
     pub n_psi_elements: usize,
+    pub psi_trig: Vec<(f64, f64)>,
     pub coupling_k: f64,
     pub polar: P,
     pub grid: RadialGrid,
@@ -129,9 +130,11 @@ impl<P: Polar + Clone> OyeBEMModel<P> {
         coupling_k: f64,
     ) -> Self {
         let grid = RadialGrid::from_blade(&defn.blade);
+        let psi_trig = build_psi_trig_table(n_psi_elements);
         Self {
             defn,
             n_psi_elements,
+            psi_trig,
             coupling_k,
             polar,
             grid,
@@ -218,6 +221,7 @@ impl<P: Polar + Clone> AeroModel for OyeBEMModel<P> {
                 n_b: blade.n_blades,
                 n_psi: self.n_psi_elements,
                 n_psi_inv: 1.0 / (self.n_psi_elements as f64),
+                psi_trig: &self.psi_trig,
                 v_in_hub_x: v_inplane_hub[0],
                 v_in_hub_y: v_inplane_hub[1],
                 theta_1c,
