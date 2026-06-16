@@ -20,6 +20,8 @@ from ._dynbem import (
     LinearPolarParameters as _RustLinearPolarParameters,
     BladeGeometry as _RustBladeGeometry,
     ControlProperties as _RustControlProperties,
+    PassiveFeatheringProperties as _RustPassiveFeatheringProperties,
+    ServoFlapProperties as _RustServoFlapProperties,
     RotorDefinition as _RustRotorDefinition,
 )
 
@@ -54,6 +56,8 @@ __all__ = [
     "AutorotationProperties",
     "BladeGeometry",
     "ControlProperties",
+    "PassiveFeatheringProperties",
+    "ServoFlapProperties",
     "InertiaProperties",
     "KamanFlap",
     "RotorDefinition",
@@ -88,6 +92,68 @@ class KamanFlap:
         self.CM_gamma_per_rad = CM_gamma_per_rad
         self.swashplate_load_fraction = swashplate_load_fraction
         self.notes = notes
+
+
+class ServoFlapProperties:
+    """Servo-flap (trailing-edge elevon) geometry.
+
+    The swashplate drives flap deflection delta_f(psi) via cyclic_coeffs.
+    The flap exerts an aerodynamic pitching moment about the feathering axis.
+    Used inside PassiveFeatheringProperties.servoflaps.
+    """
+
+    def __init__(
+        self,
+        C_M_delta_per_rad,
+        r_inner_m,
+        r_outer_m,
+    ):
+        self.C_M_delta_per_rad = C_M_delta_per_rad
+        self.r_inner_m = r_inner_m
+        self.r_outer_m = r_outer_m
+
+    def _to_rust(self):
+        return _RustServoFlapProperties(
+            C_M_delta_per_rad=self.C_M_delta_per_rad,
+            r_inner_m=self.r_inner_m,
+            r_outer_m=self.r_outer_m,
+        )
+
+
+class PassiveFeatheringProperties:
+    """Blade passive-feathering (pitch-bearing) DOF driven by a trailing-edge servo-flap.
+
+    The servo-flap exerts a pitching moment about the feathering axis.
+    The blade feathers freely, damped by the bearing damper.  The resulting
+    delta_theta(psi) is added directly to blade pitch in the psi-loop.
+
+    Fields:
+      I_theta_kgm2        -- pitch moment of inertia about feathering axis [kg*m^2]
+      damper_Nms_per_rad  -- bearing rotary damper coefficient [N*m*s/rad]
+      ac_offset_m         -- AC distance forward of feathering axis [m] (0 = Kaman ideal)
+      servoflaps          -- ServoFlapProperties or None
+    """
+
+    def __init__(
+        self,
+        I_theta_kgm2,
+        damper_Nms_per_rad,
+        ac_offset_m=0.0,
+        servoflaps=None,
+    ):
+        self.I_theta_kgm2 = I_theta_kgm2
+        self.damper_Nms_per_rad = damper_Nms_per_rad
+        self.ac_offset_m = ac_offset_m
+        self.servoflaps = servoflaps
+
+    def _to_rust(self):
+        servoflaps_rust = self.servoflaps._to_rust() if self.servoflaps is not None else None
+        return _RustPassiveFeatheringProperties(
+            I_theta_kgm2=float(self.I_theta_kgm2),
+            damper_Nms_per_rad=float(self.damper_Nms_per_rad),
+            ac_offset_m=float(self.ac_offset_m),
+            servoflaps=servoflaps_rust,
+        )
 
 
 class InertiaProperties:
@@ -190,6 +256,7 @@ class RotorDefinition:
         control=None,
         inertia=None,
         autorotation=None,
+        passive_feathering=None,
         name="",
         description="",
     ):
@@ -199,6 +266,7 @@ class RotorDefinition:
         self.control = control
         self.inertia = inertia if inertia is not None else InertiaProperties()
         self.autorotation = auto
+        self.passive_feathering = passive_feathering
         self.name = name
         self.description = description
 
@@ -283,6 +351,7 @@ def _to_rust_defn(defn):
         return defn
     airfoil = defn.airfoil
     control = defn.control
+    passive_feathering = getattr(defn, "passive_feathering", None)
     return _RustRotorDefinition(
         blade=defn.blade,
         airfoil=_RustLinearPolarParameters(
@@ -295,6 +364,7 @@ def _to_rust_defn(defn):
             swashplate_pitch_gain_rad=control.swashplate_pitch_gain_rad,
             swashplate_phase_deg=control.swashplate_phase_deg,
         ) if control is not None else None,
+        passive_feathering=passive_feathering._to_rust() if passive_feathering is not None else None,
         name=defn.name,
         description=defn.description,
     )
@@ -428,12 +498,31 @@ def _build_from_dict(doc: Dict[str, Any], base_dir: Optional[str]) -> RotorDefin
         omega_eq_rad_s=ar.get("omega_eq_rad_s"),
     )
 
+    passive_feathering = None
+    f_raw = doc.get("passive_feathering")
+    if f_raw is not None:
+        srv_raw = f_raw.get("servoflaps")
+        servoflaps = None
+        if srv_raw is not None:
+            servoflaps = ServoFlapProperties(
+                C_M_delta_per_rad=float(_req(srv_raw, "C_M_delta_per_rad", "passive_feathering.servoflaps")),
+                r_inner_m=float(_req(srv_raw, "r_inner_m", "passive_feathering.servoflaps")),
+                r_outer_m=float(_req(srv_raw, "r_outer_m", "passive_feathering.servoflaps")),
+            )
+        passive_feathering = PassiveFeatheringProperties(
+            I_theta_kgm2=float(_req(f_raw, "I_theta_kgm2", "passive_feathering")),
+            damper_Nms_per_rad=float(f_raw.get("damper_Nms_per_rad") or 0.0),
+            ac_offset_m=float(f_raw.get("ac_offset_m") or 0.0),
+            servoflaps=servoflaps,
+        )
+
     return RotorDefinition(
         blade=blade,
         airfoil=airfoil,
         control=control,
         inertia=inertia,
         autorotation=autorotation,
+        passive_feathering=passive_feathering,
         name=doc.get("name") or "",
         description=doc.get("description") or "",
     )

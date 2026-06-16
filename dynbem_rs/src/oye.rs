@@ -13,6 +13,7 @@ use crate::common::{
     vrs_lambda1, EPS_OMEGA_R, MIN_LOSS_FACTOR, VRS_DESCENT_THRESHOLD, V_T_HOVER_FLOOR_FRAC,
 };
 use crate::cyclic::cyclic_coeffs;
+use crate::passive_feathering::{solve_feathering, FeatheringState};
 use crate::polar::Polar;
 use crate::quasi_static_bem::{prandtl_hub_loss, prandtl_tip_loss};
 use crate::rotor_definition::RotorDefinition;
@@ -199,6 +200,28 @@ impl<P: Polar + Clone> AeroModel for OyeBEMModel<P> {
         let gains = self.defn.control_gains();
         let (theta_1c, theta_1s) = cyclic_coeffs(inputs.tilt_lon, inputs.tilt_lat, gains);
 
+        // Quasi-static feathering solve (pre-pass)
+        let mu = kin.mu;
+        let feathering_state = match &self.defn.passive_feathering {
+            None => FeatheringState::RIGID,
+            Some(fp) => solve_feathering(
+                fp,
+                theta_1c,
+                theta_1s,
+                rho,
+                omega,
+                mu,
+                r_tip,
+                blade.chord_m,
+                self.defn.airfoil.CL_alpha_per_rad,
+            ),
+        };
+        let (loop_theta_1c, loop_theta_1s) = if self.defn.passive_feathering.is_some() {
+            (feathering_state.delta_theta_1c, feathering_state.delta_theta_1s)
+        } else {
+            (theta_1c, theta_1s)
+        };
+
         let lambda_climb = if omega_r > EPS_OMEGA_R {
             v_climb / omega_r
         } else {
@@ -224,8 +247,8 @@ impl<P: Polar + Clone> AeroModel for OyeBEMModel<P> {
                 psi_trig: &self.psi_trig,
                 v_in_hub_x: v_inplane_hub[0],
                 v_in_hub_y: v_inplane_hub[1],
-                theta_1c,
-                theta_1s,
+                theta_1c: loop_theta_1c,
+                theta_1s: loop_theta_1s,
             };
             sweep.run(&mut kernel)
         } else {

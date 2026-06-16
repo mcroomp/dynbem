@@ -344,6 +344,65 @@ impl PyControlProperties {
     }
 }
 
+#[pyclass(name = "ServoFlapProperties", module = "dynbem._dynbem")]
+#[derive(Clone, Debug)]
+pub struct PyServoFlapProperties(pub core_::rotor_definition::ServoFlapProperties);
+
+#[pymethods]
+impl PyServoFlapProperties {
+    #[new]
+    #[pyo3(signature = (C_M_delta_per_rad, r_inner_m, r_outer_m))]
+    #[allow(non_snake_case)]
+    fn new(C_M_delta_per_rad: f64, r_inner_m: f64, r_outer_m: f64) -> Self {
+        PyServoFlapProperties(core_::rotor_definition::ServoFlapProperties {
+            C_M_delta_per_rad,
+            r_inner_m,
+            r_outer_m,
+        })
+    }
+
+    #[getter]
+    #[allow(non_snake_case)]
+    fn C_M_delta_per_rad(&self) -> f64 { self.0.C_M_delta_per_rad }
+    #[getter]
+    fn r_inner_m(&self) -> f64 { self.0.r_inner_m }
+    #[getter]
+    fn r_outer_m(&self) -> f64 { self.0.r_outer_m }
+}
+
+#[pyclass(name = "PassiveFeatheringProperties", module = "dynbem._dynbem")]
+#[derive(Clone, Debug)]
+pub struct PyPassiveFeatheringProperties(pub core_::rotor_definition::PassiveFeatheringProperties);
+
+#[pymethods]
+impl PyPassiveFeatheringProperties {
+    #[new]
+    #[pyo3(signature = (I_theta_kgm2, damper_Nms_per_rad, ac_offset_m=0.0, servoflaps=None))]
+    #[allow(non_snake_case)]
+    fn new(
+        I_theta_kgm2: f64,
+        damper_Nms_per_rad: f64,
+        ac_offset_m: f64,
+        servoflaps: Option<PyServoFlapProperties>,
+    ) -> Self {
+        PyPassiveFeatheringProperties(core_::rotor_definition::PassiveFeatheringProperties {
+            I_theta_kgm2,
+            damper_Nms_per_rad,
+            ac_offset_m,
+            servoflaps: servoflaps.map(|s| s.0),
+        })
+    }
+
+    #[getter]
+    #[allow(non_snake_case)]
+    fn I_theta_kgm2(&self) -> f64 { self.0.I_theta_kgm2 }
+    #[getter]
+    #[allow(non_snake_case)]
+    fn damper_Nms_per_rad(&self) -> f64 { self.0.damper_Nms_per_rad }
+    #[getter]
+    fn ac_offset_m(&self) -> f64 { self.0.ac_offset_m }
+}
+
 #[pyclass(name = "RotorDefinition", module = "dynbem._dynbem")]
 #[derive(Clone, Debug)]
 pub struct PyRotorDefinition(pub core_::rotor_definition::RotorDefinition);
@@ -351,18 +410,20 @@ pub struct PyRotorDefinition(pub core_::rotor_definition::RotorDefinition);
 #[pymethods]
 impl PyRotorDefinition {
     #[new]
-    #[pyo3(signature = (blade, airfoil, control, name, description))]
+    #[pyo3(signature = (blade, airfoil, control, name, description, passive_feathering=None))]
     fn new(
         blade: PyBladeGeometry,
         airfoil: PyLinearPolarParameters,
         control: Option<PyControlProperties>,
         name: String,
         description: String,
+        passive_feathering: Option<PyPassiveFeatheringProperties>,
     ) -> Self {
         PyRotorDefinition(core_::rotor_definition::RotorDefinition {
             blade: blade.0,
             airfoil: airfoil.0,
             control: control.map(|c| c.0),
+            passive_feathering: passive_feathering.map(|f| f.0),
             name,
             description,
         })

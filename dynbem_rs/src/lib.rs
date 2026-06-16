@@ -10,6 +10,7 @@ pub mod aero_model;
 pub mod bem_common;
 pub mod common;
 pub mod cyclic;
+pub mod passive_feathering;
 pub mod oye;
 pub mod pitt_peters;
 pub mod polar;

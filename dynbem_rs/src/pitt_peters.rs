@@ -11,6 +11,7 @@ use crate::bem_common::{
 };
 use crate::common::{vrs_lambda1, EPS_DENOM, EPS_OMEGA_R, MAX_BEM_ELEMENTS, MU_T_FLOOR};
 use crate::cyclic::cyclic_coeffs;
+use crate::passive_feathering::{solve_feathering, FeatheringState};
 use crate::polar::Polar;
 use crate::rotor_definition::RotorDefinition;
 use crate::rotor_state::PittPetersRotorState;
@@ -176,11 +177,45 @@ impl<P: Polar + Clone> AeroModel for PittPetersModel<P> {
         let has_cyclic = theta_1c.abs() + theta_1s.abs() > EPS_DENOM;
 
         // ------------------------------------------------------------------
+        // Quasi-static feathering solve (pre-pass, no new state).
+        // Swashplate cyclic is interpreted as servo-flap deflection delta_f
+        // when feathering is configured.  The result delta_theta_1c/1s is
+        // added to loop_theta, replacing the direct swashplate cyclic path.
+        // ------------------------------------------------------------------
+        let feathering_state = match &self.defn.passive_feathering {
+            None => FeatheringState::RIGID,
+            Some(fp) => solve_feathering(
+                fp,
+                theta_1c,
+                theta_1s,
+                rho,
+                omega,
+                mu,
+                r_tip,
+                blade.chord_m,
+                self.defn.airfoil.CL_alpha_per_rad,
+            ),
+        };
+        // When feathering is configured, cyclic pitch in the psi-loop comes
+        // entirely from the feathering solve (servo -> delta_theta).
+        // When not configured, use the swashplate command directly.
+        let (loop_theta_1c, loop_theta_1s) = if self.defn.passive_feathering.is_some() {
+            (feathering_state.delta_theta_1c, feathering_state.delta_theta_1s)
+        } else {
+            (theta_1c, theta_1s)
+        };
+
+        // ------------------------------------------------------------------
         // Blade element forces
         // ------------------------------------------------------------------
+        let has_feathering_cyclic = feathering_state.delta_theta_1c.abs()
+            + feathering_state.delta_theta_1s.abs() > EPS_DENOM;
         let (mut t_total, mut q_total, mut mx_hub, mut my_hub) = (0.0, 0.0, 0.0, 0.0);
         if omega_r > EPS_OMEGA_R {
-            if (mu > 0.01 || has_cyclic || lam_c.abs() + lam_s.abs() > EPS_DENOM) && omega > 1.0 {
+            if (mu > 0.01 || has_cyclic || has_feathering_cyclic
+                || lam_c.abs() + lam_s.abs() > EPS_DENOM)
+                && omega > 1.0
+            {
                 let mut kernel = PpKernel {
                     lambda_total,
                     lam_c,
@@ -200,8 +235,8 @@ impl<P: Polar + Clone> AeroModel for PittPetersModel<P> {
                     psi_trig: &self.psi_trig,
                     v_in_hub_x: v_inplane_hub[0],
                     v_in_hub_y: v_inplane_hub[1],
-                    theta_1c,
-                    theta_1s,
+                    theta_1c: loop_theta_1c,
+                    theta_1s: loop_theta_1s,
                 };
                 let (t, q, mx, my) = sweep.run(&mut kernel);
                 t_total = t;

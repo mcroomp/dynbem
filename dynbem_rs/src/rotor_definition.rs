@@ -110,11 +110,58 @@ pub struct ControlProperties {
     pub swashplate_phase_deg: Option<f64>,
 }
 
+/// Per-blade flap hinge geometry with rotary damper.
+///
+/// Blade feathering (pitch-bearing) DOF driven by a trailing-edge servo-flap.
+///
+/// The servo-flap exerts a pitching moment about the feathering axis.  Because
+/// there is no centrifugal spring (the feathering axis is parallel to the span),
+/// the blade feathers freely, damped only by the mechanical damper at the pitch
+/// bearing.  The servo-flap moment drives the feathering angle theta(psi),
+/// which adds directly to the blade element pitch across the full span.
+///
+/// EOM (psi-domain, 1/rev harmonic balance, no aerodynamic spring):
+///   I_theta * theta'' + C_theta * theta' = M_servo(psi)
+///
+/// For the Kaman design the feathering axis is placed at the aerodynamic centre
+/// so the aerodynamic restoring moment is zero; set ac_offset_m=0 for this.
+#[derive(Clone, Debug)]
+pub struct PassiveFeatheringProperties {
+    /// Blade pitch moment of inertia about the feathering axis [kg*m^2].
+    pub I_theta_kgm2: f64,
+    /// Rotary damper coefficient at the pitch bearing [N*m*s/rad].
+    pub damper_Nms_per_rad: f64,
+    /// Distance from feathering axis to aerodynamic centre [m], positive
+    /// when AC is forward of the feathering axis (divergent if negative).
+    /// 0.0 = feathering axis exactly at AC (Kaman ideal).
+    pub ac_offset_m: f64,
+    /// Servo-flap that drives feathering.  None = passive free-feathering.
+    pub servoflaps: Option<ServoFlapProperties>,
+}
+
+/// Properties of the servo-flap (trailing-edge elevon) driven by the swashplate.
+///
+/// The swashplate drives flap deflection delta_f(psi) via cyclic_coeffs().
+/// delta_f produces an aerodynamic pitching moment about the feathering axis.
+#[derive(Clone, Debug)]
+pub struct ServoFlapProperties {
+    /// Pitching moment coefficient per unit flap deflection [rad^-1].
+    /// Thin-airfoil estimate: C_M_delta ~ -0.5 * sqrt(flap_chord_fraction).
+    /// Negative = nose-down moment for downward (positive) flap deflection.
+    pub C_M_delta_per_rad: f64,
+    /// Inboard edge of servo-flap along blade span [m] (from shaft centre).
+    pub r_inner_m: f64,
+    /// Outboard edge of servo-flap along blade span [m].
+    pub r_outer_m: f64,
+}
+
 #[derive(Clone, Debug)]
 pub struct RotorDefinition {
     pub blade: BladeGeometry,
     pub airfoil: LinearPolarParameters,
     pub control: Option<ControlProperties>,
+    /// Feathering DOF model.  None = rigid blade pitch (current default).
+    pub passive_feathering: Option<PassiveFeatheringProperties>,
     pub name: String,
     pub description: String,
 }
@@ -144,5 +191,10 @@ impl RotorDefinition {
                 }
             }
         }
+    }
+
+    /// True when feathering DOF is configured.
+    pub fn has_passive_feathering(&self) -> bool {
+        self.passive_feathering.is_some()
     }
 }
