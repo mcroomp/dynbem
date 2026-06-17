@@ -26,7 +26,7 @@ flowchart TD
     KIN -. "ServoFlap mode" .-> SERVO["Feathering solve<br/>delta_theta_0/1c/1s"]
     SERVO --> PITCH
 
-    PITCH --> SWEEP["psi x r sweep<br/>local alpha -> cl, cd -> dT, dQ"]
+    PITCH --> SWEEP["psi x r sweep<br/>local alpha to cl, cd to dT, dQ"]
     STATE --> SWEEP
     KIN --> SWEEP
 
@@ -37,8 +37,8 @@ flowchart TD
     INTEG --> LOADS["Loads<br/>F_world, M_orbital, Q_spin"]
     INTEG -- "dynamic-inflow<br/>models only" --> INFLOW["Inflow update<br/>(Pitt-Peters / Oye)"]
 
-    INFLOW --> PP["Pitt-Peters:<br/>L-matrix targets lambda_ss<br/>-> d lambda/dt"]
-    INFLOW --> OYE["Oye:<br/>annular W_qs<br/>-> dW_int/dt, dW/dt"]
+    INFLOW --> PP["Pitt-Peters:<br/>L-matrix targets lambda_ss<br/>to d lambda/dt"]
+    INFLOW --> OYE["Oye:<br/>annular W_qs<br/>to dW_int/dt, dW/dt"]
 
     PP --> DERIV["State derivative d lambda/dt"]
     OYE --> DERIV
