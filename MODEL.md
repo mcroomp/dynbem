@@ -17,27 +17,27 @@ $$\big(\mathbf{u},\; \boldsymbol{\lambda}\big) \;\longmapsto\; \big(\mathbf{F},\
 
 ```mermaid
 flowchart TD
-    IN["Inputs u:\nOmega, theta_0, tilt_lon/lat,\nR_hub, v_hub, v_wind, rho"]
-    STATE["Inflow state lambda\n(model-dependent)"]
+    IN["Inputs u:<br/>Omega, theta_0, tilt_lon/lat,<br/>R_hub, v_hub, v_wind, rho"]
+    STATE["Inflow state lambda<br/>(model-dependent)"]
 
-    IN --> KIN["Kinematics\nv_climb, v_inplane, mu, V_T"]
-    KIN --> CYC["Cyclic mapping\ntheta_1c, theta_1s"]
-    CYC --> PITCH["Blade pitch\ntheta(psi)"]
-    KIN -. "ServoFlap mode" .-> SERVO["Feathering solve\ndelta_theta_0/1c/1s"]
+    IN --> KIN["Kinematics<br/>v_climb, v_inplane, mu, V_T"]
+    KIN --> CYC["Cyclic mapping<br/>theta_1c, theta_1s"]
+    CYC --> PITCH["Blade pitch<br/>theta(psi)"]
+    KIN -. "ServoFlap mode" .-> SERVO["Feathering solve<br/>delta_theta_0/1c/1s"]
     SERVO --> PITCH
 
-    PITCH --> SWEEP["psi x r sweep\nlocal alpha -> cl, cd -> dT, dQ"]
+    PITCH --> SWEEP["psi x r sweep<br/>local alpha -> cl, cd -> dT, dQ"]
     STATE --> SWEEP
     KIN --> SWEEP
 
-    SWEEP --> INTEG["Disk integrals\nT, Q, Mx_hub, My_hub"]
+    SWEEP --> INTEG["Disk integrals<br/>T, Q, Mx_hub, My_hub"]
 
-    INTEG --> LOADS["Loads\nF_world, M_orbital, Q_spin"]
-    INTEG --> INFLOW["Inflow update\n(per model)"]
+    INTEG --> LOADS["Loads<br/>F_world, M_orbital, Q_spin"]
+    INTEG --> INFLOW["Inflow update<br/>(per model)"]
 
-    INFLOW --> PP["Pitt-Peters:\nL-matrix targets lambda_ss\n-> d lambda/dt"]
-    INFLOW --> OYE["Oye:\nannular W_qs\n-> dW_int/dt, dW/dt"]
-    INFLOW --> QS["QuasiStatic:\nlambda_r converged in-loop\n-> no state"]
+    INFLOW --> PP["Pitt-Peters:<br/>L-matrix targets lambda_ss<br/>-> d lambda/dt"]
+    INFLOW --> OYE["Oye:<br/>annular W_qs<br/>-> dW_int/dt, dW/dt"]
+    INFLOW --> QS["QuasiStatic:<br/>lambda_r converged in-loop<br/>-> no state"]
 
     PP --> DERIV["State derivative d lambda/dt"]
     OYE --> DERIV
@@ -322,9 +322,9 @@ Equating this to the blade-element thrust $C_T = k_2(1-a)^2$ with
 $k_2 = \sigma_r c_n / \sin^2\phi$ gives the quadratic actually solved for
 $a$:
 
-$$\underbrace{\left(\tfrac{50}{9} - 4F - k_2\right)}_{}a^2
-  + \underbrace{\left(4F - \tfrac{40}{9} + 2k_2\right)}_{}a
-  + \underbrace{\left(\tfrac{8}{9} - k_2\right)}_{} = 0$$
+$$\left(\tfrac{50}{9} - 4F - k_2\right)a^2
+  + \left(4F - \tfrac{40}{9} + 2k_2\right)a
+  + \left(\tfrac{8}{9} - k_2\right) = 0$$
 
 the physical root being the smaller one in $[0.4,\,1]$. The tangential
 induction is $a' = k_t/(1 - k_t)$ with $k_t = \sigma_r c_t / (4F\sin\phi\cos\phi)$,
