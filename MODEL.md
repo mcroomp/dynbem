@@ -207,11 +207,78 @@ $M_x$ is rolling moment (positive = roll right); $M_y$ is pitching moment
 $dT_i$, $dQ_i$ come from each model's inflow law: the prescribed-inflow
 models (Pitt-Peters, Oye) evaluate the element kernel of Section 6 with
 their local $\lambda$; the QuasiStatic BEM solves the momentum balance of
-Section 8 at each element.
+Section 9 at each element.
 
 ---
 
-## 8. Quasi-Static BEM (Level 1)
+## 8. Operating Regimes and Sign Conventions
+
+These conventions are shared by **all three models** — the
+prescribed-inflow models (Pitt-Peters, Oye) feed
+$\lambda_\text{total} = \lambda_\text{climb} + \dots$ through the same
+element kernel of Section 6, so the torque and thrust signs below follow
+identically.
+
+### 8.1 Climb / descent sign convention
+
+The internal axial freestream is taken as
+$v_\text{climb} = \mathbf{v}_\text{rel} \cdot \hat{h}$ with no negation
+(see Section 2):
+
+| $v_\text{climb}$ | Flow through disk | Regime |
+|------------------|-------------------|--------|
+| $> 0$ | downward | helicopter climb / normal inflow |
+| $= 0$ | — | hover |
+| $< 0$ | upward | autorotation / flying wind turbine |
+
+### 8.2 Torque sign and autorotation
+
+The torque sign follows automatically from the inflow sign, with no
+special-casing. In autorotation (upward wind, so the net axial inflow
+$\lambda < 0$):
+
+$$\lambda < 0 \;\Rightarrow\; \phi < 0 \;\Rightarrow\;
+  c_t = c_L\sin\phi - c_D\cos\phi < 0 \;\Rightarrow\; Q < 0$$
+
+A negative aerodynamic torque *drives* the rotor: the external integrator
+$\dot{\Omega} = (-Q + Q_\text{motor})/I$ then gives positive angular
+acceleration, i.e. the windmilling rotor speeds up until torque balance.
+In powered/hover mode ($\lambda > 0$), $Q > 0$ is aerodynamic drag on the
+rotor, so $\dot{\Omega} < 0$ without motor torque — the rotor decays
+toward rest. The same expression therefore captures both energy-absorbing
+and energy-extracting operation.
+
+### 8.3 Thrust direction
+
+$$\mathbf{F}_\text{world} = -T\,\hat{h}$$
+
+$T \ge 0$ for any lift-producing rotor ($c_n > 0$ in both modes). For a
+level rotor with $\hat{h} = [0, 0, 1]^\top$ this gives
+$F_{\text{world},z} = -T < 0$, i.e. upward thrust in NED, in both
+helicopter and turbine operation. (Restated in Section 14, Output
+Assembly.)
+
+---
+
+## 9. Quasi-Static BEM
+
+**Description.** The classical blade-element momentum model with no inflow
+memory: at every call the local inflow ratio $\lambda_r$ at each
+radial annulus is driven to the value that balances blade-element thrust
+against annulus momentum. There is no inflow state carried between calls
+-- the inflow is whatever the instantaneous geometry and loading demand.
+
+**Advantages.** Numerically robust across the whole envelope (hover,
+climb, descent, windmill) thanks to the inflow-ratio formulation and the
+dedicated Ning/Buhl turbine branch; no state to integrate, so no
+time-step stability constraint and no transient to settle; the only model
+that resolves the high-induction turbulent-wake state physically.
+
+**Disadvantages.** No inflow dynamics -- it cannot represent the lag
+between a control input and the wake's response, so it is wrong during
+fast transients and gives no dynamic-inflow phase shift; per-element
+iteration makes it the most expensive per call; inflow is azimuthally
+resolved only through the loading, with no explicit harmonic feedback.
 
 `BEMModel` / `solve_bem_element` (`quasi_static_bem.rs`). Each element's
 inflow ratio $\lambda_r$ is solved per call via a fixed-point iteration
@@ -226,19 +293,106 @@ $$4F\lambda_r(\lambda_r - \lambda_c) = \sigma_r\,c_n\,(\lambda_r^2 + x^2)$$
 Rearranged to standard form and solved explicitly; root selected by sign
 of $\lambda_c$ (climb uses positive root, descent uses negative root).
 
-Windmill Brake State correction (Buhl/Glauert): when the axial induction
-factor $a = 1 - \lambda_r / \lambda_c > 1/3$, the quadratic momentum
-relation breaks down. A Glauert/Buhl empirical correction is applied that
-smoothly transitions the relationship through the turbulent wake state
-toward the windmill limit.
+### 9.1 Windmill / turbine solver (Ning 2014 + Buhl 2005)
+
+For the energy-extracting regime (upward axial flow, $v_\text{climb} < 0$)
+the helicopter quadratic is replaced by a dedicated windmill solver
+working in induction-factor space $(a, a')$. Following Ning (2014), the
+coupled induction equations are recast as a single residual in the local
+inflow angle $\phi$ and bracketed by Brent's method over
+$\phi \in (-\pi/2,\,0)$:
+
+$$g(\phi) = \sin\phi\,(1 + a')\,\lambda_r + \cos\phi\,(1 - a) = 0$$
+
+where $\lambda_r = \Omega r / |v_\text{climb}|$ is the local speed ratio.
+For each trial $\phi$ the axial induction comes from momentum-BEM,
+
+$$a = \frac{k}{1 + k}, \qquad k = \frac{\sigma_r\,c_n}{4F\sin^2\phi}$$
+
+**Buhl turbulent-wake correction.** Classical momentum theory predicts a
+*decreasing* thrust for $a > 1/2$, which is non-physical — real rotors
+keep loading up into the turbulent-wake state. When $a > 0.4$ the solver
+switches to Buhl's (2005) empirical thrust law, which is a smooth
+parabola in $a$ matched to momentum theory at $a = 0.4$ and to the
+measured $C_T \approx 1.6$ near $a = 1$:
+
+$$C_T = \frac{8}{9} + \left(4F - \frac{40}{9}\right)a + \left(\frac{50}{9} - 4F\right)a^2$$
+
+Equating this to the blade-element thrust $C_T = k_2(1-a)^2$ with
+$k_2 = \sigma_r c_n / \sin^2\phi$ gives the quadratic actually solved for
+$a$:
+
+$$\underbrace{\left(\tfrac{50}{9} - 4F - k_2\right)}_{}a^2
+  + \underbrace{\left(4F - \tfrac{40}{9} + 2k_2\right)}_{}a
+  + \underbrace{\left(\tfrac{8}{9} - k_2\right)}_{} = 0$$
+
+the physical root being the smaller one in $[0.4,\,1]$. The tangential
+induction is $a' = k_t/(1 - k_t)$ with $k_t = \sigma_r c_t / (4F\sin\phi\cos\phi)$,
+clamped to $[-\tfrac12, \tfrac12]$.
+
+If no sign-changing $\phi$-bracket exists, or the converged state leaves
+the valid windmill regime ($0 < a < 1$, $c_n > 0$), the solver returns
+nothing and the element falls back to the helicopter quadratic above.
 
 In the QuasiStatic model the per-element momentum balance is converged
 inside the azimuth sweep, so the inflow is self-consistent at every
 $(\psi, r)$ rather than prescribed from a stored state.
 
+### 9.2 Hover-safe inflow iteration
+
+The standard wind-turbine BEM iterates on the induction factor
+$a = v_i / V_\infty$, which is **singular in hover** because
+$V_\infty \to 0$. This model instead iterates on the **total inflow
+ratio** $\lambda_r = v_a / (\Omega R)$, where $v_a$ is the total axial
+velocity at the disk (external freestream + induced). The combined
+momentum-BEM relation per annulus, with $k = \sigma_r c_n / (8F)$,
+is the quadratic above written as
+
+$$k\,(\lambda_r^2 + x^2) = \lambda_r\,(\lambda_r - \lambda_c)$$
+
+At hover ($v_\text{climb} = 0 \Rightarrow \lambda_c = 0$) this is
+non-singular and gives the standard hover solution directly:
+
+$$\lambda_r = x\sqrt{\frac{k}{1 - k}}$$
+
+so a single code path covers hover, climb, descent, and the
+windmill/turbine regime without switching variables.
+
+### 9.3 Root selection
+
+The momentum quadratic has two real roots; the physical one is selected
+by operating mode, set by the sign of $\lambda_c = v_\text{climb}/\Omega R$:
+
+- **Helicopter / hover** ($\lambda_c \ge 0$): take the **positive** root,
+  $\lambda_r > 0$ (flow descends through the disk).
+- **Turbine / autorotation** ($\lambda_c < 0$): take the **negative**
+  root, $\lambda_r < 0$ (flow ascends through the disk).
+
+This explicit branch is what keeps the solver on the correct momentum
+branch as the operating point passes through hover, rather than tracking
+the wrong root and producing a thrust/torque discontinuity.
+
 ---
 
-## 9. Pitt-Peters 3-State Dynamic Inflow (Level 2)
+## 10. Pitt-Peters 3-State Dynamic Inflow
+
+**Description.** A reduced-order dynamic-inflow model that represents the
+wake by just three global states -- a uniform component plus longitudinal
+and lateral harmonics -- relaxing toward a momentum-theory steady state
+through Peters' apparent-mass time constants. The three states are
+coupled to thrust, rolling, and pitching moment through the L-matrix.
+
+**Advantages.** Captures the dynamic-inflow lag and the cyclic
+inflow/hub-moment feedback that quasi-static BEM misses; the $L_\text{off}$
+cross-term reproduces Glauert wake skew naturally; only three states, so
+it is cheap to integrate and is the standard model for rotor flight
+dynamics and trim.
+
+**Disadvantages.** The global L-matrix coupling becomes numerically stiff
+at high advance ratio and in descent + edgewise wind, demanding small or
+adaptive time steps; the radial inflow shape is fixed (uniform + linear),
+so it cannot represent an arbitrary radial distribution; momentum theory
+breaks down in the vortex-ring state, requiring the empirical VRS override.
 
 Reference: Peters, D.A. (2009), *"How Dynamic Inflow Survives in the
 Competitive World of Rotorcraft Aerodynamics"*, JAHS 54(1):011001.
@@ -294,7 +448,24 @@ $$\dot{\lambda}_0 = \frac{\lambda_{0,ss} - \lambda_0}{\tau_0}, \quad
 
 ---
 
-## 10. Oye 2-Stage Annular Dynamic Inflow (Level 2 alt)
+## 11. Oye 2-Stage Annular Dynamic Inflow
+
+**Description.** A dynamic-inflow model that gives each radial annulus its
+own pair of first-order filter states, relaxing the annulus-local induced
+velocity toward its momentum target through two cascaded time constants.
+The annuli are independent -- there is no global coupling between them.
+
+**Advantages.** Per-annulus filters mean no global feedback, so it stays
+numerically stable in exactly the high-advance-ratio and descent regimes
+that make Pitt-Peters stiff; it resolves an arbitrary radial inflow
+distribution (not just uniform + linear); the two-stage filter matches
+measured wind-turbine inflow-lag data well (the OpenFAST DBEMT lineage).
+
+**Disadvantages.** No azimuthal harmonic states ($\lambda_c/\lambda_s$),
+so it has no cyclic inflow feedback and no wake-skew off-diagonal term --
+cyclic *control* still works but the inflow does not tilt in response to
+hub moment; state size grows with the radial grid ($2N_r$); like the
+others it needs the empirical VRS override in the vortex-ring state.
 
 References: Oye (1990), Snel & Schepers (1995), OpenFAST AeroDyn Theory
 v3.5 §6.3.4 (DBEMT_Mod=1).
@@ -341,7 +512,7 @@ makes Pitt-Peters stiff at high advance ratios and in descent + edgewise wind.
 
 ---
 
-## 11. Vortex-Ring State (VRS) Empirical Correction
+## 12. Vortex-Ring State (VRS) Empirical Correction
 
 Applied when: $v_\text{climb} < 0$ (descent) and $0 < \lambda_2 < 2$.
 
@@ -355,9 +526,14 @@ In the VRS regime $\lambda_{0,ss}$ is replaced by $\lambda_1/\Omega R$
 and the Pitt-Peters cross-coupling terms ($L_\text{off}$) are skipped.
 The same override applies across all annuli in the Oye model.
 
+This correction is part of the dynamic-inflow steady-state target, so it
+applies only to **Pitt-Peters and Oye**. The QuasiStatic BEM has no VRS
+model -- its momentum/windmill solve runs unmodified through the
+recirculating-wake regime, where its results are not trustworthy.
+
 ---
 
-## 12. Servo-Flap Feathering Model (Kaman rotor)
+## 13. Servo-Flap Feathering Model (Kaman rotor)
 
 Source: `dynbem_rs/src/servoflap.rs`. Applies when
 `PitchActuation::ServoFlap` is active. The blade feathering angle
@@ -402,7 +578,7 @@ swashplate-to-pitch path in the psi-loop.
 
 ---
 
-## 13. Output Assembly
+## 14. Output Assembly
 
 `assemble_result` (`bem_common.rs`), called by all three models:
 
@@ -419,9 +595,38 @@ shaft torque.
 
 ---
 
-## 14. Semi-Implicit Inflow Integrator and Trim Solver
+## 15. Semi-Implicit Inflow Integrator and Trim Solver
 
 Source: `dynbem_rs/src/trim.rs`. Generic over any `AeroModel`.
+
+### Why this exists
+
+The dynamic-inflow models return a state *derivative* $\dot{\boldsymbol{\lambda}}$,
+not a converged inflow — the caller is responsible for integrating it
+forward in time. Two needs follow from this:
+
+- **Numerical stability.** The inflow time constants span a wide range:
+  $\tau_0 = 8R/(3\pi V_T)$ for the uniform state versus the much smaller
+  $\tau_{c,s} = 16R/(45\pi V_T)$ for the harmonics, and both shrink as
+  $V_T$ grows. At the time steps used by the envelope sweep, explicit
+  Euler on the fast states is unstable (the update overshoots and rings).
+  A *semi-implicit* step damps each state by its own
+  $1/(1 + \Delta t/\tau_i)$ factor, which is unconditionally stable for a
+  first-order relaxation regardless of $\Delta t/\tau$, while still
+  reducing to explicit Euler for the quasi-static states ($\tau = \infty$).
+  This is what lets one fixed-step driver cover hover through high-advance-
+  ratio descent without per-regime step tuning.
+
+- **Steady-state trim.** Most validation and envelope points are
+  *equilibrium* conditions: the rotor is asked to hold a commanded
+  attitude (zero net hub moment, or a prescribed $M_x, M_y$). That
+  requires finding the cyclic inputs $(\eta_\text{lon}, \eta_\text{lat})$
+  that null the hub moments *after* the inflow has settled. Because the
+  inflow and the moments are mutually coupled (cyclic changes the moments,
+  which through the L-matrix change the inflow, which changes the
+  moments), the trim solver must relax the inflow to quasi-steady state at
+  each cyclic guess before measuring the residual — hence the integrator
+  and the trim solver live together.
 
 ### Semi-Implicit Euler Step
 
@@ -453,7 +658,7 @@ ratios.
 
 ---
 
-## 15. Numerical Floors
+## 16. Numerical Floors
 
 All constants in `dynbem_rs/src/common.rs`. These are empirical, tuned to
 keep the full operating envelope (hover, climb, descent, VRS, autorotation)
@@ -470,7 +675,7 @@ stable in one code path without mode-switching.
 
 ---
 
-## 16. Model Comparison Summary
+## 17. Model Comparison Summary
 
 | Property | QuasiStatic BEM | Pitt-Peters | Oye |
 |----------|----------------|-------------|-----|
@@ -478,14 +683,47 @@ stable in one code path without mode-switching.
 | Inflow dynamics | None | 3 time constants | Per-annulus $\tau_1$, $\tau_2(r)$ |
 | Cyclic inflow feedback | No | Yes (L-matrix coupling) | No |
 | Wake-skew coupling | No | Yes ($L_\text{off}$ cross-coupling) | No |
-| VRS correction | Yes | Yes | Yes |
+| VRS correction | No (momentum/windmill only) | Yes (Leishman) | Yes (Leishman) |
 | Numerical stiffness | Low | High at high $\mu$ + descent | Low |
 | Hub moment harmonics | Averaged $\psi$-loop | Averaged + feedback to inflow | Averaged, no feedback |
 | State size | 0 | 3 | $2N_r$ |
 
+### 17.1 Operating-Envelope Support
+
+Which model to reach for in each regime. "Preferred" marks the model
+best suited to that regime; the others still run but with the caveat
+noted.
+
+| Regime | QuasiStatic BEM | Pitt-Peters | Oye |
+|--------|-----------------|-------------|-----|
+| Hover | OK | OK | OK |
+| Axial climb | OK | OK | OK |
+| Forward flight, low $\mu$ | OK (no inflow lag) | Preferred (cyclic feedback) | OK (no cyclic feedback) |
+| Forward flight, high $\mu$ | OK | Stiff (small $\Delta t$) | Preferred (stable) |
+| Descent + edgewise wind | OK | Stiff / can destabilise | Preferred (stable) |
+| Vortex-ring state | Not modelled (no VRS override) | Leishman empirical | Leishman empirical |
+| Autorotation / windmill | Preferred (Ning/Buhl solver) | Sign-of-$\lambda$ only | Sign-of-$\lambda$ only |
+| Fast control transients | Not modelled (no inflow state) | Preferred (3-state lag) | OK (annular lag, no cyclic) |
+
+Notes:
+
+- **VRS**: only Pitt-Peters and Oye apply the Leishman empirical
+  $\lambda_1$ override (Section 12). QuasiStatic has no recirculating-wake
+  model -- its momentum/windmill solve is used unmodified, so results in
+  the vortex-ring state are not trustworthy.
+- **Autorotation / windmill**: only QuasiStatic has the dedicated
+  Ning 2014 / Buhl 2005 turbine solver (Section 9.1) that resolves the
+  high-induction turbulent-wake state. Pitt-Peters and Oye reach the
+  energy-extracting regime purely through the sign of their prescribed
+  inflow (Section 8.2) -- correct in torque sign but without the
+  turbulent-wake thrust correction.
+- **Transients**: QuasiStatic carries no inflow state, so it cannot
+  represent the lag between a control input and the wake response; use a
+  dynamic-inflow model when the time history matters.
+
 ---
 
-## 17. References
+## 18. References
 
 - Peters, D.A. (2009). *How Dynamic Inflow Survives in the Competitive
   World of Rotorcraft Aerodynamics: The Alexander Nikolsky Honorary
@@ -499,4 +737,9 @@ stable in one code path without mode-switching.
   Cambridge University Press.
 - Castles, W. & Gray, R.B. (1951). *Empirical relation between induced
   velocity, thrust, and rate of descent of a helicopter rotor.* NACA TN-2474.
+- Ning, A. (2014). *A simple solution method for the blade element
+  momentum equations with guaranteed convergence.* Wind Energy 17(9):1327-1345.
+- Buhl, M.L. (2005). *A new empirical relationship between thrust
+  coefficient and induction factor for the turbulent windmill state.*
+  NREL/TP-500-36834.
 - Bramwell, A.R.S. (1976). *Helicopter Dynamics.* Arnold.
