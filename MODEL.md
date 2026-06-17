@@ -225,11 +225,11 @@ The internal axial freestream is taken as
 $v_\text{climb} = \mathbf{v}_\text{rel} \cdot \hat{h}$ with no negation
 (see Section 2):
 
-| $v_\text{climb}$ | Flow through disk | Regime |
+| $`v_\text{climb}`$ | Flow through disk | Regime |
 |------------------|-------------------|--------|
-| $> 0$ | downward | helicopter climb / normal inflow |
-| $= 0$ | — | hover |
-| $< 0$ | upward | autorotation / flying wind turbine |
+| $`> 0`$ | downward | helicopter climb / normal inflow |
+| $`= 0`$ | — | hover |
+| $`< 0`$ | upward | autorotation / flying wind turbine |
 
 ### 8.2 Torque sign and autorotation
 
@@ -666,12 +666,12 @@ stable in one code path without mode-switching.
 
 | Constant | Value | Role |
 |----------|-------|------|
-| `EPS_DENOM` | $10^{-9}$ | Generic denominator / ratio guard |
-| `EPS_OMEGA_R` | $10^{-6}$ | Not-spinning threshold |
-| `MIN_LOSS_FACTOR` | $10^{-4}$ | Prandtl tip+hub loss floor |
-| `V_T_HOVER_FLOOR_FRAC` | $10^{-2}$ | $V_T$ floor as fraction of $\max(\Omega R, 1)$ |
-| `VRS_DESCENT_THRESHOLD` | $10^{-3}$ | VRS detection guard against hover chattering |
-| `MU_T_FLOOR` | $0.05$ | L-matrix denominator floor |
+| `EPS_DENOM` | $`10^{-9}`$ | Generic denominator / ratio guard |
+| `EPS_OMEGA_R` | $`10^{-6}`$ | Not-spinning threshold |
+| `MIN_LOSS_FACTOR` | $`10^{-4}`$ | Prandtl tip+hub loss floor |
+| `V_T_HOVER_FLOOR_FRAC` | $`10^{-2}`$ | $`V_T`$ floor as fraction of $`\max(\Omega R, 1)`$ |
+| `VRS_DESCENT_THRESHOLD` | $`10^{-3}`$ | VRS detection guard against hover chattering |
+| `MU_T_FLOOR` | $`0.05`$ | L-matrix denominator floor |
 
 ---
 
@@ -679,14 +679,14 @@ stable in one code path without mode-switching.
 
 | Property | QuasiStatic BEM | Pitt-Peters | Oye |
 |----------|----------------|-------------|-----|
-| Inflow states | 0 (converged each call) | 3 global ($\lambda_0, \lambda_c, \lambda_s$) | $2N_r$ annular ($W_\text{int}, W$) |
-| Inflow dynamics | None | 3 time constants | Per-annulus $\tau_1$, $\tau_2(r)$ |
+| Inflow states | 0 (converged each call) | 3 global ($`\lambda_0, \lambda_c, \lambda_s`$) | $`2N_r`$ annular ($`W_\text{int}, W`$) |
+| Inflow dynamics | None | 3 time constants | Per-annulus $`\tau_1`$, $`\tau_2(r)`$ |
 | Cyclic inflow feedback | No | Yes (L-matrix coupling) | No |
-| Wake-skew coupling | No | Yes ($L_\text{off}$ cross-coupling) | No |
+| Wake-skew coupling | No | Yes ($`L_\text{off}`$ cross-coupling) | No |
 | VRS correction | No (momentum/windmill only) | Yes (Leishman) | Yes (Leishman) |
-| Numerical stiffness | Low | High at high $\mu$ + descent | Low |
-| Hub moment harmonics | Averaged $\psi$-loop | Averaged + feedback to inflow | Averaged, no feedback |
-| State size | 0 | 3 | $2N_r$ |
+| Numerical stiffness | Low | High at high $`\mu`$ + descent | Low |
+| Hub moment harmonics | Averaged $`\psi`$-loop | Averaged + feedback to inflow | Averaged, no feedback |
+| State size | 0 | 3 | $`2N_r`$ |
 
 ### 17.1 Operating-Envelope Support
 
@@ -698,11 +698,11 @@ noted.
 |--------|-----------------|-------------|-----|
 | Hover | OK | OK | OK |
 | Axial climb | OK | OK | OK |
-| Forward flight, low $\mu$ | OK (no inflow lag) | Preferred (cyclic feedback) | OK (no cyclic feedback) |
-| Forward flight, high $\mu$ | OK | Stiff (small $\Delta t$) | Preferred (stable) |
+| Forward flight, low $`\mu`$ | OK (no inflow lag) | Preferred (cyclic feedback) | OK (no cyclic feedback) |
+| Forward flight, high $`\mu`$ | OK | Stiff (small $`\Delta t`$) | Preferred (stable) |
 | Descent + edgewise wind | OK | Stiff / can destabilise | Preferred (stable) |
 | Vortex-ring state | Not modelled (no VRS override) | Leishman empirical | Leishman empirical |
-| Autorotation / windmill | Preferred (Ning/Buhl solver) | Sign-of-$\lambda$ only | Sign-of-$\lambda$ only |
+| Autorotation / windmill | Preferred (Ning/Buhl solver) | Sign-of- $`\lambda`$ only | Sign-of- $`\lambda`$ only |
 | Fast control transients | Not modelled (no inflow state) | Preferred (3-state lag) | OK (annular lag, no cyclic) |
 
 Notes:
