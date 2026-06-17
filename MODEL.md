@@ -17,45 +17,30 @@ $$\big(\mathbf{u},\; \boldsymbol{\lambda}\big) \;\longmapsto\; \big(\mathbf{F},\
 
 ```mermaid
 flowchart TD
-    IN["Inputs u:<br/>Omega, theta_0, tilt_lon/lat,<br/>R_hub, v_hub, v_wind, rho"]
-    STATE["Inflow state lambda<br/>(model-dependent)"]
+    IN["Inputs u + inflow state lambda"]
 
-    IN --> KIN["Kinematics<br/>v_climb, v_inplane, mu, V_T"]
-    KIN --> CYC["Cyclic mapping<br/>theta_1c, theta_1s"]
-    CYC --> PITCH["Blade pitch<br/>theta(psi)"]
-    KIN -. "ServoFlap mode" .-> SERVO["Feathering solve<br/>delta_theta_0/1c/1s"]
-    SERVO --> PITCH
+    IN --> KIN["Kinematics<br/>v_climb, mu, V_T"]
+    KIN --> PITCH["Blade pitch theta(psi)<br/>cyclic / servo-flap"]
 
-    PITCH --> SWEEP["psi x r sweep<br/>local alpha to cl, cd to dT, dQ"]
-    STATE --> SWEEP
+    PITCH --> SWEEP["psi x r sweep<br/>alpha to cl, cd to dT, dQ"]
     KIN --> SWEEP
-
-    SWEEP -. "QuasiStatic:<br/>lambda_r converged<br/>per element, no state" .-> SWEEP
-
     SWEEP --> INTEG["Disk integrals<br/>T, Q, Mx_hub, My_hub"]
 
-    INTEG --> LOADS["Loads<br/>F_world, M_orbital, Q_spin"]
-    INTEG -- "dynamic-inflow<br/>models only" --> INFLOW["Inflow update<br/>(Pitt-Peters / Oye)"]
-
-    INFLOW --> PP["Pitt-Peters:<br/>L-matrix targets lambda_ss<br/>to d lambda/dt"]
-    INFLOW --> OYE["Oye:<br/>annular W_qs<br/>to dW_int/dt, dW/dt"]
-
-    PP --> DERIV["State derivative d lambda/dt"]
-    OYE --> DERIV
+    INTEG --> LOADS["Loads (F, M, Q)"]
+    INTEG -- "dynamic inflow only" --> DERIV["Inflow update<br/>Pitt-Peters / Oye<br/>to d lambda/dt"]
 
     LOADS --> OUT["AeroResult"]
     DERIV --> OUT
 ```
 
-QuasiStatic and the dynamic-inflow models split here. **QuasiStatic** has
-no inflow state and no post-integral update: each element's inflow ratio
-$`\lambda_r`$ is converged inside the sweep itself (the self-loop above),
-so it contributes only to the loads. **Pitt-Peters / Oye** carry an inflow
-state, so the disk integrals feed a steady-state target that sets the
-state derivative $`\dot{\lambda}`$, which the external integrator advances
-between calls. The VRS empirical correction overrides the uniform-inflow
-target inside the Pitt-Peters / Oye inflow update when in the
-recirculating-wake regime.
+QuasiStatic and the dynamic-inflow models split at the disk integrals.
+**QuasiStatic** has no inflow state: each element's inflow ratio
+$`\lambda_r`$ is converged inside the sweep itself, so it only contributes
+to the loads. **Pitt-Peters / Oye** carry an inflow state, so the disk
+integrals feed a steady-state target that sets the state derivative
+$`\dot{\lambda}`$, which the external integrator advances between calls.
+The VRS empirical correction overrides the uniform-inflow target inside
+the Pitt-Peters / Oye inflow update when in the recirculating-wake regime.
 
 ---
 
