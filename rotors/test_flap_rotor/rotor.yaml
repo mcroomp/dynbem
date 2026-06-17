@@ -52,7 +52,7 @@ passive_feathering:
   ac_offset_m:        0.0
   servoflaps:
     # Aerodynamic pitching moment per unit flap deflection [rad^-1].
-    # Thin-airfoil estimate: ~-0.5*sqrt(flap_chord_fraction) ~ -0.25 for 25% chord.
+    # Thin-airfoil estimate at AC for 25% flap chord is about -0.41.
     # Larger magnitude (e.g. -1.5) represents high-camber flap with end-plates.
     C_M_delta_per_rad: -1.5
     # Inboard and outboard span limits of the servo-flap [m from shaft centre].

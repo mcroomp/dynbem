@@ -107,9 +107,11 @@ CCW-from-above convention: `tilt_lon > 0` peaks pitch at ψ=π (tail),
 giving more thrust at the back → nose-down moment via the hub moment
 integral below.
 
-If a future model adds full flap-dynamics ODE, set φ ≈ +90° (rad
-internally, deg in the YAML) so the user's `tilt_lon`/`tilt_lat`
-command a *disk* tilt rather than a thrust asymmetry directly.
+When `passive_feathering` is enabled, swashplate cyclic is interpreted
+as servo-flap command. The feathering dynamics introduce an intrinsic
+90 deg lag at 1/rev and the solver does NOT compensate this internally.
+If axis-preserving control behavior is needed, apply phase correction in
+the controller or via swashplate phase configuration.
 
 `control = None` defaults: gain = 1, φ = 0 → `tilt_lon, tilt_lat` are
 direct blade-pitch amplitudes with helicopter-standard signs.
@@ -310,22 +312,31 @@ the trade-off OpenFAST's DBEMT made.
 
 ## Kaman servo-flap modeling (Beaupoil rotor)
 
-The Beaupoil 2026 rotor (`rotors/beaupoil_2026/rotor.yaml`) is a
-Kaman-style servo-flap-controlled rotor. The `KamanFlap` struct in
-`dynbem_rs/src/rotor_definition.rs` and the `kaman_flap:` YAML block
-exist as data containers, **but the flap is currently inert in the
-aerodynamics** -- no model reads it, `element_force` ignores it. A
-state-of-the-art modeling proposal (Theodorsen flap increments +
-per-blade torsion DOF + first-order actuator lag, with Tier 1
-quasi-static and Tier 2 dynamic variants) lives in
-[design/kaman_servo_flap_proposal.md](design/kaman_servo_flap_proposal.md),
-together with the open-source research landscape (Falls 2010 UMD,
-Shen-Chopra 2003, Bandyopadhyay 2015, Fulton-Ormiston 1997 NASA) and a
-validation plan against published experimental data. Read that doc
-before adding any flap-related physics; the key trap it covers is the
-**"elevon reversal" sign**: a naive sectional DeltaC_L flap model
-gets the lift direction *wrong* relative to a real Kaman rotor,
-because the blade torsion DOF inverts it.
+Servo-flap forcing is now active through the passive feathering path:
+
+- Geometry / parameters: `PassiveFeatheringProperties` and
+  `ServoFlapProperties` in `dynbem_rs/src/rotor_definition.rs`
+- Dynamics + solve: `dynbem_rs/src/passive_feathering.rs`
+- Call sites: `dynbem_rs/src/pitt_peters.rs`, `dynbem_rs/src/oye.rs`,
+  `dynbem_rs/src/quasi_static_bem.rs`
+
+Model scope (current):
+
+- Quasi-static 1/rev harmonic feathering solve
+- Mechanical pitch-bearing damping
+- Optional aerodynamic spring from AC offset
+- Servo-flap aerodynamic pitching-moment forcing
+
+Known limitations:
+
+- No direct sectional `dCL/d_delta * delta_f` lift increment yet
+- No servo actuator lag model yet
+- No DC flap command path yet (`delta_f0 = 0` in current solve)
+- `mu` cross-term in flap forcing uses scalar advance ratio only
+
+The old `kaman_flap:` block under `control:` remains metadata-only and
+is not consumed by the Rust aero solvers. Use `passive_feathering:` to
+enable active servo-flap feathering dynamics.
 
 ## Do not revert work without explicit instructions
 

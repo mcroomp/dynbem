@@ -84,8 +84,13 @@
 //   A positive M_f1c (cos forcing, e.g. from lateral tilt) drives B > 0 (sin response).
 //   This is the classical 90-deg phase lag: cos forcing -> sin response.
 //
-// These delta_theta values are added directly to loop_theta_1c/1s in the psi-loop,
-// giving full-span pitch authority equivalent to the swashplate.
+// These delta_theta values are added directly to loop_theta_1c/1s in the psi-loop.
+//
+// Practical convention note:
+//   This solver applies NO internal phase compensation. It returns the raw
+//   feathering response, including the intrinsic ~90 deg lag at 1/rev.
+//   Any control-axis phase correction belongs in upstream control mapping
+//   (controller or swashplate phase configuration), not inside this model.
 //
 // # References
 // Kaman Aerospace: servo-flap rotor design patents and technical reports.
@@ -124,7 +129,11 @@ impl FeatheringState {
 /// Integrates:  dM/dr = 0.5 * rho * v_local^2 * c * C_M_delta * delta_f(psi)
 /// over the flap span, keeping only cos(psi) and sin(psi) terms.
 ///
-/// v_local(r, psi) = Omega*r + Omega*R*mu*sin(psi)   (hover: mu=0)
+/// v_local(r, psi) = Omega*r - Omega*R*mu*sin(psi)   (hover: mu=0)
+///
+/// This sign follows the project convention (psi=0 at +X, CCW from above).
+/// The mu cross-term only contributes through delta_f0. The current solver uses
+/// delta_f0=0, so the term is inactive until a DC flap path is introduced.
 ///
 /// After expanding v_local^2 and multiplying by delta_f harmonics:
 ///   M_f1c = delta_f1c * m_dc_shape
@@ -132,7 +141,7 @@ impl FeatheringState {
 ///
 /// where:
 ///   m_dc_shape  = 0.5 * rho * Omega^2 * C_M_delta * chord * (r_out^3-r_in^3)/3
-///   m_sin_shape = 0.5 * rho * Omega^2 * C_M_delta * chord * mu * R * (r_out^2-r_in^2)
+///   m_sin_shape = -0.5 * rho * Omega^2 * C_M_delta * chord * mu * R * (r_out^2-r_in^2)
 fn servo_flap_moments(
     sp: &ServoFlapProperties,
     delta_f0: f64,
@@ -156,8 +165,9 @@ fn servo_flap_moments(
 
     // DC velocity^2 integral (dominant term)
     let m_dc_shape = q_base * r3;
-    // Cross term with forward-flight mu: gives extra sin(psi) contribution
-    let m_sin_shape = q_base * 2.0 * mu * r_tip * r2;
+    // Cross term with forward-flight mu (psi=0 at +X): negative sign from
+    // v_local = Omega*r - Omega*R*mu*sin(psi).
+    let m_sin_shape = -q_base * 2.0 * mu * r_tip * r2;
 
     let m_f1c = delta_f1c * m_dc_shape;
     let m_f1s = delta_f1s * m_dc_shape + delta_f0 * m_sin_shape;
@@ -176,8 +186,8 @@ fn servo_flap_moments(
 ///
 /// # Arguments
 /// * `fp`      -- FeatheringProperties (never None at call site)
-/// * `theta_1c/s` -- swashplate command harmonics [rad]; interpreted as servo-flap
-///                  deflection delta_f when servo is configured
+/// * `theta_1c/s` -- swashplate command harmonics [rad], passed through to
+///                  flap harmonics without internal phase compensation.
 /// * `rho`     -- air density [kg/m^3]
 /// * `omega`   -- rotor angular velocity [rad/s]
 /// * `mu`      -- advance ratio
@@ -216,16 +226,14 @@ pub fn solve_feathering(
     // p_sq = 1 + k_aero / (I * Omega^2);  p_sq = 1 when ac_offset = 0
     let p_sq = 1.0 + k_aero / (i_theta * omega * omega);
 
-    // Servo-flap moment harmonics.
-    // The swashplate cyclic commands are interpreted as servo-flap deflection
-    // angles delta_f when servo is configured.
+    // Servo-flap moment harmonics (raw physical mapping, no pre-rotation).
     let (m_f1c, m_f1s) = match &fp.servoflaps {
         None => (0.0, 0.0),  // passive free-feathering: no servo forcing
         Some(sp) => servo_flap_moments(
             sp,
-            0.0,       // DC flap deflection: zero (collective handled separately)
-            theta_1c,  // lateral delta_f harmonic
-            theta_1s,  // longitudinal delta_f harmonic
+            0.0,       // No DC flap path in the current model.
+            theta_1c,
+            theta_1s,
             rho,
             omega,
             mu,
@@ -292,17 +300,15 @@ mod tests {
         assert!(s.delta_theta_1s.abs() < 1e-10);
     }
 
-    // Lateral command (theta_1c) at AC (p_sq=1): cos forcing -> sin response (90-deg lag)
+    // Lateral command (theta_1c) at AC (p_sq=1): cos forcing -> sin response.
     #[test]
-    fn test_lateral_command_gives_sin_response_at_ac() {
+    fn test_theta_1c_command_cross_couples_to_theta_1s_at_ac() {
         let fp = make_feathering(5.0, 0.0, true);
         let s = solve_feathering(&fp, 0.1, 0.0, 1.225, 33.2, 0.0, 2.5, 0.20, 5.79);
-        // For p_sq=1: delta_theta_1c = -M_f1s/(C*O), delta_theta_1s = M_f1c/(C*O)
-        // M_f1c is nonzero, M_f1s=0 (no DC or lateral command) -> delta_theta_1c=0, delta_theta_1s!=0
         assert!(s.delta_theta_1c.abs() < 1e-6,
-            "delta_theta_1c should be ~0 for pure lateral command at AC: {}", s.delta_theta_1c);
+            "delta_theta_1c should be ~0 for pure theta_1c command: {}", s.delta_theta_1c);
         assert!(s.delta_theta_1s.abs() > 1e-4,
-            "delta_theta_1s should be nonzero: {}", s.delta_theta_1s);
+            "delta_theta_1s should be nonzero from 90-deg lag: {}", s.delta_theta_1s);
     }
 
     // No servo -> zero feathering regardless of command

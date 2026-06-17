@@ -59,6 +59,9 @@ control:
   swashplate_phase_deg:       0.0
   servo_slew_rate_deg_s:     545.0
   servo_travel_deg:          100.0
+  # Legacy metadata block from the source YAML.
+  # Not consumed by dynbem_rs aero solvers.
+  # Active servo-flap dynamics use the separate passive_feathering: section.
   kaman_flap:
     chord_fraction:           0.25
     span_start_m:             1.2

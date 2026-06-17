@@ -40,6 +40,7 @@ fn make_rotor_definition(n_elements: usize) -> RotorDefinition {
             alpha_stall_deg: 15.0,
         },
         control: None,
+        passive_feathering: None,
         name: "bench_rotor".to_string(),
         description: "standalone harness rotor".to_string(),
     }

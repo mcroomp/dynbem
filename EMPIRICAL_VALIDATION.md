@@ -10,6 +10,14 @@ paper listed. The `Research/` directory is excluded from the published
 sdist via `MANIFEST.in` — these notes are for developers working in the
 git clone.
 
+## Passive feathering / servo-flap status
+
+The passive-feathering servo-flap model (`dynbem_rs/src/passive_feathering.rs`)
+is currently covered by unit and integration behavior tests, but it is not yet
+benchmarked against a dedicated published servo-flap rotor dataset. Treat its
+authority and damping response as engineering behavior, not an empirically
+calibrated claim.
+
 ---
 
 ## Data sources at a glance

@@ -146,7 +146,9 @@ pub struct PassiveFeatheringProperties {
 #[derive(Clone, Debug)]
 pub struct ServoFlapProperties {
     /// Pitching moment coefficient per unit flap deflection [rad^-1].
-    /// Thin-airfoil estimate: C_M_delta ~ -0.5 * sqrt(flap_chord_fraction).
+    /// Thin-airfoil estimate at AC:
+    /// C_M_delta = -(1/pi) * (sin(theta_h) - 0.5*sin(2*theta_h)),
+    /// cos(theta_h) = 2*(flap_chord_fraction) - 1.
     /// Negative = nose-down moment for downward (positive) flap deflection.
     pub C_M_delta_per_rad: f64,
     /// Inboard edge of servo-flap along blade span [m] (from shaft centre).

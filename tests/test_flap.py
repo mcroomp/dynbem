@@ -7,7 +7,7 @@ Covers:
   4. Servo-flap command (tilt_lat) changes hub moment vs. rigid blade.
   5. Less damping -> more feathering authority.
   6. OyeBEMModel also runs with passive feathering configured.
-  7. Phase-lag: lateral command drives sin response (feathering at AC).
+    7. Raw feathering lag: tilt_lat couples into pitch axis without compensation.
   8. Full beaupoil servoflaps rotor runs compute_forces without error.
 """
 
@@ -172,14 +172,14 @@ def test_oye_with_feathering_runs():
 
 
 # ---------------------------------------------------------------------------
-# 7. Phase-lag: lateral command drives mostly sin (My) response at AC
+# 7. Raw feathering lag: tilt_lat couples into pitch axis without compensation
 # ---------------------------------------------------------------------------
 
 def test_phase_lag_lateral_command():
-    """With feathering axis at AC (p_sq=1):
-    lateral cyclic (tilt_lat) -> M_f1c (cos aerodynamic moment)
-    -> delta_theta_1s (sin pitch) via 90-deg lag.
-    Check that we get finite results and that feathering differs from rigid.
+    """With no internal phase compensation, 1/rev feathering lag is visible.
+
+    A lateral command produces a notable pitch-axis response relative to
+    the rigid-blade case.
     """
     defn_feat = make_minimal_defn(with_passive_feathering=True, with_servo=True)
     defn_rigid = make_minimal_defn(with_passive_feathering=False)
@@ -190,7 +190,7 @@ def test_phase_lag_lateral_command():
     res_rigid, _ = model_rigid.compute_forces(inputs, model_rigid.initial_rotor_state())
     assert math.isfinite(thrust_N(res_feat))
     assert math.isfinite(thrust_N(res_rigid))
-    # Feathering introduces extra pitch correction -> different hub moments
+
     my_feat = float(res_feat.M_orbital[1])
     my_rigid = float(res_rigid.M_orbital[1])
     assert my_feat != pytest.approx(my_rigid, abs=1e-6)
