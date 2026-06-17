@@ -6,11 +6,11 @@ use std::f64::consts::PI;
 use crate::aero_io::{AeroResult, RotorInputs};
 use crate::aero_model::AeroModel;
 use crate::bem_common::{
-    assemble_result, build_psi_trig_table, element_force, kinematics, v_t_disk, vrs_regime,
+    assemble_result, build_psi_trig_table, element_force, kinematics, v_mass_flow_disk, vrs_regime,
     ElementCtx, PsiKernel, RadialGrid, SweepCtx,
 };
 use crate::common::{
-    vrs_lambda1, EPS_OMEGA_R, MIN_LOSS_FACTOR, VRS_DESCENT_THRESHOLD, V_T_HOVER_FLOOR_FRAC,
+    vrs_lambda1, EPS_OMEGA_R, MIN_LOSS_FACTOR, VRS_DESCENT_THRESHOLD, MASS_FLOW_HOVER_FLOOR_FRAC,
 };
 use crate::cyclic::cyclic_coeffs;
 use crate::servoflap::{solve_feathering, FeatheringState};
@@ -100,7 +100,7 @@ fn solve_w_qs(
 
 fn oye_taus(r_tip: f64, x_arr: &[f64], v_inf: f64, a_avg: f64, n_active: usize) -> (f64, Vec<f64>) {
     let a_c = a_avg.clamp(0.0, A_AVG_CLAMP);
-    let tau1 = 1.1 / (1.0 - 1.3 * a_c) * r_tip / v_inf.max(V_T_HOVER_FLOOR_FRAC);
+    let tau1 = 1.1 / (1.0 - 1.3 * a_c) * r_tip / v_inf.max(MASS_FLOW_HOVER_FLOOR_FRAC);
     let mut tau2 = vec![0.0; n_active];
     for i in 0..n_active {
         let x = x_arr[i];
@@ -166,7 +166,7 @@ impl<P: Polar + Clone> AeroModel for OyeBEMModel<P> {
         } else {
             0.0
         };
-        let v_inf = v_t_disk(v_edge, v_climb, w_mean * omega_r, omega_r);
+        let v_inf = v_mass_flow_disk(v_edge, v_climb, w_mean * omega_r, omega_r);
         let a_avg = if v_inf > VRS_DESCENT_THRESHOLD {
             w_mean * omega_r / v_inf
         } else {
@@ -268,8 +268,8 @@ impl<P: Polar + Clone> AeroModel for OyeBEMModel<P> {
             0.0
         };
         let v0_mean = w_mean * omega_r;
-        let vt_disk = v_t_disk(v_edge, v_climb, v0_mean, omega_r);
-        let mu_t = vt_disk / omega_r.max(EPS_OMEGA_R);
+        let v_mf = v_mass_flow_disk(v_edge, v_climb, v0_mean, omega_r);
+        let mu_t = v_mf / omega_r.max(EPS_OMEGA_R);
 
         let area = PI * r_tip * r_tip;
         let vrs = vrs_regime(t_total, v_climb, rho, area);
@@ -308,12 +308,12 @@ impl<P: Polar + Clone> AeroModel for OyeBEMModel<P> {
             )
         };
 
-        let a_avg = if vt_disk > VRS_DESCENT_THRESHOLD {
-            w_mean * omega_r / vt_disk
+        let a_avg = if v_mf > VRS_DESCENT_THRESHOLD {
+            w_mean * omega_r / v_mf
         } else {
             0.0
         };
-        let (tau1_scalar, tau2_arr) = oye_taus(r_tip, &self.grid.x_mid[..n], vt_disk, a_avg, n);
+        let (tau1_scalar, tau2_arr) = oye_taus(r_tip, &self.grid.x_mid[..n], v_mf, a_avg, n);
 
         let mut d_w_int = vec![0.0; n];
         let mut d_w = vec![0.0; n];

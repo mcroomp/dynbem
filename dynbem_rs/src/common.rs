@@ -30,10 +30,11 @@ pub const EPS_OMEGA_R: f64 = 1e-6;
 /// tip / hub-cutout.
 pub const MIN_LOSS_FACTOR: f64 = 1e-4;
 
-/// V_T (mass-flow speed at the disk) floor expressed as a fraction of
-/// max(Omega*R, 1). Stops the Pitt-Peters / Oye time constants going
-/// infinite as the disk approaches VRS / hover at zero thrust.
-pub const V_T_HOVER_FLOOR_FRAC: f64 = 1e-2;
+/// Mass-flow speed (V_mf, the resultant flow through the disk) floor
+/// expressed as a fraction of max(Omega*R, 1). Stops the Pitt-Peters / Oye
+/// time constants going infinite as the disk approaches VRS / hover at zero
+/// thrust.
+pub const MASS_FLOW_HOVER_FLOOR_FRAC: f64 = 1e-2;
 
 /// Threshold below which |v_climb| is considered "definitively in
 /// descent" -- guards the VRS-region detection from chattering at hover.
@@ -41,7 +42,7 @@ pub const VRS_DESCENT_THRESHOLD: f64 = 1e-3;
 
 /// Floor for the non-dim mass-flow parameter mu_T in the Pitt-Peters L
 /// matrix denominator. Without this the cyclic targets blow up at
-/// hover/climb where mu_T -> 0. 0.05 corresponds to V_T ~= 5% Omega_R,
+/// hover/climb where mu_T -> 0. 0.05 corresponds to V_mf ~= 5% Omega_R,
 /// well below any practical operating point. Empirical, matches the
 /// Python reference.
 pub const MU_T_FLOOR: f64 = 0.05;

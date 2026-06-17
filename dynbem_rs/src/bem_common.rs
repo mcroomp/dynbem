@@ -3,7 +3,7 @@
 
 use crate::aero_io::{AeroResult, Mat3, RotorInputs, Vec3};
 use crate::common::{
-    AlignedBEMF64, EPS_OMEGA_R, MAX_BEM_ELEMENTS, VRS_DESCENT_THRESHOLD, V_T_HOVER_FLOOR_FRAC,
+    AlignedBEMF64, EPS_OMEGA_R, MAX_BEM_ELEMENTS, VRS_DESCENT_THRESHOLD, MASS_FLOW_HOVER_FLOOR_FRAC,
 };
 use crate::polar::Polar;
 use crate::rotor_definition::BladeGeometry;
@@ -189,20 +189,24 @@ pub struct VrsRegime {
     pub in_vrs: bool,
 }
 
-/// Mass-flow speed at the disk (the Glauert V_T scalar).
+/// Mass-flow speed at the disk (the Glauert mass-flow scalar V_mf).
+///
+/// This is the resultant flow speed *through* the rotor disk used to scale
+/// the dynamic-inflow time constants -- NOT the blade tip speed `omega_r`
+/// and NOT the blade-element tangential velocity `v_t`.
 ///
 /// ```text
-/// V_T = sqrt(v_edge^2 + (v_climb + v0_axial)^2)
+/// V_mf = sqrt(v_edge^2 + (v_climb + v0_axial)^2)
 /// ```
 ///
 /// `v0_axial` is the axial (induced) component in m/s. Floored at
-/// `V_T_HOVER_FLOOR_FRAC * max(omega_r, 1)` to keep the Pitt-Peters / Oye
+/// `MASS_FLOW_HOVER_FLOOR_FRAC * max(omega_r, 1)` to keep the Pitt-Peters / Oye
 /// time constants finite at hover / zero thrust.
 #[inline]
-pub fn v_t_disk(v_edge: f64, v_climb: f64, v0_axial: f64, omega_r: f64) -> f64 {
+pub fn v_mass_flow_disk(v_edge: f64, v_climb: f64, v0_axial: f64, omega_r: f64) -> f64 {
     (v_edge * v_edge + (v_climb + v0_axial).powi(2))
         .sqrt()
-        .max(V_T_HOVER_FLOOR_FRAC * omega_r.max(1.0))
+        .max(MASS_FLOW_HOVER_FLOOR_FRAC * omega_r.max(1.0))
 }
 
 #[inline]

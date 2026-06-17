@@ -6,7 +6,7 @@ use std::f64::consts::PI;
 use crate::aero_io::{AeroResult, RotorInputs};
 use crate::aero_model::AeroModel;
 use crate::bem_common::{
-    assemble_result, build_psi_trig_table, element_force, kinematics, v_t_disk, vrs_regime,
+    assemble_result, build_psi_trig_table, element_force, kinematics, v_mass_flow_disk, vrs_regime,
     ElementCtx, PsiKernel, RadialGrid, SweepCtx,
 };
 use crate::common::{vrs_lambda1, EPS_DENOM, EPS_OMEGA_R, MAX_BEM_ELEMENTS, MU_T_FLOOR};
@@ -137,9 +137,9 @@ impl<P: Polar + Clone> AeroModel for PittPetersModel<P> {
         let r_tip = self.defn.blade.radius_m;
         let kin = kinematics(inputs, inputs.omega_rad_s, r_tip);
         let v0 = state.lambda_0 * kin.omega_r;
-        let vt = v_t_disk(kin.v_edge, kin.v_climb, v0, kin.omega_r);
-        let tau_0 = (8.0 * r_tip) / (3.0 * PI * vt);
-        let tau_cs = (16.0 * r_tip) / (45.0 * PI * vt);
+        let v_mf = v_mass_flow_disk(kin.v_edge, kin.v_climb, v0, kin.omega_r);
+        let tau_0 = (8.0 * r_tip) / (3.0 * PI * v_mf);
+        let tau_cs = (16.0 * r_tip) / (45.0 * PI * v_mf);
         vec![tau_0, tau_cs, tau_cs]
     }
 
@@ -271,10 +271,10 @@ impl<P: Polar + Clone> AeroModel for PittPetersModel<P> {
         let vrs = vrs_regime(t_total, v_climb, rho, area);
 
         let v0 = lam0 * omega_r;
-        let vt_disk = v_t_disk(v_edge, v_climb, v0, omega_r);
+        let v_mf = v_mass_flow_disk(v_edge, v_climb, v0, omega_r);
 
         let mu_t_eff = (if omega_r > EPS_OMEGA_R {
-            vt_disk / omega_r
+            v_mf / omega_r
         } else {
             0.0
         })
@@ -289,7 +289,7 @@ impl<P: Polar + Clone> AeroModel for PittPetersModel<P> {
         let l_cc = 4.0 * cos_chi / (1.0 + cos_chi);
         let l_ss = 4.0 / (1.0 + cos_chi);
 
-        let norm = rho * area * omega_r * r_tip * vt_disk;
+        let norm = rho * area * omega_r * r_tip * v_mf;
         let c_l_hub = if norm > EPS_DENOM { mx_hub / norm } else { 0.0 };
         let c_m_hub = if norm > EPS_DENOM { my_hub / norm } else { 0.0 };
 
@@ -300,7 +300,7 @@ impl<P: Polar + Clone> AeroModel for PittPetersModel<P> {
                 0.0
             }
         } else if omega_r > EPS_OMEGA_R {
-            t_total / (2.0 * rho * area * vt_disk * omega_r) + l_off * c_m_hub / mu_t_eff
+            t_total / (2.0 * rho * area * v_mf * omega_r) + l_off * c_m_hub / mu_t_eff
         } else {
             0.0
         };
@@ -313,8 +313,8 @@ impl<P: Polar + Clone> AeroModel for PittPetersModel<P> {
         let lam_c_ss = (-l_off * c_t + l_cc * c_m_hub) / mu_t_eff;
         let lam_s_ss = (l_ss * c_l_hub) / mu_t_eff;
 
-        let tau_0 = (8.0 * r_tip) / (3.0 * PI * vt_disk);
-        let tau_cs = (16.0 * r_tip) / (45.0 * PI * vt_disk);
+        let tau_0 = (8.0 * r_tip) / (3.0 * PI * v_mf);
+        let tau_cs = (16.0 * r_tip) / (45.0 * PI * v_mf);
 
         let d_lam0 = (lam0_ss - lam0) / tau_0;
         let d_lam_c = (lam_c_ss - lam_c) / tau_cs;

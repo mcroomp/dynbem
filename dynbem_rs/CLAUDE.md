@@ -89,7 +89,7 @@ All in `common.rs`:
 - `EPS_DENOM` (1e-9) - generic division/ratio safety
 - `EPS_OMEGA_R` (1e-6) - rotor-not-spinning threshold
 - `MIN_LOSS_FACTOR` (1e-4) - Prandtl tip+hub loss floor
-- `V_T_HOVER_FLOOR_FRAC` (1e-2) - mass-flow floor at hover/zero-thrust
+- `MASS_FLOW_HOVER_FLOOR_FRAC` (1e-2) - mass-flow floor at hover/zero-thrust
 - `VRS_DESCENT_THRESHOLD` (1e-3) - VRS detection guard against hover
   chattering
 - `MU_T_FLOOR` (0.05) - Pitt-Peters L-matrix denominator floor

@@ -19,7 +19,7 @@ $$\big(\mathbf{u},\; \boldsymbol{\lambda}\big) \;\longmapsto\; \big(\mathbf{F},\
 flowchart TD
     IN["Inputs u + inflow state lambda"]
 
-    IN --> KIN["Kinematics<br/>v_climb, mu, V_T"]
+    IN --> KIN["Kinematics<br/>v_climb, mu, V_mf"]
     KIN --> PITCH["Blade pitch theta(psi)<br/>cyclic / servo-flap"]
 
     PITCH --> SWEEP["psi x r sweep<br/>alpha to cl, cd to dT, dQ"]
@@ -92,11 +92,19 @@ $$v_\text{edge} = \|\mathbf{v}_\text{inplane}\|, \qquad \mu = \frac{v_\text{edge
 
 $$\mathbf{v}_\text{inplane,hub} = \mathbf{R}_\text{hub}^\top\,\mathbf{v}_\text{inplane}$$
 
-The mass-flow speed at the disk (Glauert $V_T$):
+The mass-flow speed at the disk (Glauert mass-flow scalar $V_\text{mf}$):
 
-$$V_T = \sqrt{v_\text{edge}^2 + (v_\text{climb} + v_0)^2}$$
+$$V_\text{mf} = \sqrt{v_\text{edge}^2 + (v_\text{climb} + v_0)^2}$$
 
 where $v_0$ is the axial component of the current induced velocity (m/s).
+
+> **Symbol note.** $V_\text{mf}$ is the resultant flow speed *through* the
+> disk used to scale the dynamic-inflow time constants. It is **not** the
+> blade tip speed $\Omega R$ and **not** the blade-element tangential
+> velocity $v_t = \Omega r + v_{t,\text{extra}}$ of Section 6. In the Rust
+> source it is `v_mass_flow_disk` (locals `v_mf`); the tangential velocity
+> stays `v_t`. The induced velocity $v_0$ is dimensional (m/s); its
+> non-dimensional counterpart is $\lambda_0 = v_0 / \Omega R$.
 
 ---
 
@@ -104,7 +112,8 @@ where $v_0$ is the axial component of the current induced velocity (m/s).
 
 Swashplate tilts (`tilt_lon`, `tilt_lat`) map to blade-pitch Fourier
 harmonics via `cyclic_coeffs` (`dynbem_rs/src/cyclic.rs`). With
-swashplate phase $\varphi$ and gain $g$:
+swashplate phase $\varphi$ and gain $g$ (here $\eta_\text{lon} \equiv$
+`tilt_lon` and $\eta_\text{lat} \equiv$ `tilt_lat`):
 
 $$\theta_{1c} = g\,(-\eta_\text{lon}\cos\varphi - \eta_\text{lat}\sin\varphi)$$
 
@@ -274,12 +283,18 @@ inflow ratio $\lambda_r$ is solved per call via a fixed-point iteration
 
 The local solidity: $\sigma_r = N_b\,c(r)\,/\,(2\pi r)$.
 
-The momentum-BEM quadratic (helicopter mode, $\lambda_c = v_\text{climb}/\Omega R$):
+The momentum-BEM quadratic (helicopter mode, $\lambda_\text{climb} = v_\text{climb}/\Omega R$):
 
-$$4F\lambda_r(\lambda_r - \lambda_c) = \sigma_r\,c_n\,(\lambda_r^2 + x^2)$$
+$$4F\lambda_r(\lambda_r - \lambda_\text{climb}) = \sigma_r\,c_n\,(\lambda_r^2 + x^2)$$
 
 Rearranged to standard form and solved explicitly; root selected by sign
-of $\lambda_c$ (climb uses positive root, descent uses negative root).
+of $\lambda_\text{climb}$ (climb uses positive root, descent uses negative root).
+
+> **Symbol note.** $\lambda_\text{climb} = v_\text{climb}/\Omega R$ is the
+> non-dimensional climb inflow ratio (Rust local `lambda_climb`). Do not
+> confuse it with the Pitt-Peters cosine harmonic $\lambda_c$ of Section
+> 10 (Rust state field `lambda_c`) -- a different quantity that happens to
+> share the bare letter $c$. The two never appear in the same model.
 
 ### 9.1 Windmill / turbine solver (Ning 2014 + Buhl 2005)
 
@@ -336,9 +351,9 @@ velocity at the disk (external freestream + induced). The combined
 momentum-BEM relation per annulus, with $k = \sigma_r c_n / (8F)$,
 is the quadratic above written as
 
-$$k\,(\lambda_r^2 + x^2) = \lambda_r\,(\lambda_r - \lambda_c)$$
+$$k\,(\lambda_r^2 + x^2) = \lambda_r\,(\lambda_r - \lambda_\text{climb})$$
 
-At hover ($v_\text{climb} = 0 \Rightarrow \lambda_c = 0$) this is
+At hover ($v_\text{climb} = 0 \Rightarrow \lambda_\text{climb} = 0$) this is
 non-singular and gives the standard hover solution directly:
 
 $$\lambda_r = x\sqrt{\frac{k}{1 - k}}$$
@@ -349,11 +364,11 @@ windmill/turbine regime without switching variables.
 ### 9.3 Root selection
 
 The momentum quadratic has two real roots; the physical one is selected
-by operating mode, set by the sign of $\lambda_c = v_\text{climb}/\Omega R$:
+by operating mode, set by the sign of $\lambda_\text{climb} = v_\text{climb}/\Omega R$:
 
-- **Helicopter / hover** ($\lambda_c \ge 0$): take the **positive** root,
+- **Helicopter / hover** ($\lambda_\text{climb} \ge 0$): take the **positive** root,
   $\lambda_r > 0$ (flow descends through the disk).
-- **Turbine / autorotation** ($\lambda_c < 0$): take the **negative**
+- **Turbine / autorotation** ($\lambda_\text{climb} < 0$): take the **negative**
   root, $\lambda_r < 0$ (flow ascends through the disk).
 
 This explicit branch is what keeps the solver on the correct momentum
@@ -407,6 +422,10 @@ $$C_T = \frac{T}{\rho A \Omega_R^2}, \quad C_{L,\text{hub}} = \frac{M_{x,\text{h
 
 $$\mu_T = \sqrt{\mu^2 + \lambda_\text{total}^2}, \qquad \chi = \arctan\!\frac{\mu_\text{inplane}}{|\lambda_\text{total}|}$$
 
+with $\lambda_\text{total} = \lambda_0 + \lambda_\text{climb}$ (uniform induced
+plus climb inflow) and $\mu_\text{inplane} = v_\text{edge}/\Omega R$ (the
+same edgewise advance ratio as $\mu$ of Section 2).
+
 $$L_\text{off} = \frac{15\pi}{64}\tan\!\frac{\chi}{2}, \quad L_{cc} = \frac{4\cos\chi}{1+\cos\chi}, \quad L_{ss} = \frac{4}{1+\cos\chi}$$
 
 ### Steady-State Targets (Peters L-matrix, translated to psi=0-at-+X)
@@ -426,7 +445,7 @@ from thrust forcing (no separate closed-form Glauert tilt).
 Peters' apparent mass matrix $\mathbf{M} = \text{diag}(8/3\pi,\;16/45\pi,\;16/45\pi)$
 gives time constants:
 
-$$\tau_0 = \frac{8R}{3\pi V_T}, \qquad \tau_{c} = \tau_{s} = \frac{16R}{45\pi V_T}$$
+$$\tau_0 = \frac{8R}{3\pi V_\text{mf}}, \qquad \tau_{c} = \tau_{s} = \frac{16R}{45\pi V_\text{mf}}$$
 
 The state derivative returned each call:
 
@@ -474,7 +493,7 @@ where the numerator normalisation is $\rho A \Omega_R^2 \Delta r / R$.
 
 ### Two-Stage Filter ODE
 
-$$\tau_1 = \frac{1.1}{1 - 1.3\min(a,\,0.5)}\cdot\frac{R}{V_T}$$
+$$\tau_1 = \frac{1.1}{1 - 1.3\min(a,\,0.5)}\cdot\frac{R}{V_\text{mf}}$$
 
 $$\tau_2(r) = (0.39 - 0.26\,(r/R)^2)\,\tau_1$$
 
@@ -594,9 +613,9 @@ not a converged inflow — the caller is responsible for integrating it
 forward in time. Two needs follow from this:
 
 - **Numerical stability.** The inflow time constants span a wide range:
-  $\tau_0 = 8R/(3\pi V_T)$ for the uniform state versus the much smaller
-  $\tau_{c,s} = 16R/(45\pi V_T)$ for the harmonics, and both shrink as
-  $V_T$ grows. At the time steps used by the envelope sweep, explicit
+  $\tau_0 = 8R/(3\pi V_\text{mf})$ for the uniform state versus the much smaller
+  $\tau_{c,s} = 16R/(45\pi V_\text{mf})$ for the harmonics, and both shrink as
+  $V_\text{mf}$ grows. At the time steps used by the envelope sweep, explicit
   Euler on the fast states is unstable (the update overshoots and rings).
   A *semi-implicit* step damps each state by its own
   $1/(1 + \Delta t/\tau_i)$ factor, which is unconditionally stable for a
@@ -657,7 +676,7 @@ stable in one code path without mode-switching.
 | `EPS_DENOM` | $`10^{-9}`$ | Generic denominator / ratio guard |
 | `EPS_OMEGA_R` | $`10^{-6}`$ | Not-spinning threshold |
 | `MIN_LOSS_FACTOR` | $`10^{-4}`$ | Prandtl tip+hub loss floor |
-| `V_T_HOVER_FLOOR_FRAC` | $`10^{-2}`$ | $`V_T`$ floor as fraction of $`\max(\Omega R, 1)`$ |
+| `MASS_FLOW_HOVER_FLOOR_FRAC` | $`10^{-2}`$ | $`V_\text{mf}`$ floor as fraction of $`\max(\Omega R, 1)`$ |
 | `VRS_DESCENT_THRESHOLD` | $`10^{-3}`$ | VRS detection guard against hover chattering |
 | `MU_T_FLOOR` | $`0.05`$ | L-matrix denominator floor |
 

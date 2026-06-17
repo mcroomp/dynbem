@@ -60,7 +60,7 @@ pub struct BEMElementResult {
     pub d_q: f64,               // torque contribution [N.m]
     pub lambda_r: f64,          // converged axial inflow ratio v_a / (Omega * R)
     pub a_prime: f64,           // converged tangential induction factor
-    pub momentum_residual: f64, // |4*F*lambda_r*(lambda_r - lambda_c) - sigma_r*cn*(lambda_r^2 + x^2)|
+    pub momentum_residual: f64, // |4*F*lambda_r*(lambda_r - lambda_climb) - sigma_r*cn*(lambda_r^2 + x^2)|
 }
 
 // ---------------------------------------------------------------------------
@@ -71,7 +71,7 @@ pub struct BEMElementResult {
 ///
 /// Fixed-point iteration on (lambda_r, a_prime) with 50% under-relaxation;
 /// the converged root of the quadratic is selected explicitly by sign of
-/// lambda_c (climb -> positive root, descent -> negative). Reverse-flow
+/// lambda_climb (climb -> positive root, descent -> negative). Reverse-flow
 /// region (v_t < 0) breaks out early and returns zero forces -- caller
 /// is responsible for the surrounding ψ-loop's reverse-flow skip.
 #[allow(clippy::too_many_arguments)]
@@ -106,12 +106,12 @@ pub fn solve_bem_element<P: Polar>(
     };
     let sigma_r = (n_blades as f64) * chord * inv_r / (2.0 * PI);
     let theta = collective_rad + twist_rad;
-    let lambda_c = v_climb * inv_omega_r;
+    let lambda_climb = v_climb * inv_omega_r;
 
-    let mut lambda_r = if lambda_c >= 0.0 {
-        (lambda_c + 0.03).max(0.02)
+    let mut lambda_r = if lambda_climb >= 0.0 {
+        (lambda_climb + 0.03).max(0.02)
     } else {
-        (lambda_c * 0.85).min(-0.02)
+        (lambda_climb * 0.85).min(-0.02)
     };
     let mut a_prime: f64 = 0.0;
 
@@ -143,12 +143,12 @@ pub fn solve_bem_element<P: Polar>(
         let k = sigma_r * cn / (4.0 * f_loss);
 
         let lambda_r_new = if (k - 1.0).abs() > 1e-6 {
-            let disc = (lambda_c * lambda_c - 4.0 * (k - 1.0) * k * x * x).max(0.0);
+            let disc = (lambda_climb * lambda_climb - 4.0 * (k - 1.0) * k * x * x).max(0.0);
             let sq = disc.sqrt();
             let denom = 2.0 * (k - 1.0);
-            let r1 = (-lambda_c + sq) / denom;
-            let r2 = (-lambda_c - sq) / denom;
-            if lambda_c >= 0.0 {
+            let r1 = (-lambda_climb + sq) / denom;
+            let r2 = (-lambda_climb - sq) / denom;
+            if lambda_climb >= 0.0 {
                 if r2 > 0.0 {
                     r2
                 } else {
@@ -161,8 +161,8 @@ pub fn solve_bem_element<P: Polar>(
                     r2
                 }
             }
-        } else if lambda_c.abs() > 1e-8 {
-            -k * x * x / lambda_c
+        } else if lambda_climb.abs() > 1e-8 {
+            -k * x * x / lambda_climb
         } else {
             x * k.max(0.0).sqrt()
         };
@@ -204,7 +204,7 @@ pub fn solve_bem_element<P: Polar>(
     let q = 0.5 * rho * v_rel_sq * chord * dr * (n_blades as f64);
 
     // Momentum-balance residual at the converged state:
-    //   |4*F*lambda_r*(lambda_r - lambda_c) - sigma_r*cn*(lambda_r^2 + x^2)|
+    //   |4*F*lambda_r*(lambda_r - lambda_climb) - sigma_r*cn*(lambda_r^2 + x^2)|
     // Same definition as the legacy Python BEMElementResult.momentum_residual.
     let f_loss = if use_tip_loss {
         (prandtl_tip_loss_from_sin_abs(n_blades, x, sin_phi_abs)
@@ -213,7 +213,7 @@ pub fn solve_bem_element<P: Polar>(
     } else {
         1.0
     };
-    let momentum_residual = (4.0 * f_loss * lambda_r * (lambda_r - lambda_c)
+    let momentum_residual = (4.0 * f_loss * lambda_r * (lambda_r - lambda_climb)
         - sigma_r * cn * (lambda_r * lambda_r + x * x))
         .abs();
 
