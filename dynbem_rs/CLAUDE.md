@@ -14,7 +14,7 @@ Oye filter -- all load-bearing physics.
    or pickling, you're in the wrong crate -- add it in
    [`../dynbem/`](../dynbem/) instead.
 2. **File IO and YAML are confined to `rotor_yaml.rs`.** The math
-   modules (`bem*`, `pitt_peters`, `oye`, `polar`, `cyclic`,
+   modules (`bem*`, `pitt_peters`, `oye`, `servoflap`, `polar`, `cyclic`,
    `rotor_definition`, `rotor_state`, `aero_*`, `trim`, `common`)
    must stay free of `std::fs` / `serde` / `serde_yaml` so they can
    be used in `no-std`-ish embedded contexts and so the math core
@@ -38,6 +38,7 @@ Oye filter -- all load-bearing physics.
     +-- common.rs             numerical floors (EPS_*), VRS polynomial
     +-- cyclic.rs             swashplate -> theta_1c, theta_1s mapping
     +-- oye.rs                OyeBEMModel (annular 2-stage filter)
+   +-- servoflap.rs          quasi-static servo-flap-driven feathering model
     +-- pitt_peters.rs        PittPetersModel (3-state L-matrix ODE)
     +-- polar.rs              LinearPolar, TabulatedPolar, Polar trait
     +-- rotor_definition.rs   Blade / Airfoil / Control / Inertia / etc.

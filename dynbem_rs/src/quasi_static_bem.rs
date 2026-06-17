@@ -10,8 +10,9 @@ use crate::bem_common::{
 };
 use crate::common::{EPS_DENOM, EPS_OMEGA_R, MIN_LOSS_FACTOR};
 use crate::cyclic::cyclic_coeffs;
+use crate::servoflap::{solve_feathering, FeatheringState};
 use crate::polar::Polar;
-use crate::rotor_definition::RotorDefinition;
+use crate::rotor_definition::{PitchActuation, RotorDefinition};
 use crate::rotor_state::QuasiStaticRotorState;
 
 const MAX_BEM_ITER: usize = 60;
@@ -499,11 +500,7 @@ fn solve_bem_element_windmill<P: Polar>(
 // prescribed-inflow path PP and Oye use.
 // ---------------------------------------------------------------------------
 
-/// BEM-specific state for the shared psi-loop. Holds only what's *not*
-/// already in SweepCtx or ElementCtx -- so no per-call constant is
-/// duplicated. Everything here is either a model parameter (r_tip,
-/// root_cutout_m, use_tip_loss) or a flight-state value that no other
-/// model reads through the kernel interface (v_climb).
+/// BEM-specific state for the shared psi-loop.
 struct BemKernel {
     v_climb: f64,
     r_tip: f64,
@@ -514,9 +511,6 @@ struct BemKernel {
 impl PsiKernel for BemKernel {
     #[inline(always)]
     fn element<P: Polar>(&mut self, sweep: &SweepCtx<'_, P>, ctx: &ElementCtx) -> (f64, f64) {
-        // run_psi_loop already filtered v_t > 0; reconstruct v_t_extra from
-        // the convention v_t = omega*r + v_t_extra so we don't add another
-        // parameter to ElementCtx just for the BEM solver.
         let v_t_extra = ctx.v_t - sweep.omega * ctx.r;
         let elem = solve_bem_element(
             ctx.r,
@@ -606,14 +600,44 @@ impl<P: Polar + Clone> AeroModel for QuasiStaticBEM<P> {
         let (theta_1c, theta_1s) = cyclic_coeffs(inputs.tilt_lon, inputs.tilt_lat, gains);
         let has_cyclic = theta_1c.abs() + theta_1s.abs() > 1e-12;
 
+        // Quasi-static feathering solve (pre-pass)
+        let feathering_state = match &self.defn.pitch_actuation {
+            PitchActuation::DirectMechanical => FeatheringState::RIGID,
+            PitchActuation::ServoFlap(act) => solve_feathering(
+                act,
+                inputs.collective_rad,
+                theta_1c,
+                theta_1s,
+                rho,
+                omega,
+                mu,
+                r_tip,
+                blade.chord_m,
+                self.defn.airfoil.CL_alpha_per_rad,
+            ),
+        };
+        let has_feathering_cyclic = feathering_state.delta_theta_1c.abs()
+            + feathering_state.delta_theta_1s.abs() > 1e-12;
+        let servo_mode = self.defn.is_servoflap();
+        let loop_collective = if servo_mode {
+            feathering_state.delta_theta_0
+        } else {
+            inputs.collective_rad
+        };
+        let (loop_theta_1c, loop_theta_1s) = if servo_mode {
+            (feathering_state.delta_theta_1c, feathering_state.delta_theta_1s)
+        } else {
+            (theta_1c, theta_1s)
+        };
+
         let mut t_total: f64 = 0.0;
         let mut q_total: f64 = 0.0;
         let mut mx_hub: f64 = 0.0;
         let mut my_hub: f64 = 0.0;
 
-        if (mu > 0.01 || has_cyclic) && omega > 1.0 {
-            // Forward / cyclic: shared psi-loop with the iterative solver
-            // injected via BemKernel::element override.
+        if (mu > 0.01 || has_cyclic || has_feathering_cyclic)
+            && omega > 1.0
+        {
             let mut kernel = BemKernel {
                 v_climb,
                 r_tip,
@@ -623,7 +647,7 @@ impl<P: Polar + Clone> AeroModel for QuasiStaticBEM<P> {
             let sweep = SweepCtx {
                 grid,
                 polar: &self.polar,
-                col: inputs.collective_rad,
+                col: loop_collective,
                 omega,
                 omega_r,
                 rho,
@@ -633,8 +657,8 @@ impl<P: Polar + Clone> AeroModel for QuasiStaticBEM<P> {
                 psi_trig: &self.psi_trig,
                 v_in_hub_x: v_inplane_hub[0],
                 v_in_hub_y: v_inplane_hub[1],
-                theta_1c,
-                theta_1s,
+                theta_1c: loop_theta_1c,
+                theta_1s: loop_theta_1s,
             };
             let (t, q, mx, my) = sweep.run(&mut kernel);
             t_total = t;
@@ -653,7 +677,7 @@ impl<P: Polar + Clone> AeroModel for QuasiStaticBEM<P> {
                         dr,
                         chord[i_r],
                         twist[i_r],
-                        inputs.collective_rad,
+                        loop_collective,
                         omega,
                         v_climb,
                         rho,
@@ -670,7 +694,7 @@ impl<P: Polar + Clone> AeroModel for QuasiStaticBEM<P> {
                         dr,
                         chord[i_r],
                         twist[i_r],
-                        inputs.collective_rad,
+                        loop_collective,
                         omega,
                         v_climb,
                         rho,

@@ -1,0 +1,61 @@
+# Beaupoil 2026 rotor with servo-flap pitch actuation, for model tests.
+# Rotor geometry and airfoil identical to beaupoil_2026.
+#
+# All servo-flap configuration lives under pitch_actuation.servoflap below.
+#
+# Servo authority at omega=33.2 rad/s (p_sq=1, AC at feathering axis):
+#   d_mech = damper / (2 * I_theta * Omega) = 0.5 / (2 * 0.0012 * 33.2) = 6.3
+#   delta_theta_1s = M_f1c / (damper * Omega)  -- authority scales as 1/damper
+name: beaupoil_2026_with_servoflaps
+description: >
+  Beaupoil 2026 rotor with servo-flap pitch actuation.
+  4-blade RAWES rotor, 2.5 m radius, SG6040 airfoil.
+
+rotor:
+  n_blades:      4
+  radius_m:      2.5
+  root_cutout_m: 0.5
+  chord_m:       0.20
+  twist_deg:     0.0
+  n_elements:    10
+  tip_loss:      true
+
+airfoil:
+  designation:      SG6040
+  source:           "XFOIL polar, airfoiltools.com, Re=500000, Ncrit=9"
+  Re_design:        127000
+  Re_operating:     490000
+  CL0:              0.393
+  CL_alpha_per_rad: 5.79
+  CD0:              0.0079
+  alpha_stall_deg:  13.0
+  polar_csv:        ../beaupoil_2026/sg6040_re500k.csv
+
+control:
+  swashplate_pitch_gain_rad: 0.3
+  axle_attachment_length_m:  0.3
+  K_cyc:                     0.4
+  swashplate_phase_deg:       0.0
+  servo_slew_rate_deg_s:     545.0
+  servo_travel_deg:          100.0
+
+pitch_actuation:
+  servoflap:
+    # Blade pitch moment of inertia about the feathering (spanwise) axis [kg*m^2].
+    # Uniform foam blade: I_theta = m * chord^2 / 12 = 0.35 * 0.04 / 12 = 0.0012
+    I_theta_kgm2:       0.0012
+    # Mechanical rotary damper at the pitch bearing [N*m*s/rad].
+    # Controls transient ringing; steady-state authority scales as 1/C_theta.
+    damper_Nms_per_rad: 0.5
+    # Distance from feathering axis to aerodynamic centre [m].
+    # 0.0 = Kaman ideal (AC at feathering axis): no aerodynamic spring, p_sq=1.
+    # Positive = AC forward of axis (destabilising if large).
+    ac_offset_m:        0.0
+    flap:
+      # Aerodynamic pitching moment per unit flap deflection [rad^-1].
+      # Thin-airfoil estimate at AC for 25% flap chord is about -0.41.
+      # Larger magnitude (e.g. -1.5) represents high-camber flap with end-plates.
+      C_M_delta_per_rad: -1.5
+      # Inboard and outboard span limits of the servo-flap [m from shaft centre].
+      r_inner_m:          1.2
+      r_outer_m:          2.5

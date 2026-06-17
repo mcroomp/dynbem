@@ -20,6 +20,8 @@ from ._dynbem import (
     LinearPolarParameters as _RustLinearPolarParameters,
     BladeGeometry as _RustBladeGeometry,
     ControlProperties as _RustControlProperties,
+    ServoFlapActuation as _RustServoFlapActuation,
+    ServoFlapGeometry as _RustServoFlapGeometry,
     RotorDefinition as _RustRotorDefinition,
 )
 
@@ -54,6 +56,8 @@ __all__ = [
     "AutorotationProperties",
     "BladeGeometry",
     "ControlProperties",
+    "ServoFlapActuation",
+    "ServoFlapGeometry",
     "InertiaProperties",
     "KamanFlap",
     "RotorDefinition",
@@ -88,6 +92,68 @@ class KamanFlap:
         self.CM_gamma_per_rad = CM_gamma_per_rad
         self.swashplate_load_fraction = swashplate_load_fraction
         self.notes = notes
+
+
+class ServoFlapGeometry:
+    """Servo-flap (trailing-edge elevon) geometry.
+
+    In servo-flap mode the swashplate collective AND cyclic drive flap
+    deflection delta_f(psi). The flap exerts an aerodynamic pitching moment
+    about the feathering axis. Used inside ServoFlapActuation.flap.
+    """
+
+    def __init__(
+        self,
+        C_M_delta_per_rad,
+        r_inner_m,
+        r_outer_m,
+    ):
+        self.C_M_delta_per_rad = C_M_delta_per_rad
+        self.r_inner_m = r_inner_m
+        self.r_outer_m = r_outer_m
+
+    def _to_rust(self):
+        return _RustServoFlapGeometry(
+            C_M_delta_per_rad=self.C_M_delta_per_rad,
+            r_inner_m=self.r_inner_m,
+            r_outer_m=self.r_outer_m,
+        )
+
+
+class ServoFlapActuation:
+    """Servo-flap pitch actuation: a passive blade feathering DOF.
+
+    A trailing-edge servo-flap exerts a pitching moment about the feathering
+    axis.  The blade feathers freely, damped by the bearing damper.  Both
+    collective and cyclic are interpreted as flap commands and the resulting
+    delta_theta(psi) REPLACES the direct swashplate pitch path in the psi-loop.
+
+    Fields:
+      I_theta_kgm2        -- pitch moment of inertia about feathering axis [kg*m^2]
+      damper_Nms_per_rad  -- bearing rotary damper coefficient [N*m*s/rad]
+      flap                -- ServoFlapGeometry (required)
+      ac_offset_m         -- AC distance forward of feathering axis [m] (0 = Kaman ideal)
+    """
+
+    def __init__(
+        self,
+        I_theta_kgm2,
+        damper_Nms_per_rad,
+        flap,
+        ac_offset_m=0.0,
+    ):
+        self.I_theta_kgm2 = I_theta_kgm2
+        self.damper_Nms_per_rad = damper_Nms_per_rad
+        self.flap = flap
+        self.ac_offset_m = ac_offset_m
+
+    def _to_rust(self):
+        return _RustServoFlapActuation(
+            I_theta_kgm2=float(self.I_theta_kgm2),
+            damper_Nms_per_rad=float(self.damper_Nms_per_rad),
+            flap=self.flap._to_rust(),
+            ac_offset_m=float(self.ac_offset_m),
+        )
 
 
 class InertiaProperties:
@@ -190,6 +256,7 @@ class RotorDefinition:
         control=None,
         inertia=None,
         autorotation=None,
+        servoflap=None,
         name="",
         description="",
     ):
@@ -199,6 +266,7 @@ class RotorDefinition:
         self.control = control
         self.inertia = inertia if inertia is not None else InertiaProperties()
         self.autorotation = auto
+        self.servoflap = servoflap
         self.name = name
         self.description = description
 
@@ -283,6 +351,7 @@ def _to_rust_defn(defn):
         return defn
     airfoil = defn.airfoil
     control = defn.control
+    servoflap = getattr(defn, "servoflap", None)
     return _RustRotorDefinition(
         blade=defn.blade,
         airfoil=_RustLinearPolarParameters(
@@ -295,6 +364,7 @@ def _to_rust_defn(defn):
             swashplate_pitch_gain_rad=control.swashplate_pitch_gain_rad,
             swashplate_phase_deg=control.swashplate_phase_deg,
         ) if control is not None else None,
+        servoflap=servoflap._to_rust() if servoflap is not None else None,
         name=defn.name,
         description=defn.description,
     )
@@ -428,12 +498,48 @@ def _build_from_dict(doc: Dict[str, Any], base_dir: Optional[str]) -> RotorDefin
         omega_eq_rad_s=ar.get("omega_eq_rad_s"),
     )
 
+    # Pitch actuation: DirectMechanical (default) or ServoFlap.
+    # YAML mirrors the Rust `PitchActuation` enum:
+    #   pitch_actuation:
+    #     servoflap:
+    #       I_theta_kgm2: ...
+    #       damper_Nms_per_rad: ...
+    #       ac_offset_m: ...
+    #       flap: { C_M_delta_per_rad: ..., r_inner_m: ..., r_outer_m: ... }
+    # Absent `pitch_actuation` (or absent `servoflap`) => direct mechanical.
+    servoflap = None
+    pa_raw = doc.get("pitch_actuation")
+    if pa_raw is not None:
+        sf_raw = pa_raw.get("servoflap")
+        if sf_raw is not None:
+            flap_raw = sf_raw.get("flap")
+            if flap_raw is None:
+                raise ValueError(
+                    "missing required field: pitch_actuation.servoflap.flap"
+                )
+            flap = ServoFlapGeometry(
+                C_M_delta_per_rad=float(_req(flap_raw, "C_M_delta_per_rad",
+                                             "pitch_actuation.servoflap.flap")),
+                r_inner_m=float(_req(flap_raw, "r_inner_m",
+                                     "pitch_actuation.servoflap.flap")),
+                r_outer_m=float(_req(flap_raw, "r_outer_m",
+                                     "pitch_actuation.servoflap.flap")),
+            )
+            servoflap = ServoFlapActuation(
+                I_theta_kgm2=float(_req(sf_raw, "I_theta_kgm2",
+                                        "pitch_actuation.servoflap")),
+                damper_Nms_per_rad=float(sf_raw.get("damper_Nms_per_rad") or 0.0),
+                flap=flap,
+                ac_offset_m=float(sf_raw.get("ac_offset_m") or 0.0),
+            )
+
     return RotorDefinition(
         blade=blade,
         airfoil=airfoil,
         control=control,
         inertia=inertia,
         autorotation=autorotation,
+        servoflap=servoflap,
         name=doc.get("name") or "",
         description=doc.get("description") or "",
     )

@@ -11,8 +11,9 @@ use crate::bem_common::{
 };
 use crate::common::{vrs_lambda1, EPS_DENOM, EPS_OMEGA_R, MAX_BEM_ELEMENTS, MU_T_FLOOR};
 use crate::cyclic::cyclic_coeffs;
+use crate::servoflap::{solve_feathering, FeatheringState};
 use crate::polar::Polar;
-use crate::rotor_definition::RotorDefinition;
+use crate::rotor_definition::{PitchActuation, RotorDefinition};
 use crate::rotor_state::PittPetersRotorState;
 
 /// Sum thrust and torque over radial elements in axial flight (mu = 0).
@@ -176,11 +177,51 @@ impl<P: Polar + Clone> AeroModel for PittPetersModel<P> {
         let has_cyclic = theta_1c.abs() + theta_1s.abs() > EPS_DENOM;
 
         // ------------------------------------------------------------------
+        // Quasi-static feathering solve (pre-pass, no new state).
+        // In servo-flap mode the swashplate collective AND cyclic are
+        // interpreted as flap commands delta_f; the feathering response
+        // (delta_theta_0/1c/1s) REPLACES the direct swashplate pitch path.
+        // ------------------------------------------------------------------
+        let feathering_state = match &self.defn.pitch_actuation {
+            PitchActuation::DirectMechanical => FeatheringState::RIGID,
+            PitchActuation::ServoFlap(act) => solve_feathering(
+                act,
+                inputs.collective_rad,
+                theta_1c,
+                theta_1s,
+                rho,
+                omega,
+                mu,
+                r_tip,
+                blade.chord_m,
+                self.defn.airfoil.CL_alpha_per_rad,
+            ),
+        };
+        let servo_mode = self.defn.is_servoflap();
+        // In servo mode, collective/cyclic are interpreted as flap commands and
+        // blade pitch comes only from feathering response.
+        let loop_collective = if servo_mode {
+            feathering_state.delta_theta_0
+        } else {
+            inputs.collective_rad
+        };
+        let (loop_theta_1c, loop_theta_1s) = if servo_mode {
+            (feathering_state.delta_theta_1c, feathering_state.delta_theta_1s)
+        } else {
+            (theta_1c, theta_1s)
+        };
+
+        // ------------------------------------------------------------------
         // Blade element forces
         // ------------------------------------------------------------------
+        let has_feathering_cyclic = feathering_state.delta_theta_1c.abs()
+            + feathering_state.delta_theta_1s.abs() > EPS_DENOM;
         let (mut t_total, mut q_total, mut mx_hub, mut my_hub) = (0.0, 0.0, 0.0, 0.0);
         if omega_r > EPS_OMEGA_R {
-            if (mu > 0.01 || has_cyclic || lam_c.abs() + lam_s.abs() > EPS_DENOM) && omega > 1.0 {
+            if (mu > 0.01 || has_cyclic || has_feathering_cyclic
+                || lam_c.abs() + lam_s.abs() > EPS_DENOM)
+                && omega > 1.0
+            {
                 let mut kernel = PpKernel {
                     lambda_total,
                     lam_c,
@@ -190,7 +231,7 @@ impl<P: Polar + Clone> AeroModel for PittPetersModel<P> {
                 let sweep = SweepCtx {
                     grid: &self.grid,
                     polar: &self.polar,
-                    col: inputs.collective_rad,
+                    col: loop_collective,
                     omega,
                     omega_r,
                     rho,
@@ -200,8 +241,8 @@ impl<P: Polar + Clone> AeroModel for PittPetersModel<P> {
                     psi_trig: &self.psi_trig,
                     v_in_hub_x: v_inplane_hub[0],
                     v_in_hub_y: v_inplane_hub[1],
-                    theta_1c,
-                    theta_1s,
+                    theta_1c: loop_theta_1c,
+                    theta_1s: loop_theta_1s,
                 };
                 let (t, q, mx, my) = sweep.run(&mut kernel);
                 t_total = t;
@@ -211,7 +252,7 @@ impl<P: Polar + Clone> AeroModel for PittPetersModel<P> {
             } else {
                 let (t, q) = axial_forces(
                     &self.grid,
-                    inputs.collective_rad,
+                    loop_collective,
                     omega,
                     omega_r,
                     lambda_total,
