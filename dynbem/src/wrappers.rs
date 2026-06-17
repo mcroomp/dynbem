@@ -344,17 +344,17 @@ impl PyControlProperties {
     }
 }
 
-#[pyclass(name = "ServoFlapProperties", module = "dynbem._dynbem")]
+#[pyclass(name = "ServoFlapGeometry", module = "dynbem._dynbem")]
 #[derive(Clone, Debug)]
-pub struct PyServoFlapProperties(pub core_::rotor_definition::ServoFlapProperties);
+pub struct PyServoFlapGeometry(pub core_::rotor_definition::ServoFlapGeometry);
 
 #[pymethods]
-impl PyServoFlapProperties {
+impl PyServoFlapGeometry {
     #[new]
     #[pyo3(signature = (C_M_delta_per_rad, r_inner_m, r_outer_m))]
     #[allow(non_snake_case)]
     fn new(C_M_delta_per_rad: f64, r_inner_m: f64, r_outer_m: f64) -> Self {
-        PyServoFlapProperties(core_::rotor_definition::ServoFlapProperties {
+        PyServoFlapGeometry(core_::rotor_definition::ServoFlapGeometry {
             C_M_delta_per_rad,
             r_inner_m,
             r_outer_m,
@@ -370,26 +370,26 @@ impl PyServoFlapProperties {
     fn r_outer_m(&self) -> f64 { self.0.r_outer_m }
 }
 
-#[pyclass(name = "PassiveFeatheringProperties", module = "dynbem._dynbem")]
+#[pyclass(name = "ServoFlapActuation", module = "dynbem._dynbem")]
 #[derive(Clone, Debug)]
-pub struct PyPassiveFeatheringProperties(pub core_::rotor_definition::PassiveFeatheringProperties);
+pub struct PyServoFlapActuation(pub core_::rotor_definition::ServoFlapActuation);
 
 #[pymethods]
-impl PyPassiveFeatheringProperties {
+impl PyServoFlapActuation {
     #[new]
-    #[pyo3(signature = (I_theta_kgm2, damper_Nms_per_rad, ac_offset_m=0.0, servoflaps=None))]
+    #[pyo3(signature = (I_theta_kgm2, damper_Nms_per_rad, flap, ac_offset_m=0.0))]
     #[allow(non_snake_case)]
     fn new(
         I_theta_kgm2: f64,
         damper_Nms_per_rad: f64,
+        flap: PyServoFlapGeometry,
         ac_offset_m: f64,
-        servoflaps: Option<PyServoFlapProperties>,
     ) -> Self {
-        PyPassiveFeatheringProperties(core_::rotor_definition::PassiveFeatheringProperties {
+        PyServoFlapActuation(core_::rotor_definition::ServoFlapActuation {
             I_theta_kgm2,
             damper_Nms_per_rad,
             ac_offset_m,
-            servoflaps: servoflaps.map(|s| s.0),
+            flap: flap.0,
         })
     }
 
@@ -401,6 +401,10 @@ impl PyPassiveFeatheringProperties {
     fn damper_Nms_per_rad(&self) -> f64 { self.0.damper_Nms_per_rad }
     #[getter]
     fn ac_offset_m(&self) -> f64 { self.0.ac_offset_m }
+    #[getter]
+    fn flap(&self) -> PyServoFlapGeometry {
+        PyServoFlapGeometry(self.0.flap.clone())
+    }
 }
 
 #[pyclass(name = "RotorDefinition", module = "dynbem._dynbem")]
@@ -410,20 +414,24 @@ pub struct PyRotorDefinition(pub core_::rotor_definition::RotorDefinition);
 #[pymethods]
 impl PyRotorDefinition {
     #[new]
-    #[pyo3(signature = (blade, airfoil, control, name, description, passive_feathering=None))]
+    #[pyo3(signature = (blade, airfoil, control, name, description, servoflap=None))]
     fn new(
         blade: PyBladeGeometry,
         airfoil: PyLinearPolarParameters,
         control: Option<PyControlProperties>,
         name: String,
         description: String,
-        passive_feathering: Option<PyPassiveFeatheringProperties>,
+        servoflap: Option<PyServoFlapActuation>,
     ) -> Self {
+        let pitch_actuation = match servoflap {
+            Some(s) => core_::rotor_definition::PitchActuation::ServoFlap(s.0),
+            None => core_::rotor_definition::PitchActuation::DirectMechanical,
+        };
         PyRotorDefinition(core_::rotor_definition::RotorDefinition {
             blade: blade.0,
             airfoil: airfoil.0,
             control: control.map(|c| c.0),
-            passive_feathering: passive_feathering.map(|f| f.0),
+            pitch_actuation,
             name,
             description,
         })
@@ -448,6 +456,16 @@ impl PyRotorDefinition {
     #[getter]
     fn control(&self) -> Option<PyControlProperties> {
         self.0.control.clone().map(PyControlProperties)
+    }
+    /// ServoFlapActuation when in servo-flap mode, else None (direct mechanical).
+    #[getter]
+    fn servoflap(&self) -> Option<PyServoFlapActuation> {
+        match &self.0.pitch_actuation {
+            core_::rotor_definition::PitchActuation::ServoFlap(act) => {
+                Some(PyServoFlapActuation(act.clone()))
+            }
+            core_::rotor_definition::PitchActuation::DirectMechanical => None,
+        }
     }
 }
 

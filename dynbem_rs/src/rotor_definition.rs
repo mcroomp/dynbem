@@ -110,15 +110,15 @@ pub struct ControlProperties {
     pub swashplate_phase_deg: Option<f64>,
 }
 
-/// Per-blade flap hinge geometry with rotary damper.
-///
 /// Blade feathering (pitch-bearing) DOF driven by a trailing-edge servo-flap.
 ///
 /// The servo-flap exerts a pitching moment about the feathering axis.  Because
 /// there is no centrifugal spring (the feathering axis is parallel to the span),
 /// the blade feathers freely, damped only by the mechanical damper at the pitch
-/// bearing.  The servo-flap moment drives the feathering angle theta(psi),
-/// which adds directly to the blade element pitch across the full span.
+/// bearing.  The servo-flap moment drives the feathering angle theta(psi).
+/// In this (servo-flap) actuation mode both collective and cyclic are
+/// interpreted as flap commands and the feathering response REPLACES the direct
+/// swashplate pitch path across the full span (see `servoflap.rs`).
 ///
 /// EOM (psi-domain, 1/rev harmonic balance, no aerodynamic spring):
 ///   I_theta * theta'' + C_theta * theta' = M_servo(psi)
@@ -126,7 +126,7 @@ pub struct ControlProperties {
 /// For the Kaman design the feathering axis is placed at the aerodynamic centre
 /// so the aerodynamic restoring moment is zero; set ac_offset_m=0 for this.
 #[derive(Clone, Debug)]
-pub struct PassiveFeatheringProperties {
+pub struct ServoFlapActuation {
     /// Blade pitch moment of inertia about the feathering axis [kg*m^2].
     pub I_theta_kgm2: f64,
     /// Rotary damper coefficient at the pitch bearing [N*m*s/rad].
@@ -135,16 +135,17 @@ pub struct PassiveFeatheringProperties {
     /// when AC is forward of the feathering axis (divergent if negative).
     /// 0.0 = feathering axis exactly at AC (Kaman ideal).
     pub ac_offset_m: f64,
-    /// Servo-flap that drives feathering.  None = passive free-feathering.
-    pub servoflaps: Option<ServoFlapProperties>,
+    /// Servo-flap geometry that drives the feathering DOF.
+    pub flap: ServoFlapGeometry,
 }
 
-/// Properties of the servo-flap (trailing-edge elevon) driven by the swashplate.
+/// Geometry of the servo-flap (trailing-edge elevon) driven by the swashplate.
 ///
-/// The swashplate drives flap deflection delta_f(psi) via cyclic_coeffs().
-/// delta_f produces an aerodynamic pitching moment about the feathering axis.
+/// In servo-flap mode the swashplate collective AND cyclic drive flap deflection
+/// delta_f(psi) = delta_f0 + delta_f1c*cos(psi) + delta_f1s*sin(psi); delta_f
+/// produces an aerodynamic pitching moment about the feathering axis.
 #[derive(Clone, Debug)]
-pub struct ServoFlapProperties {
+pub struct ServoFlapGeometry {
     /// Pitching moment coefficient per unit flap deflection [rad^-1].
     /// Thin-airfoil estimate at AC:
     /// C_M_delta = -(1/pi) * (sin(theta_h) - 0.5*sin(2*theta_h)),
@@ -157,13 +158,33 @@ pub struct ServoFlapProperties {
     pub r_outer_m: f64,
 }
 
+/// How blade pitch is actuated.
+///
+/// - `DirectMechanical`: the swashplate sets blade pitch directly (collective +
+///   cyclic map straight to blade-element pitch). This is the default.
+/// - `ServoFlap`: a trailing-edge servo-flap drives a passive feathering DOF;
+///   the feathering response replaces the direct swashplate pitch path.
+#[derive(Clone, Debug)]
+pub enum PitchActuation {
+    /// Swashplate -> blade pitch directly (rigid pitch).
+    DirectMechanical,
+    /// Servo-flap moment -> passive feathering DOF.
+    ServoFlap(ServoFlapActuation),
+}
+
+impl Default for PitchActuation {
+    fn default() -> Self {
+        PitchActuation::DirectMechanical
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct RotorDefinition {
     pub blade: BladeGeometry,
     pub airfoil: LinearPolarParameters,
     pub control: Option<ControlProperties>,
-    /// Feathering DOF model.  None = rigid blade pitch (current default).
-    pub passive_feathering: Option<PassiveFeatheringProperties>,
+    /// Blade pitch actuation mode. Default = `DirectMechanical` (rigid pitch).
+    pub pitch_actuation: PitchActuation,
     pub name: String,
     pub description: String,
 }
@@ -195,8 +216,8 @@ impl RotorDefinition {
         }
     }
 
-    /// True when feathering DOF is configured.
-    pub fn has_passive_feathering(&self) -> bool {
-        self.passive_feathering.is_some()
+    /// True when blade pitch is actuated by a servo-flap (vs direct mechanical).
+    pub fn is_servoflap(&self) -> bool {
+        matches!(self.pitch_actuation, PitchActuation::ServoFlap(_))
     }
 }

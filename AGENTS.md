@@ -107,11 +107,13 @@ CCW-from-above convention: `tilt_lon > 0` peaks pitch at ψ=π (tail),
 giving more thrust at the back → nose-down moment via the hub moment
 integral below.
 
-When `passive_feathering` is enabled, swashplate cyclic is interpreted
-as servo-flap command. The feathering dynamics introduce an intrinsic
-90 deg lag at 1/rev and the solver does NOT compensate this internally.
-If axis-preserving control behavior is needed, apply phase correction in
-the controller or via swashplate phase configuration.
+When the rotor uses `PitchActuation::ServoFlap`, both swashplate
+collective and cyclic are interpreted as servo-flap commands and the
+feathering response replaces the direct swashplate pitch path. The
+feathering dynamics introduce an intrinsic 90 deg lag at 1/rev and the
+solver does NOT compensate this internally. If axis-preserving control
+behavior is needed, apply phase correction in the controller or via
+swashplate phase configuration.
 
 `control = None` defaults: gain = 1, φ = 0 → `tilt_lon, tilt_lat` are
 direct blade-pitch amplitudes with helicopter-standard signs.
@@ -312,11 +314,20 @@ the trade-off OpenFAST's DBEMT made.
 
 ## Kaman servo-flap modeling (Beaupoil rotor)
 
-Servo-flap forcing is now active through the passive feathering path:
+Blade pitch actuation is modelled by the `PitchActuation` enum (in
+`dynbem_rs/src/rotor_definition.rs`), with two variants:
 
-- Geometry / parameters: `PassiveFeatheringProperties` and
-  `ServoFlapProperties` in `dynbem_rs/src/rotor_definition.rs`
-- Dynamics + solve: `dynbem_rs/src/passive_feathering.rs`
+- `DirectMechanical` (default): the swashplate sets blade pitch directly.
+- `ServoFlap(ServoFlapActuation)`: a trailing-edge servo-flap drives a
+  passive feathering DOF; the feathering response replaces the direct
+  swashplate pitch path.
+
+Servo-flap forcing is active through the servo-flap actuation path:
+
+- Geometry / parameters: `ServoFlapActuation` (mechanical: inertia,
+  damper, AC offset) holding a `ServoFlapGeometry` (flap C_M_delta and
+  span limits) in `dynbem_rs/src/rotor_definition.rs`
+- Dynamics + solve: `dynbem_rs/src/servoflap.rs`
 - Call sites: `dynbem_rs/src/pitt_peters.rs`, `dynbem_rs/src/oye.rs`,
   `dynbem_rs/src/quasi_static_bem.rs`
 
@@ -326,17 +337,22 @@ Model scope (current):
 - Mechanical pitch-bearing damping
 - Optional aerodynamic spring from AC offset
 - Servo-flap aerodynamic pitching-moment forcing
+- Servo mode path split: in `PitchActuation::ServoFlap`, both collective
+  and cyclic are interpreted as flap commands and direct
+  swashplate-to-blade pitch is disabled
 
 Known limitations:
 
 - No direct sectional `dCL/d_delta * delta_f` lift increment yet
 - No servo actuator lag model yet
-- No DC flap command path yet (`delta_f0 = 0` in current solve)
+- DC flap path uses quasi-static approximation; for AC-on-axis configurations
+  (`k_aero ~= 0`) it falls back to collective pass-through to retain authority
 - `mu` cross-term in flap forcing uses scalar advance ratio only
 
 The old `kaman_flap:` block under `control:` remains metadata-only and
-is not consumed by the Rust aero solvers. Use `passive_feathering:` to
-enable active servo-flap feathering dynamics.
+is not consumed by the Rust aero solvers. Use the `pitch_actuation:`
+YAML block (with a `servoflap:` sub-block) to enable active servo-flap
+feathering dynamics.
 
 ## Do not revert work without explicit instructions
 

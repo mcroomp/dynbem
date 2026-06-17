@@ -13,10 +13,10 @@ use crate::common::{
     vrs_lambda1, EPS_OMEGA_R, MIN_LOSS_FACTOR, VRS_DESCENT_THRESHOLD, V_T_HOVER_FLOOR_FRAC,
 };
 use crate::cyclic::cyclic_coeffs;
-use crate::passive_feathering::{solve_feathering, FeatheringState};
+use crate::servoflap::{solve_feathering, FeatheringState};
 use crate::polar::Polar;
 use crate::quasi_static_bem::{prandtl_hub_loss, prandtl_tip_loss};
-use crate::rotor_definition::RotorDefinition;
+use crate::rotor_definition::{PitchActuation, RotorDefinition};
 use crate::rotor_state::OyeRotorState;
 
 /// Oye empirical coupling constant (original Oye 1990, OpenFAST default).
@@ -202,10 +202,11 @@ impl<P: Polar + Clone> AeroModel for OyeBEMModel<P> {
 
         // Quasi-static feathering solve (pre-pass)
         let mu = kin.mu;
-        let feathering_state = match &self.defn.passive_feathering {
-            None => FeatheringState::RIGID,
-            Some(fp) => solve_feathering(
-                fp,
+        let feathering_state = match &self.defn.pitch_actuation {
+            PitchActuation::DirectMechanical => FeatheringState::RIGID,
+            PitchActuation::ServoFlap(act) => solve_feathering(
+                act,
+                inputs.collective_rad,
                 theta_1c,
                 theta_1s,
                 rho,
@@ -216,7 +217,13 @@ impl<P: Polar + Clone> AeroModel for OyeBEMModel<P> {
                 self.defn.airfoil.CL_alpha_per_rad,
             ),
         };
-        let (loop_theta_1c, loop_theta_1s) = if self.defn.passive_feathering.is_some() {
+        let servo_mode = self.defn.is_servoflap();
+        let loop_collective = if servo_mode {
+            feathering_state.delta_theta_0
+        } else {
+            inputs.collective_rad
+        };
+        let (loop_theta_1c, loop_theta_1s) = if servo_mode {
             (feathering_state.delta_theta_1c, feathering_state.delta_theta_1s)
         } else {
             (theta_1c, theta_1s)
@@ -237,7 +244,7 @@ impl<P: Polar + Clone> AeroModel for OyeBEMModel<P> {
             let sweep = SweepCtx {
                 grid: &self.grid,
                 polar: &self.polar,
-                col: inputs.collective_rad,
+                col: loop_collective,
                 omega,
                 omega_r,
                 rho,

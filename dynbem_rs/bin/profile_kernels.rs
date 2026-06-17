@@ -14,7 +14,7 @@ use dynbem_rs::oye::{OyeBEMModel, OYE_K};
 use dynbem_rs::pitt_peters::PittPetersModel;
 use dynbem_rs::polar::LinearPolar;
 use dynbem_rs::quasi_static_bem::{solve_bem_element, QuasiStaticBEM};
-use dynbem_rs::rotor_definition::{BladeGeometry, LinearPolarParameters, RotorDefinition};
+use dynbem_rs::rotor_definition::{BladeGeometry, LinearPolarParameters, PitchActuation, RotorDefinition};
 use dynbem_rs::rotor_state::{OyeRotorState, PittPetersRotorState, QuasiStaticRotorState};
 use std::env;
 use std::time::Instant;
@@ -40,7 +40,7 @@ fn make_rotor_definition(n_elements: usize) -> RotorDefinition {
             alpha_stall_deg: 15.0,
         },
         control: None,
-        passive_feathering: None,
+        pitch_actuation: PitchActuation::DirectMechanical,
         name: "bench_rotor".to_string(),
         description: "standalone harness rotor".to_string(),
     }
