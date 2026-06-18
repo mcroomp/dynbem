@@ -361,17 +361,39 @@ windmill/turbine regime without switching variables.
 
 ### 9.3 Root selection
 
-The momentum quadratic has two real roots; the physical one is selected
-by operating mode, set by the sign of $\lambda_\text{climb} = v_\text{climb}/\Omega R$:
+The momentum quadratic
 
-- **Helicopter / hover** ($\lambda_\text{climb} \ge 0$): take the **positive** root,
-  $\lambda_r > 0$ (flow descends through the disk).
-- **Turbine / autorotation** ($\lambda_\text{climb} < 0$): take the **negative**
-  root, $\lambda_r < 0$ (flow ascends through the disk).
+$$4Fk(\lambda_r^2 + x^2) - 4F\lambda_r(\lambda_r - \lambda_\text{climb}) = 0
+  \;\;\Leftrightarrow\;\;
+  4F(k-1)\lambda_r^2 + 4F\lambda_\text{climb}\lambda_r + 4Fkx^2 = 0$$
 
-This explicit branch is what keeps the solver on the correct momentum
-branch as the operating point passes through hover, rather than tracking
-the wrong root and producing a thrust/torque discontinuity.
+has two roots:
+
+$$r_{1,2} = \frac{-\lambda_\text{climb} \pm \sqrt{\lambda_\text{climb}^2 - 4(k-1)kx^2}}{2(k-1)}$$
+
+The physical root is selected by the sign of $\lambda_\text{climb}$:
+
+- **Helicopter / hover** ($\lambda_\text{climb} \ge 0$): want $\lambda_r > 0$.
+  Prefer the root that is already positive; fall back to the other if neither is.
+- **Turbine / autorotation** ($\lambda_\text{climb} < 0$): want $\lambda_r < 0$.
+  Prefer the root that is already negative; fall back to the other if neither is.
+
+The fall-back is not just defensive — it is load-bearing near the autorotation
+crossing. At the instant the operating point crosses through hover, both roots
+are near zero and neither satisfies the sign predicate cleanly; the fall-back
+picks the one that is geometrically correct for the current side. Without it
+the solver locks onto the wrong branch and produces a thrust/torque discontinuity
+as the rotor passes through hover.
+
+**Degenerate cases** handled separately in the code:
+
+- $k \approx 1$ (denominator $2(k-1) \to 0$): the quadratic becomes linear;
+  the root is $\lambda_r = -kx^2/\lambda_\text{climb}$ (valid when
+  $|\lambda_\text{climb}| > 0$).
+- Hover, $\lambda_\text{climb} \approx 0$ *and* $k \approx 1$: the linear
+  formula also degenerates; the code falls back to
+  $\lambda_r = x\sqrt{k}$, which is the hover actuator-disk result at the
+  linear-momentum limit.
 
 ---
 
