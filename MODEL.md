@@ -77,8 +77,8 @@ Called once per `compute_forces` invocation. Shared by all three models
 (`bem_common::kinematics`).
 
 Given rotor speed $\Omega$ (rad/s), tip radius $R$, hub rotation matrix
-$\mathbf{R}_\text{hub}$, vehicle velocity $\mathbf{v}_\text{hub}$, and
-wind $\mathbf{v}_\text{wind}$ (all in NED):
+$`\mathbf{R}_\text{hub}`$, vehicle velocity $`\mathbf{v}_\text{hub}`$, and
+wind $`\mathbf{v}_\text{wind}`$ (all in NED):
 
 $$\mathbf{v}_\text{rel} = \mathbf{v}_\text{wind} - \mathbf{v}_\text{hub}$$
 
@@ -112,8 +112,8 @@ where $v_0$ is the axial component of the current induced velocity (m/s).
 
 Swashplate tilts (`tilt_lon`, `tilt_lat`) map to blade-pitch Fourier
 harmonics via `cyclic_coeffs` (`dynbem_rs/src/cyclic.rs`). With
-swashplate phase $\varphi$ and gain $g$ (here $\eta_\text{lon} \equiv$
-`tilt_lon` and $\eta_\text{lat} \equiv$ `tilt_lat`):
+swashplate phase $\varphi$ and gain $g$ (here $`\eta_\text{lon}`$ $\equiv$
+`tilt_lon` and $`\eta_\text{lat}`$ $\equiv$ `tilt_lat`):
 
 $$\theta_{1c} = g\,(-\eta_\text{lon}\cos\varphi - \eta_\text{lat}\sin\varphi)$$
 
@@ -153,7 +153,7 @@ Combined loss: $F = F_\text{tip}\cdot F_\text{hub}$, floored at
 `MIN_LOSS_FACTOR` = $10^{-4}$ to prevent division blow-up at the tip and
 root.
 
-Here $x = r/R$, $x_\text{hub} = r_\text{root}/R$, $N_b$ is the blade
+Here $`x = r/R`$, $`x_\text{hub} = r_\text{root}/R`$, $`N_b`$ is the blade
 count, and $\phi$ is the local inflow angle.
 
 ---
@@ -161,7 +161,7 @@ count, and $\phi$ is the local inflow angle.
 ## 6. Per-Element BEM Force Kernel
 
 `element_force` (`bem_common.rs`, `#[inline(always)]`): given prescribed
-axial velocity $v_a$ and tangential velocity $v_t = \Omega r + v_{t,\text{extra}}$:
+axial velocity $`v_a`$ and tangential velocity $`v_t = \Omega r + v_{t,\text{extra}}`$:
 
 $$\phi = \arctan\!\frac{v_a}{v_t}$$
 
@@ -182,7 +182,7 @@ $$v_{t,\text{extra}} = v_{x,\text{hub}}\sin\psi + v_{y,\text{hub}}\cos\psi$$
 ## 7. Azimuth-Radial Sweep (psi-loop)
 
 The disk loads are obtained by integrating the element forces over the
-rotor disk: $N_\psi$ azimuth stations and $N_r$ radial annuli. At each
+rotor disk: $`N_\psi`$ azimuth stations and $`N_r`$ radial annuli. At each
 azimuth $\psi$ the per-azimuth blade pitch is
 
 $$\theta(\psi) = \theta_0 + \theta_{1c}\cos\psi + \theta_{1s}\sin\psi$$
@@ -199,9 +199,9 @@ Hub-frame moments from the thrust distribution:
 $$M_{x,\text{hub}} = \frac{1}{N_\psi}\sum_\psi \sin\psi\sum_i r_i\,dT_i(\psi), \qquad
   M_{y,\text{hub}} = \frac{1}{N_\psi}\sum_\psi \cos\psi\sum_i r_i\,dT_i(\psi)$$
 
-$M_x$ is rolling moment (positive = roll right); $M_y$ is pitching moment
+$`M_x`$ is rolling moment (positive = roll right); $`M_y`$ is pitching moment
 (positive = nose up), following the NED right-hand rule. The per-element
-$dT_i$, $dQ_i$ come from each model's inflow law: the prescribed-inflow
+$`dT_i`$, $`dQ_i`$ come from each model's inflow law: the prescribed-inflow
 models (Pitt-Peters, Oye) evaluate the element kernel of Section 6 with
 their local $\lambda$; the QuasiStatic BEM solves the momentum balance of
 Section 9 at each element.
@@ -728,7 +728,99 @@ Notes:
 
 ---
 
-## 18. References
+## 18. Validation
+
+The models are validated on two fronts: against **published experimental
+rotor data** (absolute accuracy and qualitative correctness), and against
+**independent open-source BEM / dynamic-inflow codes** (implementation
+cross-checks). Each dataset has a verifier script under
+[`verification/`](verification/) and a regression test under
+[`tests/`](tests/); the source-paper extractions live under `Research/`.
+Full provenance, per-dataset bias analysis, and convention-reconciliation
+notes are in [EMPIRICAL_VALIDATION.md](EMPIRICAL_VALIDATION.md).
+
+### 18.1 Against experimental data
+
+All four experimental datasets are hover/axial or autorotation rotors;
+the Level-1 BEM here is inviscid and incompressible with a tabulated
+polar, so the consistent picture is **correct structure** (monotonicity,
+sign flips, autorotation crossing, inflow shape) with a **systematic
+high bias on absolute** $`C_T`$ that grows with tip Mach and shrinks with
+solidity.
+
+| Dataset (paper) | Regime | Quantity | BEM error | Test |
+|---|---|---|---|---|
+| Castles-Gray, NACA TN-2474 | Hover (Table I, 11 pts) | $`C_T`$ | +11% mean, 11% RMSE | [test_castles_gray.py](tests/test_castles_gray.py) |
+| Castles-Gray, NACA TN-2474 | Hover (Table I, 11 pts) | $`\Delta C_Q`$ | -1.5% mean, 14% RMSE | [test_castles_gray.py](tests/test_castles_gray.py) |
+| Castles-Gray, NACA TN-2474 | Vertical descent | $`Q`$ sign flip / autorotation crossing | sign correct | [test_castles_gray.py](tests/test_castles_gray.py) |
+| Castles-Gray, NACA TN-2474 | Windmill-brake (Fig 12) | $`\lambda_1(\lambda_2)`$ inflow shape | within 20% | [test_castles_gray.py](tests/test_castles_gray.py) |
+| Caradonna-Tung, NASA TM-81232 | Hover | $`C_T`$ | +30-45% | [test_bem_components.py](tests/test_bem_components.py) |
+| Caradonna-Tung, NASA TM-81232 | Hover | $`C_T`$ ratios | within ~10% | [test_bem_components.py](tests/test_bem_components.py) |
+| Caradonna-Tung, NASA TM-81232 | Hover (151-pt sweep) | spanwise $`C_\ell`$ | median 31% (tip ~10-20%) | [test_caradonna_spanwise.py](tests/test_caradonna_spanwise.py) |
+| Harrington, NACA TN-2318 | Hover (full-scale Re) | $`C_T`$ | +30-45% | [test_bem_components.py](tests/test_bem_components.py) |
+| Wheatley-Hood, NACA TR-515 (PCA-2) | Forward-flight autorotation ($`\mu = 0.13-0.72`$, 286 pts) | $`C_Q`$ residual at autorotation | mean $`C_Q \approx -0.0011`$ (trimmed), all rows < 0 | [test_wheatley_autorotation.py](tests/test_wheatley_autorotation.py) |
+
+The Wheatley-Hood PCA-2 set is the only forward-flight autorotation
+benchmark and the most extensive (286 validated operating points). The
+persistent negative $`C_Q`$ residual is attributed to the rigid-blade BEM
+not reproducing flapping-induced angle-of-attack relief on the advancing
+side. The Buhl (NREL/TP-500-36834) windmill quadratic and the Peters
+(JAHS 2009) L-matrix are **formulation** sources, not data — their
+correctness is checked structurally (right root chosen, off-diagonal
+sign, wake-skew response) rather than to a tolerance.
+
+**Origin of the systematic $`C_T`$ bias** (detailed in
+[EMPIRICAL_VALIDATION.md](EMPIRICAL_VALIDATION.md)): inviscid +
+incompressible BEM (no tip-Mach correction on $`C_{L\alpha}`$); polar-vs-test
+Reynolds mismatch; Prandtl tip-loss under-prediction at low aspect ratio;
+geometric uncertainty in the source rotors; source-scan extraction
+quality. The bias is largely multiplicative, which is why ratios between
+operating points track within ~10% even when absolute $`C_T`$ is 30-45%
+high. The pattern is stable across three independent hover experiments
+spanning Re 200k-2M and $`M_\text{tip}`$ 0.25-0.88.
+
+### 18.2 Against other BEM / dynamic-inflow codes
+
+These cross-checks isolate the algorithm from the data: dynbem and the
+reference code are given the same geometry, polar, and operating point,
+so agreement to a few percent confirms the BEM implementation itself.
+The reference codes run in Docker (see the `*_docker/` folders under
+[`verification/`](verification/)) and their outputs are committed as CSVs
+so the tests stay deterministic.
+
+| Reference code | Rotor / regime | Quantity | Agreement | Test / verifier |
+|---|---|---|---|---|
+| **CCBlade** (NREL/WISDEM) | NREL Phase VI HAWT, 21 pts, $`V = 5-25`$ m/s | $`C_T`$ / $`C_Q`$ | CT max 2.3%, CQ max 2.9% | [test_dynbem_vs_ccblade.py](tests/test_dynbem_vs_ccblade.py) |
+| **CCBlade** (NREL/WISDEM) | Beaupoil RAWES rotor, 25 pts | $`C_T`$ / $`C_Q`$ | CT max 1.8%, CQ max 11% (at autorotation crossing) | [test_dynbem_vs_ccblade.py](tests/test_dynbem_vs_ccblade.py) |
+| **XROTOR** | Caradonna-Tung, pure hover (5/8/12 deg) | thrust | three-way vs paper + XROTOR | [dynbem_qsbem_vs_xrotor_caradonna_tung.py](verification/dynbem_qsbem_vs_xrotor_caradonna_tung.py) |
+| **OpenFAST AeroDyn** (DBEMT_Mod=1) | NREL Phase VI, Oye dynamic inflow | $`C_T`$ / $`C_Q`$ | same-algorithm cross-check | [dynbem_oye_vs_openfast_nrel_phase_vi.py](verification/dynbem_oye_vs_openfast_nrel_phase_vi.py) |
+| **AeroDyn** (polar lookup) | NREL Phase VI, per-element $`(\alpha)`$ | $`C_\ell`$ / $`C_d`$ interpolation | to a few ULPs | [dynbem_polar_vs_aerodyn_nrel_phase_vi.py](verification/dynbem_polar_vs_aerodyn_nrel_phase_vi.py) |
+
+Notes:
+
+- **CCBlade / NREL Phase VI** is the cleanest cross-check — that rotor is
+  exactly the envelope CCBlade was built for. Both BEMs agree within ~3%
+  at every operating point. dynbem reaches the windmill regime through its
+  own Ning-2014 Brent's-method solver with Buhl turbulent-wake correction
+  (Section 9.1), not a fixture flag.
+- **CCBlade / Beaupoil** stresses a cambered-airfoil helicopter-style
+  rotor at zero pitch; the only large relative error (11% $`C_Q`$) is at
+  the autorotation crossing where the absolute torque is ~$`2\times10^{-5}`$
+  and relative error inflates near zero.
+- **XROTOR** provides the hover peer check that AeroDyn cannot (its
+  wind-turbine BEM is singular at $`V_\infty = 0`$); XROTOR's free-tip
+  potential formulation handles static thrust natively.
+- **OpenFAST AeroDyn DBEMT** and dynbem's Oye model implement the *same*
+  2-stage annular dynamic-inflow algorithm, so residual differences
+  isolate implementation choices (mass-flow term, $`W_{qs}`$
+  linearisation, hover floor, tip-loss form) rather than physics.
+- Convention reconciliation (pitch-to-stall vs pitch-to-feather sign, NED
+  wind direction, torque-sign in energy-extraction mode) is handled inside
+  each verifier and documented in its header.
+
+---
+
+## 19. References
 
 - Peters, D.A. (2009). *How Dynamic Inflow Survives in the Competitive
   World of Rotorcraft Aerodynamics: The Alexander Nikolsky Honorary
