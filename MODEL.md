@@ -325,9 +325,7 @@ Equating this to the blade-element thrust $C_T = k_2(1-a)^2$ with
 $k_2 = \sigma_r c_n / \sin^2\phi$ gives the quadratic actually solved for
 $a$:
 
-$$\left(\tfrac{50}{9} - 4F - k_2\right)a^2
-  + \left(4F - \tfrac{40}{9} + 2k_2\right)a
-  + \left(\tfrac{8}{9} - k_2\right) = 0$$
+$$\left(\tfrac{50}{9} - 4F - k_2\right)a^2 + \left(4F - \tfrac{40}{9} + 2k_2\right)a + \left(\tfrac{8}{9} - k_2\right) = 0$$
 
 the physical root being the smaller one in $[0.4,\,1]$. The tangential
 induction is $a' = k_t/(1 - k_t)$ with $k_t = \sigma_r c_t / (4F\sin\phi\cos\phi)$,
