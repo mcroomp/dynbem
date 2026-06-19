@@ -517,37 +517,36 @@ struct BemKernel {
     r_tip: f64,
     root_cutout_m: f64,
     use_tip_loss: bool,
-    /// True when axial upflow dominates in-plane flow (|v_climb| > v_edge).
-    /// The Ning 2014 windmill solver is only valid when the residual lives
-    /// entirely in axial-flow space; large in-plane wind folds lam_extra into
-    /// the residual and produces spurious phi-near-0 roots.  When this flag
-    /// is false the helicopter quadratic is used for every element instead,
-    /// which matches the pre-windmill behaviour for forward-flight regimes.
-    allow_windmill: bool,
 }
 
 impl PsiKernel for BemKernel {
     #[inline(always)]
     fn element<P: Polar>(&mut self, sweep: &SweepCtx<'_, P>, ctx: &ElementCtx) -> (f64, f64) {
         let v_t_extra = ctx.v_t - sweep.omega * ctx.r;
-        // When v_climb < 0 (upflow through disk), try the windmill Brent solver
-        // first. The helicopter momentum quadratic cannot find the windmill-brake
-        // root in this regime: its two roots for lambda_climb < 0 land outside
-        // (lambda_climb, 0) and the chosen root is increasingly wrong as
-        // |lambda_climb| shrinks (i.e. as omega rises). Fall back to the
-        // helicopter quadratic only when the windmill solver yields no bracket.
+        // When v_climb < 0 (upflow through disk), always try the Ning 2014
+        // windmill Brent solver first.  The helicopter momentum quadratic
+        // cannot find the windmill-brake root in this regime: its two roots
+        // for lambda_climb < 0 land outside (lambda_climb, 0) and the chosen
+        // root is increasingly wrong as |lambda_climb| shrinks.
         //
-        // Guard: only attempt the windmill solver when axial upflow is not
-        // vastly outweighed by in-plane flow.  We allow v_edge up to 1.5x
-        // |v_climb| (ratio cutoff = 1.5).  The RAWES operating points that
-        // triggered the original sign bug have ratios of 0.47 and 1.04 --
-        // both below 1.5.  Wheatley autorotation cases with large advance
-        // ratio have ratios of 2.6-32 and are correctly excluded: at those
-        // ratios lam_extra = v_t_extra/u_up reaches 3-50 and the Brent
-        // residual finds spurious phi-near-0 roots that misrepresent the
-        // axial induction.  In that regime the helicopter quadratic is more
-        // appropriate (it was derived for forward-flight conditions).
-        if self.v_climb < -EPS_DENOM && self.allow_windmill {
+        // The bracket-existence check inside solve_bem_element_windmill is the
+        // natural physics-based filter:
+        //
+        // * Windmill / steep-descent (negative collective, theta < 0):
+        //   at phi_hi = -1e-4, alpha = theta - phi_hi ≈ theta < 0 → CL < 0 →
+        //   cn < 0 → induction_at_phi returns None → residual = 1e3 (positive).
+        //   phi_lo gives large negative.  Sign change → bracket found → solver
+        //   returns the correct windmill root.
+        //
+        // * Autorotation / forward-flight descent (positive collective):
+        //   at phi_hi, alpha ≈ theta > 0 → cn > 0 → a → 1 → (1-a) → 0 →
+        //   residual ≈ small negative.  phi_lo also negative.  No sign change
+        //   → windmill solver returns None → falls back to helicopter quadratic.
+        //
+        // This means the threshold guard (v_edge < C * |v_climb|) that existed
+        // before is unnecessary: the bracket condition itself separates the
+        // regimes correctly based on element aerodynamics, not on rotor geometry.
+        if self.v_climb < -EPS_DENOM {
             if let Some(wm) = solve_bem_element_windmill(
                 ctx.r,
                 ctx.dr,
@@ -698,10 +697,6 @@ impl<P: Polar + Clone> AeroModel for QuasiStaticBEM<P> {
                 r_tip,
                 root_cutout_m: blade.root_cutout_m,
                 use_tip_loss,
-                // Use windmill solver in the psi-loop when in-plane flow does
-                // not dominate axial flow.  Threshold: v_edge < 1.5 * |v_climb|.
-                // See comment on BemKernel::element for the rationale.
-                allow_windmill: v_climb < -EPS_DENOM && kin.v_edge < -v_climb * 1.5,
             };
             let sweep = SweepCtx {
                 grid,
