@@ -393,7 +393,7 @@ fn induction_at_phi<P: Polar>(
     Some(WindmillInductions { a, ap, cn, ct })
 }
 
-/// Wind-turbine BEM solver for one annulus (axial upflow only).
+/// Wind-turbine BEM solver for one annulus.
 ///
 /// Ning 2014 reformulation: residual-on-phi with Brent over (-pi/2, 0),
 /// plus the Buhl quadratic for the turbulent-wake state (a > 0.4) where
@@ -401,6 +401,12 @@ fn induction_at_phi<P: Polar>(
 /// bracket exists or the iteration leaves the valid windmill regime
 /// (0 < a < 1 and Cn > 0) -- caller falls back to the helicopter
 /// quadratic in those cases.
+///
+/// `v_t_extra` accounts for in-plane wind at this azimuth (same meaning as
+/// in `solve_bem_element`). The geometric residual uses
+/// `(1+ap)*lam_local + v_t_extra/u_up` for the tangential term so that
+/// the converged phi reflects the full tangential velocity. Forces are
+/// computed with `v_t = (1+ap)*omega*r + v_t_extra`.
 #[allow(clippy::too_many_arguments)]
 fn solve_bem_element_windmill<P: Polar>(
     r: f64,
@@ -416,6 +422,7 @@ fn solve_bem_element_windmill<P: Polar>(
     polar: &P,
     use_tip_loss: bool,
     root_cutout_m: f64,
+    v_t_extra: f64,
 ) -> Option<BEMElementResult> {
     if v_climb >= -EPS_DENOM {
         return None;
@@ -438,6 +445,8 @@ fn solve_bem_element_windmill<P: Polar>(
     let sigma_r = (n_blades as f64) * chord * inv_r / (2.0 * PI);
     let theta = collective_rad + twist_rad;
     let lam_local = omega * r * inv_u_up;
+    // Tangential wind contribution normalised by u_up (for the geometric residual).
+    let lam_extra = v_t_extra * inv_u_up;
 
     let residual = |phi: f64| -> f64 {
         match induction_at_phi(
@@ -452,7 +461,9 @@ fn solve_bem_element_windmill<P: Polar>(
             use_tip_loss,
         ) {
             None => 1e3,
-            Some(ind) => phi.sin() * (1.0 + ind.ap) * lam_local + phi.cos() * (1.0 - ind.a),
+            // Geometric consistency: sin(phi)*v_t/u_up + cos(phi)*(1-a) = 0
+            // v_t/u_up = (1+ap)*lam_local + lam_extra
+            Some(ind) => phi.sin() * ((1.0 + ind.ap) * lam_local + lam_extra) + phi.cos() * (1.0 - ind.a),
         }
     };
 
@@ -479,7 +490,7 @@ fn solve_bem_element_windmill<P: Polar>(
         return None;
     }
     let v_a = -(1.0 - ind.a) * u_up;
-    let v_t = (1.0 + ind.ap) * omega * r;
+    let v_t = (1.0 + ind.ap) * omega * r + v_t_extra;
     let v_rel_sq = v_a * v_a + v_t * v_t;
     let q = 0.5 * rho * v_rel_sq * chord * dr * (n_blades as f64);
     // Windmill solver works in (a, a') space, not (lambda_r, a_prime); reconstruct
@@ -506,12 +517,52 @@ struct BemKernel {
     r_tip: f64,
     root_cutout_m: f64,
     use_tip_loss: bool,
+    /// True when axial upflow dominates in-plane flow (|v_climb| > v_edge).
+    /// The Ning 2014 windmill solver is only valid when the residual lives
+    /// entirely in axial-flow space; large in-plane wind folds lam_extra into
+    /// the residual and produces spurious phi-near-0 roots.  When this flag
+    /// is false the helicopter quadratic is used for every element instead,
+    /// which matches the pre-windmill behaviour for forward-flight regimes.
+    allow_windmill: bool,
 }
 
 impl PsiKernel for BemKernel {
     #[inline(always)]
     fn element<P: Polar>(&mut self, sweep: &SweepCtx<'_, P>, ctx: &ElementCtx) -> (f64, f64) {
         let v_t_extra = ctx.v_t - sweep.omega * ctx.r;
+        // When v_climb < 0 (upflow through disk), try the windmill Brent solver
+        // first. The helicopter momentum quadratic cannot find the windmill-brake
+        // root in this regime: its two roots for lambda_climb < 0 land outside
+        // (lambda_climb, 0) and the chosen root is increasingly wrong as
+        // |lambda_climb| shrinks (i.e. as omega rises). Fall back to the
+        // helicopter quadratic only when the windmill solver yields no bracket.
+        //
+        // Guard: only attempt the windmill solver when axial upflow dominates
+        // in-plane flow (allow_windmill = v_edge < |v_climb|). When in-plane
+        // flow is large, lam_extra = v_t_extra/u_up can reach 30-50 and the
+        // Brent residual finds spurious phi-near-0 roots that misrepresent
+        // the axial induction. In that regime the helicopter quadratic is more
+        // appropriate (it was derived for forward-flight conditions).
+        if self.v_climb < -EPS_DENOM && self.allow_windmill {
+            if let Some(wm) = solve_bem_element_windmill(
+                ctx.r,
+                ctx.dr,
+                ctx.chord,
+                ctx.twist,
+                ctx.col_psi,
+                sweep.omega,
+                self.v_climb,
+                sweep.rho,
+                sweep.n_b,
+                self.r_tip,
+                sweep.polar,
+                self.use_tip_loss,
+                self.root_cutout_m,
+                v_t_extra,
+            ) {
+                return (wm.d_t, wm.d_q);
+            }
+        }
         let elem = solve_bem_element(
             ctx.r,
             ctx.dr,
@@ -643,6 +694,11 @@ impl<P: Polar + Clone> AeroModel for QuasiStaticBEM<P> {
                 r_tip,
                 root_cutout_m: blade.root_cutout_m,
                 use_tip_loss,
+                // Use windmill solver in the psi-loop only when axial upflow
+                // dominates in-plane flow.  v_edge < |v_climb| ensures that
+                // |v_t_extra| <= v_edge < u_up for every element, keeping
+                // lam_extra = v_t_extra/u_up < 1 and the Brent residual valid.
+                allow_windmill: v_climb < -EPS_DENOM && kin.v_edge < -v_climb,
             };
             let sweep = SweepCtx {
                 grid,
@@ -686,6 +742,7 @@ impl<P: Polar + Clone> AeroModel for QuasiStaticBEM<P> {
                         &self.polar,
                         use_tip_loss,
                         blade.root_cutout_m,
+                        0.0,
                     );
                 }
                 let elem = elem.unwrap_or_else(|| {
