@@ -205,7 +205,6 @@ pub fn solve_bem_element<P: Polar>(
 
     // Momentum-balance residual at the converged state:
     //   |4*F*lambda_r*(lambda_r - lambda_climb) - sigma_r*cn*(lambda_r^2 + x^2)|
-    // Same definition as the legacy Python BEMElementResult.momentum_residual.
     let f_loss = if use_tip_loss {
         (prandtl_tip_loss_from_sin_abs(n_blades, x, sin_phi_abs)
             * prandtl_hub_loss_from_sin_abs(n_blades, x, x_hub, sin_phi_abs))
@@ -542,10 +541,6 @@ impl PsiKernel for BemKernel {
         //   at phi_hi, alpha ≈ theta > 0 → cn > 0 → a → 1 → (1-a) → 0 →
         //   residual ≈ small negative.  phi_lo also negative.  No sign change
         //   → windmill solver returns None → falls back to helicopter quadratic.
-        //
-        // This means the threshold guard (v_edge < C * |v_climb|) that existed
-        // before is unnecessary: the bracket condition itself separates the
-        // regimes correctly based on element aerodynamics, not on rotor geometry.
         if self.v_climb < -EPS_DENOM {
             if let Some(wm) = solve_bem_element_windmill(
                 ctx.r,
