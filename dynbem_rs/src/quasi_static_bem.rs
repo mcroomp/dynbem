@@ -537,11 +537,15 @@ impl PsiKernel for BemKernel {
         // |lambda_climb| shrinks (i.e. as omega rises). Fall back to the
         // helicopter quadratic only when the windmill solver yields no bracket.
         //
-        // Guard: only attempt the windmill solver when axial upflow dominates
-        // in-plane flow (allow_windmill = v_edge < |v_climb|). When in-plane
-        // flow is large, lam_extra = v_t_extra/u_up can reach 30-50 and the
-        // Brent residual finds spurious phi-near-0 roots that misrepresent
-        // the axial induction. In that regime the helicopter quadratic is more
+        // Guard: only attempt the windmill solver when axial upflow is not
+        // vastly outweighed by in-plane flow.  We allow v_edge up to 1.5x
+        // |v_climb| (ratio cutoff = 1.5).  The RAWES operating points that
+        // triggered the original sign bug have ratios of 0.47 and 1.04 --
+        // both below 1.5.  Wheatley autorotation cases with large advance
+        // ratio have ratios of 2.6-32 and are correctly excluded: at those
+        // ratios lam_extra = v_t_extra/u_up reaches 3-50 and the Brent
+        // residual finds spurious phi-near-0 roots that misrepresent the
+        // axial induction.  In that regime the helicopter quadratic is more
         // appropriate (it was derived for forward-flight conditions).
         if self.v_climb < -EPS_DENOM && self.allow_windmill {
             if let Some(wm) = solve_bem_element_windmill(
@@ -694,11 +698,10 @@ impl<P: Polar + Clone> AeroModel for QuasiStaticBEM<P> {
                 r_tip,
                 root_cutout_m: blade.root_cutout_m,
                 use_tip_loss,
-                // Use windmill solver in the psi-loop only when axial upflow
-                // dominates in-plane flow.  v_edge < |v_climb| ensures that
-                // |v_t_extra| <= v_edge < u_up for every element, keeping
-                // lam_extra = v_t_extra/u_up < 1 and the Brent residual valid.
-                allow_windmill: v_climb < -EPS_DENOM && kin.v_edge < -v_climb,
+                // Use windmill solver in the psi-loop when in-plane flow does
+                // not dominate axial flow.  Threshold: v_edge < 1.5 * |v_climb|.
+                // See comment on BemKernel::element for the rationale.
+                allow_windmill: v_climb < -EPS_DENOM && kin.v_edge < -v_climb * 1.5,
             };
             let sweep = SweepCtx {
                 grid,
