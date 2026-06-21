@@ -339,6 +339,57 @@ In the QuasiStatic model the per-element momentum balance is converged
 inside the azimuth sweep, so the inflow is self-consistent at every
 $(\psi, r)$ rather than prescribed from a stored state.
 
+### 9.1a Extension to Non-Axial Flow (v_t_extra correction)
+
+The Ning 2014 windmill formulation, as used in OpenFAST AeroDyn, was
+derived for axial (turbine) operation where in-plane wind is negligible.
+In a helicopter or autorotating kite rotor descending at an oblique angle,
+however, each blade element has significant tangential velocity from
+forward flight: $v_t = \Omega r + v_{t,\text{extra}}(\psi)$ (Section 6).
+
+**The problem with the axial-only residual.** The standard Brent residual
+
+$$g(\phi) = \sin\phi\,(1 + a')\,\lambda_r + \cos\phi\,(1 - a) = 0$$
+
+implicitly assumes $v_t = \Omega r$ only. When $v_{t,\text{extra}}$ is
+large (high advance ratio, descent + edgewise wind), the effective local
+speed ratio changes at each azimuth station. Without accounting for this,
+the Brent solver finds spurious roots near $\phi \approx 0$ where $a \to 1$
+-- the solver converges to a non-physical high-induction solution because
+it thinks the element is more heavily loaded than it actually is.
+
+**Corrected residual.** The extended windmill residual used in dynbem
+carries the extra tangential velocity explicitly. Defining a local speed
+ratio that includes in-plane wind:
+
+$$\tilde{\lambda}_r = \frac{\Omega r + v_{t,\text{extra}}}{|v_\text{climb}|}$$
+
+the Brent residual becomes:
+
+$$g(\phi) = \sin\phi\,(1 + a')\,\tilde{\lambda}_r + \cos\phi\,(1 - a) = 0$$
+
+and the element force kernel receives the true tangential velocity
+$v_t = \Omega r + v_{t,\text{extra}}$ from the converged $(\phi, a, a')$.
+
+**Natural bracket-existence filter.** Instead of an artificial guard
+(`v_edge < |v_climb|` threshold), the corrected solver simply checks
+whether the residual changes sign across the bracket
+$\phi \in (-\pi/2,\, -\varepsilon)$. If both endpoints have the same sign,
+no windmill root exists for this element at this azimuth, and the fallback
+to the helicopter quadratic fires. This is physically meaningful:
+
+- At azimuths where forward flight adds to tangential velocity (advancing
+  side), the effective speed ratio increases and the windmill root persists.
+- At azimuths where $v_{t,\text{extra}}$ opposes $\Omega r$ (retreating
+  side, reverse flow), the bracket may close -- the element naturally
+  reverts to the helicopter solution.
+
+This extension is unique to dynbem -- OpenFAST's AeroDyn BEMT uses the
+windmill solver only in the axial flow path and does not run it inside
+an azimuth-resolved psi-loop with in-plane wind. The correction is
+necessary for any rotor that windmills in oblique descent (autorotating
+kites, autogyros in forward flight, descent with crosswind).
+
 ### 9.2 Hover-safe inflow iteration
 
 The standard wind-turbine BEM iterates on the induction factor
@@ -611,7 +662,7 @@ swashplate-to-pitch path in the psi-loop.
 
 $$\mathbf{F}_\text{world} = -T\,\hat{h}$$
 
-$$\mathbf{M}_\text{orbital} = \mathbf{R}_\text{hub}\,[M_{x,\text{hub}},\;M_{y,\text{hub}},\;0]^\top$$
+$$\mathbf{M}_\text{orbital} = \mathbf{R}_\text{hub}\,[M_{x,\text{out}},\;M_{y,\text{out}},\;0]^\top$$
 
 $$\mathbf{M}_\text{spin} = Q\,\hat{h}$$
 
@@ -619,6 +670,75 @@ $$\mathbf{M}_\text{spin} = Q\,\hat{h}$$
 hub-frame aero moment rotated to world frame (hub rolling/pitching moments);
 `M_spin` is the reaction torque about the hub axis; `Q_spin` is the scalar
 shaft torque.
+
+When blade flapping is configured (Section 14a), the hub moments are reduced
+before rotation to world frame:
+
+$$M_{x,\text{out}} = f_\text{hub}\,M_{x,\text{hub}}, \qquad M_{y,\text{out}} = f_\text{hub}\,M_{y,\text{hub}}$$
+
+Otherwise $M_{x,\text{out}} = M_{x,\text{hub}}$ (rigid blade, backward
+compatible).
+
+---
+
+## 14a. Quasi-Static Blade Flapping (Hub Moment Reduction)
+
+Source: `FlapProperties` in `dynbem_rs/src/rotor_definition.rs`,
+`apply_flap_reduction` in `dynbem_rs/src/bem_common.rs`.
+
+A flexible blade (or one with a flap hinge) absorbs most of the
+aerodynamic pitching/rolling moment via out-of-plane deflection. Only the
+fraction determined by the blade's flap frequency ratio reaches the
+airframe hub. This is modelled as a quasi-static (algebraic) moment
+reduction applied after the psi-loop integration and before output
+assembly.
+
+### Equivalent Spring-Hinge Model
+
+The blade's out-of-plane flexibility is represented as a virtual hinge
+with a torsional spring. The rotating flap frequency ratio:
+
+$$\nu_\beta^2 = 1 + \left(\frac{\omega_\text{NR}}{\Omega}\right)^2$$
+
+where $\omega_\text{NR}$ is the blade's non-rotating first flapwise
+natural frequency (from root bending stiffness $K_\beta = I_b\,\omega_\text{NR}^2$)
+and $\Omega$ is the rotor speed. The "1" comes from centrifugal
+stiffening at the rotating speed.
+
+### Hub Moment Reduction Factor
+
+$$f_\text{hub} = \frac{\nu_\beta^2 - 1}{\nu_\beta^2}$$
+
+| Configuration | $`\omega_\text{NR}`$ | $`\nu_\beta`$ | $`f_\text{hub}`$ | Physical meaning |
+|---|---|---|---|---|
+| Freely hinged (teetering) | 0 | 1.0 | 0 | No moment transfer to airframe |
+| Typical hingeless | $`0.2{-}0.4\,\Omega`$ | 1.02-1.08 | 0.04-0.14 | Blade absorbs 86-96% of moment |
+| Very stiff / rigid | $`\gg \Omega`$ | $`\gg 1`$ | $`\to 1`$ | Full moment transfer (legacy behaviour) |
+
+### Where the Reduction is Applied
+
+The reduction acts **only on the output to the airframe**. The Pitt-Peters
+inflow ODE (Section 10) still uses the *full* aerodynamic moments
+$`(M_{x,\text{hub}}, M_{y,\text{hub}})`$ because the wake responds to disk
+loading, not to what the airframe sees. Thrust and torque are unaffected.
+
+This is physically correct: the blade flaps to a new equilibrium angle
+that redistributes the aerodynamic reaction between blade inertia
+(centrifugal restoring) and hub structure (root bending), but the total
+aerodynamic moment on the disk -- which drives the wake -- is unchanged.
+
+### Relation to Attitude Damping
+
+On a rigid-blade rotor, when the airframe pitches at rate $q$, the hub
+moment is proportional to the rate (aerodynamic damping from the
+asymmetric thrust distribution). With flapping, the blade absorbs most
+of this moment -- the effective aerodynamic damping derivative seen by the
+airframe is multiplied by $f_\text{hub}$. However, for an articulated or
+flexible rotor the *cyclic inflow feedback* (Pitt-Peters $\lambda_c$,
+$\lambda_s$) provides additional dynamic damping that is not captured
+by this quasi-static factor. The two effects are complementary: the
+flap reduces the instantaneous moment transfer while the inflow lag
+provides the dynamic (rate-dependent) component.
 
 ---
 
