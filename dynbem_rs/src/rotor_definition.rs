@@ -158,6 +158,54 @@ pub struct ServoFlapGeometry {
     pub r_outer_m: f64,
 }
 
+/// Quasi-static blade flapping properties (hingeless / equivalent-hinge model).
+///
+/// Models the blade's out-of-plane flexibility as an equivalent spring-hinge.
+/// The blade absorbs most of the aerodynamic pitching/rolling moment; only the
+/// fraction determined by the flap frequency ratio reaches the hub (airframe).
+///
+/// For a centrally-hinged blade with zero stiffness: nu_beta = 1.0 exactly,
+/// and the hub moment is zero (all absorbed by flapping).
+/// For a rigid blade: nu_beta -> infinity, hub moment = full aero moment.
+/// For a flexible blade: nu_beta ~ 1.05-1.15 typically.
+#[derive(Clone, Debug)]
+pub struct FlapProperties {
+    /// Blade flap moment of inertia about the (virtual) flap hinge [kg*m^2].
+    /// For a uniform blade: I_b = m_blade * R^2 / 3.
+    pub I_blade_flap_kgm2: f64,
+    /// Non-rotating natural frequency of the blade in flap [rad/s].
+    /// Related to root bending stiffness: K_beta = I_b * omega_NR^2.
+    /// Set to 0.0 for a freely-hinged blade (no spring).
+    pub omega_nr_rad_s: f64,
+}
+
+impl FlapProperties {
+    /// Rotating flap frequency ratio squared: nu_beta^2 = 1 + (omega_NR / Omega)^2.
+    /// The "1" comes from centrifugal stiffening at the rotating speed Omega.
+    #[inline]
+    pub fn nu_beta_sq(&self, omega: f64) -> f64 {
+        if omega.abs() < 1e-6 {
+            // Non-rotating: no centrifugal stiffening, just the spring.
+            // Return large number (rigid limit) to avoid division issues.
+            return 1e6;
+        }
+        1.0 + (self.omega_nr_rad_s / omega).powi(2)
+    }
+
+    /// Fraction of the aerodynamic hub moment that passes to the airframe.
+    ///
+    /// factor = (nu_beta^2 - 1) / nu_beta^2
+    ///
+    /// - Freely hinged (omega_NR=0): nu^2=1, factor=0 (no moment transfer)
+    /// - Rigid blade (omega_NR>>Omega): factor->1 (full moment transfer)
+    /// - Typical hingeless: factor ~ 0.05-0.15
+    #[inline]
+    pub fn hub_moment_factor(&self, omega: f64) -> f64 {
+        let nu2 = self.nu_beta_sq(omega);
+        (nu2 - 1.0) / nu2
+    }
+}
+
 /// How blade pitch is actuated.
 ///
 /// - `DirectMechanical`: the swashplate sets blade pitch directly (collective +
@@ -185,6 +233,9 @@ pub struct RotorDefinition {
     pub control: Option<ControlProperties>,
     /// Blade pitch actuation mode. Default = `DirectMechanical` (rigid pitch).
     pub pitch_actuation: PitchActuation,
+    /// Quasi-static blade flapping. When present, hub moments are reduced by
+    /// the flap frequency ratio (blade absorbs most of the moment via deflection).
+    pub flap: Option<FlapProperties>,
     pub name: String,
     pub description: String,
 }

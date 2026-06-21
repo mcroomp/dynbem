@@ -407,6 +407,34 @@ impl PyServoFlapActuation {
     }
 }
 
+#[pyclass(name = "FlapProperties", module = "dynbem._dynbem")]
+#[derive(Clone, Debug)]
+pub struct PyFlapProperties(pub core_::rotor_definition::FlapProperties);
+
+#[pymethods]
+impl PyFlapProperties {
+    #[new]
+    #[pyo3(signature = (I_blade_flap_kgm2, omega_nr_rad_s))]
+    #[allow(non_snake_case)]
+    fn new(I_blade_flap_kgm2: f64, omega_nr_rad_s: f64) -> Self {
+        PyFlapProperties(core_::rotor_definition::FlapProperties {
+            I_blade_flap_kgm2,
+            omega_nr_rad_s,
+        })
+    }
+
+    #[getter]
+    #[allow(non_snake_case)]
+    fn I_blade_flap_kgm2(&self) -> f64 { self.0.I_blade_flap_kgm2 }
+    #[getter]
+    fn omega_nr_rad_s(&self) -> f64 { self.0.omega_nr_rad_s }
+
+    /// Compute the hub moment reduction factor at a given rotor speed.
+    fn hub_moment_factor(&self, omega_rad_s: f64) -> f64 {
+        self.0.hub_moment_factor(omega_rad_s)
+    }
+}
+
 #[pyclass(name = "RotorDefinition", module = "dynbem._dynbem")]
 #[derive(Clone, Debug)]
 pub struct PyRotorDefinition(pub core_::rotor_definition::RotorDefinition);
@@ -414,7 +442,7 @@ pub struct PyRotorDefinition(pub core_::rotor_definition::RotorDefinition);
 #[pymethods]
 impl PyRotorDefinition {
     #[new]
-    #[pyo3(signature = (blade, airfoil, control, name, description, servoflap=None))]
+    #[pyo3(signature = (blade, airfoil, control, name, description, servoflap=None, flap=None))]
     fn new(
         blade: PyBladeGeometry,
         airfoil: PyLinearPolarParameters,
@@ -422,6 +450,7 @@ impl PyRotorDefinition {
         name: String,
         description: String,
         servoflap: Option<PyServoFlapActuation>,
+        flap: Option<PyFlapProperties>,
     ) -> Self {
         let pitch_actuation = match servoflap {
             Some(s) => core_::rotor_definition::PitchActuation::ServoFlap(s.0),
@@ -432,6 +461,7 @@ impl PyRotorDefinition {
             airfoil: airfoil.0,
             control: control.map(|c| c.0),
             pitch_actuation,
+            flap: flap.map(|f| f.0),
             name,
             description,
         })
@@ -466,6 +496,11 @@ impl PyRotorDefinition {
             }
             core_::rotor_definition::PitchActuation::DirectMechanical => None,
         }
+    }
+    /// FlapProperties for quasi-static blade flapping, or None (rigid blade).
+    #[getter]
+    fn flap(&self) -> Option<PyFlapProperties> {
+        self.0.flap.clone().map(PyFlapProperties)
     }
 }
 

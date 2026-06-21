@@ -6,8 +6,8 @@ use std::f64::consts::PI;
 use crate::aero_io::{AeroResult, RotorInputs};
 use crate::aero_model::AeroModel;
 use crate::bem_common::{
-    assemble_result, build_psi_trig_table, element_force, kinematics, v_mass_flow_disk, vrs_regime,
-    ElementCtx, PsiKernel, RadialGrid, SweepCtx,
+    apply_flap_reduction, assemble_result, build_psi_trig_table, element_force, kinematics,
+    v_mass_flow_disk, vrs_regime, ElementCtx, PsiKernel, RadialGrid, SweepCtx,
 };
 use crate::common::{vrs_lambda1, EPS_DENOM, EPS_OMEGA_R, MAX_BEM_ELEMENTS, MU_T_FLOOR};
 use crate::cyclic::cyclic_coeffs;
@@ -320,8 +320,14 @@ impl<P: Polar + Clone> AeroModel for PittPetersModel<P> {
         let d_lam_c = (lam_c_ss - lam_c) / tau_cs;
         let d_lam_s = (lam_s_ss - lam_s) / tau_cs;
 
-        // Outputs
-        let result = assemble_result(t_total, q_total, mx_hub, my_hub, hub_axis, &inputs.R_hub);
+        // Outputs -- apply quasi-static flap reduction to hub moments before
+        // assembling world-frame result. The inflow ODE above uses the full
+        // aerodynamic moments (they drive the wake), but the airframe only sees
+        // the fraction that passes through the blade's flap stiffness.
+        let (mx_out, my_out) = apply_flap_reduction(
+            mx_hub, my_hub, self.defn.flap.as_ref(), omega,
+        );
+        let result = assemble_result(t_total, q_total, mx_out, my_out, hub_axis, &inputs.R_hub);
         let derivative = PittPetersRotorState {
             lambda_0: d_lam0,
             lambda_c: d_lam_c,

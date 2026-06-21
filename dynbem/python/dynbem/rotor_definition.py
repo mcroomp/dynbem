@@ -22,6 +22,7 @@ from ._dynbem import (
     ControlProperties as _RustControlProperties,
     ServoFlapActuation as _RustServoFlapActuation,
     ServoFlapGeometry as _RustServoFlapGeometry,
+    FlapProperties as _RustFlapProperties,
     RotorDefinition as _RustRotorDefinition,
 )
 
@@ -56,6 +57,7 @@ __all__ = [
     "AutorotationProperties",
     "BladeGeometry",
     "ControlProperties",
+    "FlapProperties",
     "ServoFlapActuation",
     "ServoFlapGeometry",
     "InertiaProperties",
@@ -154,6 +156,35 @@ class ServoFlapActuation:
             flap=self.flap._to_rust(),
             ac_offset_m=float(self.ac_offset_m),
         )
+
+
+class FlapProperties:
+    """Quasi-static blade flapping properties (hingeless / equivalent-hinge).
+
+    Models the blade's out-of-plane flexibility as an equivalent spring-hinge.
+    The blade absorbs most of the aerodynamic pitching/rolling moment; only the
+    fraction determined by the flap frequency ratio reaches the hub (airframe).
+
+    Fields:
+      I_blade_flap_kgm2  -- blade flap inertia about (virtual) hinge [kg*m^2]
+      omega_nr_rad_s     -- non-rotating flap natural frequency [rad/s]
+                            (from root bending stiffness: K_beta = I_b * omega_NR^2)
+                            Set to 0.0 for a freely-hinged blade (no spring).
+    """
+
+    def __init__(self, I_blade_flap_kgm2, omega_nr_rad_s=0.0):
+        self.I_blade_flap_kgm2 = I_blade_flap_kgm2
+        self.omega_nr_rad_s = omega_nr_rad_s
+
+    def _to_rust(self):
+        return _RustFlapProperties(
+            I_blade_flap_kgm2=float(self.I_blade_flap_kgm2),
+            omega_nr_rad_s=float(self.omega_nr_rad_s),
+        )
+
+    def hub_moment_factor(self, omega_rad_s):
+        """Fraction of aero hub moment that passes to airframe at given omega."""
+        return self._to_rust().hub_moment_factor(omega_rad_s)
 
 
 class InertiaProperties:
@@ -257,6 +288,7 @@ class RotorDefinition:
         inertia=None,
         autorotation=None,
         servoflap=None,
+        flap=None,
         name="",
         description="",
     ):
@@ -267,6 +299,7 @@ class RotorDefinition:
         self.inertia = inertia if inertia is not None else InertiaProperties()
         self.autorotation = auto
         self.servoflap = servoflap
+        self.flap = flap
         self.name = name
         self.description = description
 
@@ -352,6 +385,7 @@ def _to_rust_defn(defn):
     airfoil = defn.airfoil
     control = defn.control
     servoflap = getattr(defn, "servoflap", None)
+    flap = getattr(defn, "flap", None)
     return _RustRotorDefinition(
         blade=defn.blade,
         airfoil=_RustLinearPolarParameters(
@@ -367,6 +401,7 @@ def _to_rust_defn(defn):
         servoflap=servoflap._to_rust() if servoflap is not None else None,
         name=defn.name,
         description=defn.description,
+        flap=flap._to_rust() if flap is not None else None,
     )
 
 
@@ -533,6 +568,19 @@ def _build_from_dict(doc: Dict[str, Any], base_dir: Optional[str]) -> RotorDefin
                 ac_offset_m=float(sf_raw.get("ac_offset_m") or 0.0),
             )
 
+    # Blade flapping properties (quasi-static hub moment reduction).
+    # YAML schema:
+    #   flap:
+    #     I_blade_flap_kgm2: ...
+    #     omega_nr_rad_s: ...        (optional, default 0.0 = pure hinge)
+    flap_props = None
+    flap_raw = doc.get("flap")
+    if flap_raw is not None:
+        flap_props = FlapProperties(
+            I_blade_flap_kgm2=float(_req(flap_raw, "I_blade_flap_kgm2", "flap")),
+            omega_nr_rad_s=float(flap_raw.get("omega_nr_rad_s") or 0.0),
+        )
+
     return RotorDefinition(
         blade=blade,
         airfoil=airfoil,
@@ -540,6 +588,7 @@ def _build_from_dict(doc: Dict[str, Any], base_dir: Optional[str]) -> RotorDefin
         inertia=inertia,
         autorotation=autorotation,
         servoflap=servoflap,
+        flap=flap_props,
         name=doc.get("name") or "",
         description=doc.get("description") or "",
     )

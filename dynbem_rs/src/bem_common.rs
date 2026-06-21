@@ -232,6 +232,26 @@ pub fn vrs_regime(t_total: f64, v_climb: f64, rho: f64, area: f64) -> VrsRegime 
 // world-frame outputs for every model.
 // ---------------------------------------------------------------------------
 
+/// Apply quasi-static flap reduction to hub moments.
+///
+/// Returns (mx_hub_reduced, my_hub_reduced). If `flap` is None, moments
+/// pass through unchanged (rigid-blade assumption).
+#[inline]
+pub fn apply_flap_reduction(
+    mx_hub: f64,
+    my_hub: f64,
+    flap: Option<&crate::rotor_definition::FlapProperties>,
+    omega: f64,
+) -> (f64, f64) {
+    match flap {
+        Some(fp) => {
+            let f = fp.hub_moment_factor(omega);
+            (mx_hub * f, my_hub * f)
+        }
+        None => (mx_hub, my_hub),
+    }
+}
+
 #[inline]
 pub fn assemble_result(
     t_total: f64,

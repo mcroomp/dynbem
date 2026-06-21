@@ -33,6 +33,7 @@ pub fn beaupoil_rotor() -> RotorDefinition {
             swashplate_phase_deg: Some(0.0),
         }),
         pitch_actuation: PitchActuation::DirectMechanical,
+        flap: None,
         name: "beaupoil_2026".to_string(),
         description: String::new(),
     }
