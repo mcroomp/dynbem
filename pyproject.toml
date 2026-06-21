@@ -1,6 +1,6 @@
 [project]
 name = "aero-workspace"
-version = "0.3.1"
+version = "0.4.0"
 description = "Repo-wide development environment for dynbem + dynbem_rs. Not published to PyPI; the publishable package is `dynbem/` (Rust-backed)."
 requires-python = ">=3.11"
 dependencies = [
