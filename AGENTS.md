@@ -354,6 +354,96 @@ is not consumed by the Rust aero solvers. Use the `pitch_actuation:`
 YAML block (with a `servoflap:` sub-block) to enable active servo-flap
 feathering dynamics.
 
+## Quasi-static blade flapping (hub moment reduction)
+
+`FlapProperties` (in `dynbem_rs/src/rotor_definition.rs`) models
+out-of-plane blade flexibility as an equivalent spring-hinge. The blade
+absorbs most aerodynamic pitching/rolling moment via deflection; only a
+fraction reaches the airframe (hub).
+
+Parameters:
+
+- `I_blade_flap_kgm2` -- blade flap inertia about virtual hinge [kg*m^2]
+- `omega_nr_rad_s` -- non-rotating flap natural frequency [rad/s]
+  (K_beta = I_b * omega_NR^2). 0.0 = freely hinged (no spring).
+
+Physics:
+
+    nu_beta^2 = 1 + (omega_NR / Omega)^2
+    hub_moment_factor = (nu_beta^2 - 1) / nu_beta^2
+
+- Freely hinged (omega_NR=0): factor=0, no moment transfer.
+- Rigid blade (omega_NR >> Omega): factor->1, full moment transfer.
+- Typical hingeless rotor: nu_beta ~ 1.05-1.15, factor ~ 0.05-0.15.
+
+Implementation:
+
+- `apply_flap_reduction()` in `dynbem_rs/src/bem_common.rs` scales
+  `mx_hub, my_hub` by the factor before `assemble_result`.
+- Applied in all three models (Pitt-Peters, Oye, quasi-static BEM).
+- The inflow ODE (Pitt-Peters) still uses full aerodynamic moments
+  (the wake responds to disk loading, not what the airframe sees).
+- Thrust and torque are unchanged by flapping.
+
+YAML schema:
+
+    flap:
+      I_blade_flap_kgm2: 0.012
+      omega_nr_rad_s: 8.0
+
+Absent `flap:` section = rigid blade (no moment reduction), preserving
+backward compatibility.
+
+Tests: `tests/test_flap_hinge.py`.
+
+## Windmill solver: non-axial v_t_extra extension
+
+The quasi-static BEM (`dynbem_rs/src/quasi_static_bem.rs`) uses a Ning
+2014 Brent's-method windmill solver (Section 9.1 of MODEL.md) for energy-
+extracting elements. This solver was originally derived for pure axial
+(wind-turbine) flow. Our extension makes it work inside the azimuth-
+resolved psi-loop with in-plane wind -- something OpenFAST's AeroDyn
+BEMT does not do (it only runs the windmill path in the axial-flow code).
+
+### The fix
+
+Each blade element at azimuth psi has tangential velocity
+`v_t = Omega*r + v_t_extra(psi)` where `v_t_extra` comes from forward
+flight (Section 6 of MODEL.md). The windmill Brent residual must include
+this term:
+
+    g(phi) = sin(phi) * (1+a') * lam_tilde + cos(phi) * (1-a) = 0
+
+with `lam_tilde = (Omega*r + v_t_extra) / |v_climb|` instead of the
+axial-only `lam_r = Omega*r / |v_climb|`.
+
+Without this correction, when `|v_t_extra|` is large (high advance ratio
++ descent), the solver finds spurious roots near phi=0 where a->1. The
+old workaround was an `allow_windmill: v_edge < |v_climb|` threshold that
+disabled the windmill solver entirely in oblique descent -- effective but
+overly conservative, preventing correct windmill operation at those
+azimuths where the bracket does exist.
+
+### Bracket-existence as the natural filter
+
+The corrected solver checks whether the residual changes sign across
+phi in (-pi/2, -epsilon). If both endpoints have the same sign, no
+windmill root exists for that element/azimuth and the helicopter
+quadratic is used instead. This is physics-based: the bracket closes
+naturally on the retreating side where v_t_extra opposes Omega*r, and
+opens on the advancing side where the element is genuinely windmilling.
+
+### Why this matters
+
+Autorotating kites, autogyros in forward flight, and any rotor
+descending at oblique angles need the windmill solver active in the
+psi-loop. Without the v_t_extra correction these operating points
+produce thrust sign flips at certain rotor speeds (the helicopter
+quadratic picks the wrong root branch). With it, the crossover from
+helicopter to windmill mode is smooth and azimuthally resolved.
+
+Commits: `acd3183`, `9249e2b`. Tests: `tests/test_rawes_ic_aero_sign.py`.
+
 ## Do not revert work without explicit instructions
 
 If a test fails, a build breaks, or run_map blows up, **do not respond

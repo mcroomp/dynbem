@@ -41,6 +41,7 @@ fn make_rotor_definition(n_elements: usize) -> RotorDefinition {
         },
         control: None,
         pitch_actuation: PitchActuation::DirectMechanical,
+        flap: None,
         name: "bench_rotor".to_string(),
         description: "standalone harness rotor".to_string(),
     }

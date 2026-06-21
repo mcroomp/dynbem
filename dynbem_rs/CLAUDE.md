@@ -69,7 +69,8 @@ Oye filter -- all load-bearing physics.
   `bem_common::kinematics`; the AeroResult assembly is
   `bem_common::assemble_result`; the per-element BEM integrand is
   `bem_common::element_force` (`#[inline(always)]`). All three models
-  call these.
+  call these. `bem_common::apply_flap_reduction` optionally scales
+  hub moments before assembly (quasi-static blade flapping).
 - The ψ × r sweep itself is one generic function
   `bem_common::run_psi_loop<K: PsiKernel>`. Pitt-Peters and Øye each
   implement `PsiKernel` for their own `lam_local` formula (and Øye's

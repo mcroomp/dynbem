@@ -6,7 +6,8 @@ use std::f64::consts::PI;
 use crate::aero_io::{AeroResult, RotorInputs};
 use crate::aero_model::AeroModel;
 use crate::bem_common::{
-    assemble_result, build_psi_trig_table, kinematics, ElementCtx, PsiKernel, RadialGrid, SweepCtx,
+    apply_flap_reduction, assemble_result, build_psi_trig_table, kinematics, ElementCtx,
+    PsiKernel, RadialGrid, SweepCtx,
 };
 use crate::common::{EPS_DENOM, EPS_OMEGA_R, MIN_LOSS_FACTOR};
 use crate::cyclic::cyclic_coeffs;
@@ -761,7 +762,10 @@ impl<P: Polar + Clone> AeroModel for QuasiStaticBEM<P> {
             }
         }
 
-        let result = assemble_result(t_total, q_total, mx_hub, my_hub, hub_axis, &inputs.R_hub);
+        let (mx_out, my_out) = apply_flap_reduction(
+            mx_hub, my_hub, self.defn.flap.as_ref(), inputs.omega_rad_s,
+        );
+        let result = assemble_result(t_total, q_total, mx_out, my_out, hub_axis, &inputs.R_hub);
 
         let derivative = QuasiStaticRotorState;
         // suppress unused warning (use_tip_loss read inside windmill helper).

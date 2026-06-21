@@ -6,8 +6,8 @@ use std::f64::consts::PI;
 use crate::aero_io::{AeroResult, RotorInputs};
 use crate::aero_model::AeroModel;
 use crate::bem_common::{
-    assemble_result, build_psi_trig_table, element_force, kinematics, v_mass_flow_disk, vrs_regime,
-    ElementCtx, PsiKernel, RadialGrid, SweepCtx,
+    apply_flap_reduction, assemble_result, build_psi_trig_table, element_force, kinematics,
+    v_mass_flow_disk, vrs_regime, ElementCtx, PsiKernel, RadialGrid, SweepCtx,
 };
 use crate::common::{
     vrs_lambda1, EPS_OMEGA_R, MIN_LOSS_FACTOR, VRS_DESCENT_THRESHOLD, MASS_FLOW_HOVER_FLOOR_FRAC,
@@ -328,7 +328,10 @@ impl<P: Polar + Clone> AeroModel for OyeBEMModel<P> {
             n,
         );
 
-        let result = assemble_result(t_total, q_total, mx_hub, my_hub, hub_axis, &inputs.R_hub);
+        let (mx_out, my_out) = apply_flap_reduction(
+            mx_hub, my_hub, self.defn.flap.as_ref(), inputs.omega_rad_s,
+        );
+        let result = assemble_result(t_total, q_total, mx_out, my_out, hub_axis, &inputs.R_hub);
         let derivative = OyeRotorState {
             n_elements: n,
             W_int: d_w_int,
