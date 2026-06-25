@@ -3,8 +3,7 @@
 This is the **public `dynbem` Python package**: PyO3 bindings wrapping
 the pure-Rust [`dynbem_rs`](../dynbem_rs/) core, plus a small Python
 compat shim that gives the package a drop-in-compatible surface with
-the legacy pure-Python `dynbem` (now archived as [`dynbem_old/`](../dynbem_old/)
-for reference only).
+the legacy pure-Python `dynbem`.
 
 **Parent doc:** [../CLAUDE.md](../CLAUDE.md) - sign conventions, NED
 frame, rotor rotation direction, all the load-bearing physics that this
@@ -91,12 +90,10 @@ it through `conv.rs` instead.
 
 ## When tests fail
 
-The repo's tests live in `e:/repos/aero/tests/` (228 tests covering
+The repo's tests live in `e:/repos/aero/tests/` (covering
 both production code paths and verification scripts) and are the
 authoritative regression suite. Run with:
 
-    .venv\Scripts\python -m pytest tests/ -q
+    uv run pytest tests/ -q
 
-A `dynbem`-side change that breaks them is a real regression. The
-`dynbem_old/` package is read-only reference material; do not depend on
-it in new code or tests.
+A `dynbem`-side change that breaks them is a real regression.

@@ -277,7 +277,7 @@ airfoils + taper + twist; the simplification is documented in the
 fixture's `description`.
 
 **Test file.** [`tests/test_wheatley_autorotation.py`](tests/test_wheatley_autorotation.py)
--- 6 tests, runs in ~20 s. The test drives
+-- runs in ~20 s. The test drives
 [`verification/wheatley_hood_autorotation_torque.py`](verification/wheatley_hood_autorotation_torque.py)
 with `sample=2` per table (8 trimmed rows across Tables I-IV) plus a
 handful of targeted `evaluate_point` calls for trend pairs. Three test

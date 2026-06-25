@@ -45,14 +45,14 @@ Coordinates are NED throughout; rotor rotation is CCW-from-above
 
 ```
 ./setup.sh           # POSIX shell or Windows git-bash/WSL
-setup.cmd            # Windows cmd/PowerShell thin wrapper (calls bash internally)
+setup.cmd            # Windows cmd/PowerShell
 ```
 
-Both scripts check prerequisites (Python 3.10+, cargo, C compiler) upfront,
-create a virtual environment, install dependencies, and build the Rust extension
-via maturin. See [setup.sh](setup.sh) for details on supported platforms.
+Both scripts check prerequisites (uv, cargo), then run `uv sync --group dev`,
+which creates the `.venv`, installs dependencies, and builds the Rust
+extension via maturin. See [setup.sh](setup.sh) for details.
 
-**Manual setup** (if you prefer not to use the setup scripts):
+**Manual setup** (equivalent to what the scripts run):
 
 The repo is a uv workspace + Cargo workspace. The Rust extension is built
 automatically (via maturin) by `uv sync`:

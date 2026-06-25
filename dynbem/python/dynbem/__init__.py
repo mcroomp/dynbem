@@ -1,8 +1,8 @@
 """dynbem - Rust BEM / Pitt-Peters / Oye dynamic-inflow rotor models.
 
 Maturin builds the compiled extension `_dynbem`; this shim re-exports
-the public surface. (Formerly published as `dynbem_rs`; the original
-pure-Python implementation lives on as `dynbem_old` for reference.)
+the public surface. (Formerly published as `dynbem_rs`; supersedes the
+legacy pure-Python implementation.)
 """
 
 from ._dynbem import (  # noqa: F401
@@ -80,8 +80,9 @@ def OyeBEMModel(defn, polar=None, n_psi_elements=36, coupling_k=0.6):  # noqa: N
 
 
 
-# Legacy alias: dynbem_old exposed `AirfoilPolar` as a marker for the
-# two concrete polar types. Provide it as a tuple usable in isinstance().
+# Legacy alias: the original pure-Python package exposed `AirfoilPolar`
+# as a marker for the two concrete polar types. Provide it as a tuple
+# usable in isinstance().
 AirfoilPolar = (LinearPolar, TabulatedPolar)
 
 

@@ -5,7 +5,7 @@ build-backend = "maturin"
 [project]
 name = "dynbem"
 version = "0.4.0"
-description = "Rust BEM / Pitt-Peters / Oye dynamic-inflow rotor models (formerly dynbem_rs; supersedes the pure-Python dynbem now archived as dynbem_old)"
+description = "Rust BEM / Pitt-Peters / Oye dynamic-inflow rotor models (formerly dynbem_rs; supersedes the legacy pure-Python dynbem)"
 requires-python = ">=3.10"
 license = "MIT"
 authors = [{ name = "Kristof" }]
