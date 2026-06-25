@@ -156,6 +156,22 @@ cargo bench -p dynbem_rs --bench model_kernels -- "sweep_scalar|models_compute_f
 For change validation, run the same command before/after your patch and
 compare medians in each benchmark group.
 
+### Quick throughput snapshot
+
+For a quick local sanity check, the Python-facing Rust hot-path harness
+[`dynbem/benchmarks/bench_rust_only.py`](dynbem/benchmarks/bench_rust_only.py)
+reports minimum call time across repeated trials. On a recent local run
+with 36 azimuth stations and 15 radial elements, approximate throughput was:
+
+| Model | Hover | Forward / cyclic |
+|---|---:|---:|
+| `bem` | about 50k iter/sec | about 1.3k iter/sec |
+| `pitt_peters` | about 3M iter/sec | about 200k iter/sec |
+| `oye` | about 200k iter/sec | about 185k-200k iter/sec |
+
+Treat these as rough scale numbers, not a release guarantee; use Criterion
+before/after comparisons for performance-sensitive changes.
+
 ## External profiling harness
 
 A standalone profiling binary is included at
@@ -221,155 +237,6 @@ For a rotor disk lying in the XY-plane (hub pointing down):
   so `lambda` is **negative** when the rotor is in energy-harvesting mode.
 - Collective pitch `theta_0 > 0` pitches blade leading edge up
   (toward −Z thrust).
-
----
-
-## Implementation roadmap
-
-The model is built in phases from simple to state-of-the-art, each a
-drop-in upgrade behind the same `AeroModel` interface.
-
-### Level 1 — Multi-element quasi-static BEM ✅ DONE
-
-- Multi-element BEM loop (radial quadrature over `n_elements` annuli)
-- Hover-safe inflow iteration on `λ_r` (not wind-turbine induction
-  factor `a`)
-- Per-element Prandtl **tip + hub** loss `F = F_tip · F_hub` (both
-  factors exported from `dynbem.bem`)
-- Glauert / Buhl Windmill Brake State correction (quadratic root
-  selection)
-- Forward-flight ψ-loop: per-azimuth blade pitch (cyclic), tangential
-  wind projection (advancing/retreating), and in-plane hub moment
-  accumulation (M_orbital)
-- **Pure-aero interface**: `omega_rad_s` is passed in `RotorInputs`
-  every call; the model returns no mechanical derivative.  The caller
-  integrates rotor speed externally via `dynbem.mechanical.omega_derivative`.
-- Returns `QuasiStaticRotorState` derivative (empty — inflow is
-  quasi-static; the state carries no fields)
-- **Validation**: see [EMPIRICAL_VALIDATION.md](EMPIRICAL_VALIDATION.md).
-
-### Level 2 — Pitt-Peters 3-state dynamic inflow ✅ DONE
-
-- `PittPetersModel` implemented in Rust at
-  [`dynbem_rs/src/pitt_peters.rs`](dynbem_rs/src/pitt_peters.rs), exposed
-  to Python via the maturin extension in [`dynbem/`](dynbem/)
-- Prescribed-inflow blade element loop with per-element Prandtl tip + hub
-  loss; blade sees `λ_total = λ_0 + v_climb/ΩR` (induced state +
-  freestream), so WBS and autorotation work correctly
-- Pitt-Peters ODE in matrix form (Peters 2009 Eq 7, hub axes):
-  `[M] dλ/dt + V·[L]⁻¹ λ = forcing` with
-  `M = diag(8/(3π), 16/(45π), 16/(45π))` → `τ_0 = 8R/(3πV_T)`,
-  `τ_cs = 16R/(45πV_T)`.
-- Steady-state targets follow the canonical L matrix (Peters Eq 10) with
-  X = tan(χ/2), translated to our ψ=0-at-+X convention:
-  ```
-  λ_0_ss = C_T/(2·µ_T)        + (15π·X/64) · C_M_hub / µ_T
-  λ_c_ss = −(15π·X/64) · C_T  + 4·cos(χ)/(1+cos χ) · C_M_hub) / µ_T
-  λ_s_ss =                      4/(1+cos χ)         · C_L_hub  / µ_T
-  ```
-  The `−(15π·X/64)·C_T` cross-coupling in λ_c_ss is the Pitt-Peters term
-  that produces Glauert wake-skew naturally from thrust forcing — no
-  closed-form Glauert tilt needed.
-- Cyclic input (`tilt_lon`, `tilt_lat`) wired through both models:
-  blade pitch `θ(ψ) = collective + θ_1c·cos(ψ) + θ_1s·sin(ψ)` with
-  helicopter-standard signs (`tilt_lon > 0` → nose-down,
-  `tilt_lat > 0` → roll right). See
-  [`dynbem_rs/src/cyclic.rs`](dynbem_rs/src/cyclic.rs).
-- In-plane hub moments returned via `AeroResult.M_orbital`
-  (`Mx_hub, My_hub` accumulated in the ψ-loop) — needed for cyclic to
-  produce vehicle attitude response in the outer loop.
-- **VRS empirical correction** (Leishman 2000, fit to Castles-Gray
-  data): in 0 < λ₂ < 2,
-  `λ_0_ss` comes from the polynomial
-  `λ₁/V_h = 1 + 1.125λ₂ − 1.372λ₂² + 1.718λ₂³ − 0.655λ₂⁴`
-  rather than momentum theory, preventing the Level-1 CT blow-up in VRS.
-  Cross-coupling is also skipped in the VRS regime.
-- **Canonical reference**: Peters, D.A. (2009), "How Dynamic Inflow
-  Survives in the Competitive World of Rotorcraft Aerodynamics: The
-  Alexander Nikolsky Honorary Lecture," *JAHS* 54(1):011001. PDF and
-  extraction notes in `Research/Peters_Nikolsky_2008/`.
-- **Validation**: see [EMPIRICAL_VALIDATION.md](EMPIRICAL_VALIDATION.md).
-- **Known limitations**:
-  - VRS CT still rises to ~2× nominal in deep VRS (λ₂ ≈ 1.5–2) at
-    fixed θ; real rotor stays near nominal (paper: θ barely adjusts).
-    The Leishman polynomial shifts the operating point but doesn't
-    fully suppress it.
-  - Autorotation torque crossing at V/ΩR ≈ 0.14 vs paper's 0.083.
-  - Mass-flow scaling uses `µ_T = √(µ²+λ²)` (classical Glauert) rather
-    than Peters' Eq 8 `V = (µ²+(λ+ν)(λ+2ν))/√(µ²+(λ+ν)²)`. They agree
-    in high-speed forward flight but differ by 2× in hover. Switching
-    would need validation against a hover dataset.
-  - Wind-axis rotation of the L-matrix is NOT applied; oblique flight
-    `µ_y ≠ 0` is approximate.  Exact for axial and pure-longitudinal
-    flight.  A previous implementation was reverted because it
-    destabilised the tethered-rotor envelope.
-
-### Level 2 alt — Øye 2-stage annular dynamic inflow ✅ DONE
-
-- `OyeBEMModel` in [`dynbem_rs/src/oye.rs`](dynbem_rs/src/oye.rs)
-  (pure-Rust ψ-loop), exposed to Python via the maturin extension
-- **Annulus-local** inflow: each radial annulus has its own pair of
-  first-order lag filters `(W_int, W)` chasing the quasi-steady
-  momentum target `W_qs`.  No global L-matrix; no λ_c/λ_s harmonic
-  states.
-- Two time constants per annulus (Øye 1990, OpenFAST AD Theory §6.3.4):
-  ```
-  τ₁ = 1.1 / (1 − 1.3·min(a, 0.5)) · R / V_∞
-  τ₂(r) = (0.39 − 0.26·(r/R)²) · τ₁
-  τ₁·dW_int/dt + W_int = W_qs + k·τ₁·dW_qs/dt
-  τ₂·dW/dt + W = W_int
-  ```
-  with empirical coupling `k = 0.6`.  DBEMT_Mod=1 equivalent
-  (`dW_qs/dt = 0` across each outer step — exact for envelope sweeps).
-- W_qs per annulus from Glauert momentum balance using rotor-mean
-  `µ_T = V_T / Ω·R`:  `W_qs[i] = dCT/dx[i] / (4·x[i]·µ_T)`.
-- Same VRS override (Leishman polynomial) as Pitt-Peters for
-  `0 < V_descent/V_h < 2` — applied uniformly across annuli.
-- Same cyclic-pitch wiring (`tilt_lon` / `tilt_lat` → per-ψ blade
-  pitch) and same in-plane hub moments returned via `M_orbital`.
-- **Why this alongside Pitt-Peters**: Pitt-Peters' L-matrix couples
-  thrust + hub moments back into all three inflow harmonics
-  globally, which produces a stiff BEM-driven feedback at high
-  advance ratios and in descent + edgewise wind.  Øye's annulus-local
-  filters are independent → no feedback loop → numerically stable in
-  the same regimes that needed adaptive time-stepping with
-  Pitt-Peters.  OpenFAST's DBEMT uses the same Øye-style formulation
-  for this reason.
-- **Trade-off**: no harmonic inflow states means the inflow doesn't
-  develop a `λ_c`-like tilt in response to cyclic pitching moments,
-  so `tests/test_cyclic.py::test_cyclic_inflow_reduces_hub_moment`
-  (which checks PP's specific feedback mechanism) doesn't apply.
-  Cyclic *control* still works (hub moments respond correctly to
-  swashplate inputs), but cyclic *inflow feedback* is absent.
-- **Validation**: see [EMPIRICAL_VALIDATION.md](EMPIRICAL_VALIDATION.md).
-- **References**:
-  - Øye, S. (1990).  A simple vortex model.  IEA Symposium.
-  - Snel, H. & Schepers, J.G. (1995).  Joint investigation of dynamic
-    inflow effects.  ECN.
-  - OpenFAST AeroDyn Theory v3.5, §6.3.4 (DBEMT).
-
-### Forward flight capability ✅ DONE (applies to Levels 1–2)
-
-Wired into all BEM and dynamic-inflow models above:
-
-- Oblique inflow: advance ratio `µ = V_edge / (Ω·R)` ≠ 0
-- Blade azimuth-dependent ψ-loop velocity (`n_psi=36` stations by default,
-  automatically triggered when `µ > 0.01`, cyclic input is nonzero, or
-  cyclic inflow state is nonzero)
-- Per-azimuth cyclic blade pitch: `θ(ψ) = collective + θ_1c·cos(ψ) + θ_1s·sin(ψ)`
-- In-plane hub moments `Mx_hub`, `My_hub` returned via `AeroResult.M_orbital`
-  (needed for vehicle roll/pitch response to cyclic control)
-- Pitt-Peters L matrix off-diagonal `−L_off·C_T` produces Glauert wake-skew
-  naturally from thrust forcing (exact for axial and pure-longitudinal flight;
-  approximate for oblique `µ_y ≠ 0`)
-
-### Level 3 — Peters-He finite-state dynamic inflow (state of the art)
-
-- 9-state (or higher-order) Peters-He inflow model
-- Requires new `PetersHeRotorState` dataclass
-- Captures higher harmonics of the inflow distribution
-- Best accuracy for maneuvering flight and aeroelastic coupling
-- **Validation**: see [EMPIRICAL_VALIDATION.md](EMPIRICAL_VALIDATION.md).
 
 ---
 
