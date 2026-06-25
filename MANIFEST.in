@@ -20,7 +20,6 @@ prune __pycache__
 exclude CLAUDE.md
 exclude run_map.cmd
 exclude setup.cmd
-exclude requirements.txt
 exclude *.cmd
 
 global-exclude *.pyc

@@ -2,22 +2,24 @@
 setlocal
 
 set "SCRIPT_DIR=%~dp0"
-set "VENV_PY=%SCRIPT_DIR%.venv\Scripts\python.exe"
 
-if not exist "%VENV_PY%" (
-    echo Virtual environment not found at %VENV_PY%
-    echo Run setup.cmd first.
+where uv >NUL 2>&1
+if errorlevel 1 (
+    echo error: uv not found on PATH. Run setup.cmd first.
     exit /b 1
 )
 
 REM Default: quick grid, save to out\map.npz, plot to out\
 REM Pass any args (e.g. --full, --quantity rpm, --tmax 800) to override.
 
+pushd "%SCRIPT_DIR%"
 if "%~1"=="" (
     if not exist "%SCRIPT_DIR%out" mkdir "%SCRIPT_DIR%out"
-    "%VENV_PY%" -m envelope.compute_map --quick --save "%SCRIPT_DIR%out\map.npz" --plot "%SCRIPT_DIR%out"
+    uv run python -m envelope.compute_map --quick --save "%SCRIPT_DIR%out\map.npz" --plot "%SCRIPT_DIR%out"
 ) else (
-    "%VENV_PY%" -m envelope.compute_map %*
+    uv run python -m envelope.compute_map %*
 )
+set "RC=%ERRORLEVEL%"
+popd
 
-endlocal
+endlocal & exit /b %RC%

@@ -1,6 +1,0 @@
-numpy
-matplotlib
-numba
-PyYAML
-pytest
-pytest-timeout

@@ -26,9 +26,8 @@ dev = [
 # mode (which builds the Rust extension via maturin) plus PyYAML; add
 # `--group dev` to also pull pytest et al.
 #
-# `dynbem_old/` is reference Python source and intentionally NOT a member
-# (no pyproject.toml, not pip-installable). `dynbem_rs/` is a pure-Rust
-# crate in the Cargo workspace at ./Cargo.toml.
+# `dynbem_rs/` is a pure-Rust crate in the Cargo workspace at
+# ./Cargo.toml (not a uv/Python workspace member).
 # ---------------------------------------------------------------------------
 [tool.uv.workspace]
 members = ["dynbem"]
