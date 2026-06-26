@@ -4,12 +4,15 @@
 ///   - Current: V_mf = sqrt(mu^2 + lambda^2) (classical Glauert)
 ///   - Peters Eq-8: V = (mu^2 + (lambda+nu)(lambda+2*nu)) / sqrt(mu^2 + (lambda+nu)^2)
 ///
-/// Peters' V is the mass-flow parameter from his 2009 Nikolsky Lecture, Eq 8.
-/// The two differ by ~2x in hover and affect all L-matrix scalings plus time constants.
+/// Peters' V is the mass-flow parameter from his 2009 Nikolsky Lecture, Eq 8
+/// (see Research/Peters_Nikolsky_2008/CLAUDE.md). In Eq 8, `lambda` is the
+/// CLIMB ratio (= 0 in hover) and `nu` is the induced flow -- they are DISTINCT
+/// variables. In hover (mu=0, lambda=0) the formula reduces to
+///   V = (nu)(2*nu) / sqrt(nu^2) = 2*nu.
 ///
-/// The Glauert form is used here because it reproduces the classical momentum-theory
-/// prediction lambda_0 = sqrt(C_T/2) in hover, which is well-validated. Peters' V
-/// would give lambda_0 = sqrt(C_T)/2 (a factor sqrt(3) error in hover).
+/// The Glauert form is used in the model because it reproduces the classical
+/// momentum-theory hover inflow lambda_0 = sqrt(C_T/2). Peters' V gives
+/// lambda_0 = sqrt(C_T/4) = sqrt(C_T)/2 in hover -- a factor sqrt(2) smaller.
 
 mod common;
 
@@ -17,23 +20,24 @@ mod common;
 fn hover_mass_flow_comparison_glauert_vs_peters() {
     const C_T: f64 = 0.00488; // Castles-Gray case pp_10.29_1200
 
-    // Hover thrust from momentum: T = 2*rho*A*lambda_0*v_mf
+    // Hover thrust from momentum: T = 2*rho*A*lambda_0*v_mf, i.e.
+    // C_T = 2*lambda_0*(v_mf / (Omega*R)). In hover the non-dim mass-flow
+    // equals lambda_0 (Glauert) or 2*lambda_0 (Peters Eq-8).
     //
     // GLAUERT FORM: v_mf = lambda_0
-    //   => T = 2*rho*A*lambda_0^2
-    //   => lambda_0 = sqrt(C_T/2) = sqrt(0.00488/2) ≈ 0.0494
+    //   => C_T = 2*lambda_0^2
+    //   => lambda_0 = sqrt(C_T/2) = sqrt(0.00488/2) ~ 0.0494
     //   This matches classical momentum theory exactly.
     let lambda_0_glauert = (C_T / 2.0).sqrt();
 
-    // PETERS EQ-8 FORM: v_mf = 3*lambda_0 (in hover, since V = (lambda+nu)^2/|lambda+nu|)
-    //   => T = 2*rho*A*lambda_0*(3*lambda_0) = 6*rho*A*lambda_0^2
-    //   => lambda_0 = sqrt(C_T/6) ≈ 0.0285
-    //   This is sqrt(3) ≈ 1.732x smaller than correct, violating momentum theory.
-    let lambda_0_peters = (C_T / 6.0).sqrt();
+    // PETERS EQ-8 FORM: in hover V = 2*nu = 2*lambda_0
+    //   => C_T = 2*lambda_0*(2*lambda_0) = 4*lambda_0^2
+    //   => lambda_0 = sqrt(C_T/4) = sqrt(C_T)/2 ~ 0.0349
+    //   This is sqrt(2) ~ 1.414x smaller than the Glauert/momentum value.
+    let lambda_0_peters = (C_T / 4.0).sqrt();
 
-    eprintln!("\n╔══════════════════════════════════════════════════════════╗");
-    eprintln!("║ Hover Mass-Flow Comparison: Glauert vs Peters Eq-8     ║");
-    eprintln!("╚══════════════════════════════════════════════════════════╝");
+    eprintln!();
+    eprintln!("=== Hover Mass-Flow Comparison: Glauert vs Peters Eq-8 ===");
     eprintln!();
     eprintln!("Test case: Castles-Gray pp_10.29_1200, C_T = {}", C_T);
     eprintln!();
@@ -41,43 +45,58 @@ fn hover_mass_flow_comparison_glauert_vs_peters() {
     eprintln!("  Peters Eq-8:        lambda_0 = {:.6}", lambda_0_peters);
     eprintln!();
     eprintln!(
-        "  Ratio (Peters/Glauert): {:.3}x smaller",
+        "  Ratio (Glauert/Peters): {:.3}x  (expected sqrt(2) ~ 1.414)",
         lambda_0_glauert / lambda_0_peters
     );
     eprintln!();
-    eprintln!("TIME CONSTANT IMPACT (tau = 8R/(3π·v_mf)):");
-    let tau_ratio = lambda_0_glauert / lambda_0_peters; // Since v_mf ratio is same as lambda_0 ratio in hover
-    eprintln!("  Glauert tau:  tau_0 (baseline)");
-    eprintln!("  Peters tau:   tau_0 / {:.3} = {:.2}x FASTER convergence", tau_ratio, tau_ratio);
-    eprintln!("  Effect: Peters model responds {} times quicker to disturbances", tau_ratio);
+    // Mass-flow parameter ratio in hover: v_mf_glauert = lambda_0_glauert,
+    // V_peters = 2*lambda_0_peters = sqrt(C_T). So V_peters / v_mf_glauert
+    // = sqrt(C_T) / sqrt(C_T/2) = sqrt(2): Peters' mass flow is LARGER.
+    let v_mf_glauert = lambda_0_glauert;
+    let v_peters = 2.0 * lambda_0_peters;
+    let massflow_ratio = v_peters / v_mf_glauert;
+    eprintln!("TIME CONSTANT IMPACT (tau = 8R/(3*pi*v_mf)):");
+    eprintln!("  v_mf ratio (Peters/Glauert): {:.3}x", massflow_ratio);
+    eprintln!(
+        "  Peters tau = tau_0 / {:.3} => {:.2}x FASTER convergence",
+        massflow_ratio, massflow_ratio
+    );
     eprintln!();
     eprintln!("L-MATRIX STEADY-STATE IMPACT:");
-    eprintln!("  lam0_ss ∝ C_T / v_mf  =>  lam0_ss ratio = {:.3}x", lambda_0_glauert / lambda_0_peters);
-    eprintln!("  cyclic_ss ∝ 1 / v_mf  =>  cyclic_ss ratio = {:.3}x", lambda_0_glauert / lambda_0_peters);
+    eprintln!(
+        "  lam0_ss propto C_T / v_mf  => Peters value {:.3}x smaller",
+        massflow_ratio
+    );
+    eprintln!(
+        "  cyclic_ss propto 1 / v_mf  => Peters value {:.3}x smaller",
+        massflow_ratio
+    );
     eprintln!();
     eprintln!("FORWARD FLIGHT (mu >> lambda):");
-    eprintln!("  In forward flight both forms converge (both ≈ mu),");
-    eprintln!("  but the hover prediction error (1.73x) carries through as bias.");
+    eprintln!("  Both forms converge to V ~ mu, so the difference is a");
+    eprintln!("  low-speed/hover effect that biases the hover prediction.");
     eprintln!();
     eprintln!("CONCLUSION:");
-    eprintln!("  ✓ Glauert form is CORRECT choice:");
-    eprintln!("    - Reproduces classical momentum theory in hover");
-    eprintln!("    - Validated against Caradonna-Tung, Castles-Gray, etc.");
-    eprintln!("    - Used by existing regression tests");
+    eprintln!("  Glauert form reproduces classical momentum theory in hover");
+    eprintln!("  (lambda_0 = sqrt(C_T/2)) and is calibrated against the");
+    eprintln!("  46-point Castles-Gray regression suite. Peters' Eq-8 V would");
+    eprintln!("  give sqrt(2)x smaller hover inflow and sqrt(2)x faster time");
+    eprintln!("  constants, requiring a full re-validation.");
     eprintln!();
-    eprintln!("  ✗ Peters Eq-8 would be PROBLEMATIC:");
-    eprintln!("    - Predicts 1.73x smaller hover inflow (violates theory)");
-    eprintln!("    - Time constants 1.73x too fast (unstable in envelope)");
-    eprintln!("    - Would require re-tuning of ALL empirical test thresholds");
-    eprintln!();
-    eprintln!("╚══════════════════════════════════════════════════════════╝\n");
 
-    // Verify the expected sqrt(3) ratio
-    let expected_ratio = 3.0_f64.sqrt();
+    // Verify the expected sqrt(2) ratio between the two hover inflow values.
+    let expected_ratio = 2.0_f64.sqrt();
     let actual_ratio = lambda_0_glauert / lambda_0_peters;
     assert!(
         (actual_ratio - expected_ratio).abs() < 1e-6,
-        "Expected sqrt(3) ratio, got {}",
+        "Expected sqrt(2) ratio, got {}",
         actual_ratio
+    );
+
+    // And verify the mass-flow parameter ratio is also sqrt(2).
+    assert!(
+        (massflow_ratio - expected_ratio).abs() < 1e-6,
+        "Expected sqrt(2) mass-flow ratio, got {}",
+        massflow_ratio
     );
 }

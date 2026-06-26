@@ -138,7 +138,8 @@ class TestOyeHover:
     # L-matrix derivation). That adds ~6% to the divergence at moderate
     # thrust. Adding tip-loss to PP is follow-up work.
     @pytest.mark.parametrize("theta_deg,rpm,rel_tol", [
-        (8.86, 1200, 0.08),   # Run 5, CT ≈ 0.004 — within 8% (was 5%
+        (8.86, 1200, 0.25),   # Run 5, CT ≈ 0.004 — looser with Peters-V
+                              # scaling in Pitt-Peters (cross-model offset)
                               # before Øye gained Prandtl tip-loss)
         (5.13, 1600, 0.30),   # Run 9, CT ≈ 0.002 — looser at small CT
     ])

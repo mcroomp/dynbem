@@ -47,7 +47,6 @@ fn make_inputs() -> RotorInputs {
         R_hub: Mat3::eye(),
         v_hub_world: Vec3::new(0.0, 0.0, 0.0),
         wind_world: Vec3::new(8.0, 1.5, -1.0),
-        t: 0.0,
         rho_kg_m3: 1.225,
         omega_rad_s: 120.0,
     }

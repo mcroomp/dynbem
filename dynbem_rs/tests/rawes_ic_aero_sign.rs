@@ -36,7 +36,6 @@ fn rawes_ic_inputs(omega: f64, tilt_lon: f64, tilt_lat: f64) -> RotorInputs {
         v_hub_world: Vec3::new(0.0, 0.0, 0.0),
         wind_world: Vec3::new(0.0, 10.0, 0.0),
         omega_rad_s: omega,
-        t: 45.0,
         rho_kg_m3: 1.225,
     }
 }

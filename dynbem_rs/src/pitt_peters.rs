@@ -26,31 +26,54 @@
 // Eqs 7-11 (Research/Peters_Nikolsky_2008/). Read that file's CLAUDE.md
 // before touching any sign or coefficient here.
 //
+// SECONDARY REFERENCE: S. (Kevin) Li, "Development of Rotorcraft Forward
+// Flight Analysis Code Using the Finite-State Dynamic Inflow Model", MS
+// Project Report, UC Davis MAE (Aug 2020). Its Eq 11 prints the full
+// Peters-HaQuang mass-flow V = (mu^2 + (lam+nu)(lam+2nu))/sqrt(mu^2 +
+// (lam+nu)^2) together with the same [M] and [L] matrices we use, and
+// attributes that V to Peters-HaQuang [8] (the moving-hub reformulation),
+// NOT to Pitt's original 1980 dissertation (which only had v = V/(Omega R)).
+// Notably Li's own uniform-inflow trim (his Eq 14) falls back to the
+// classical Glauert lambda_0 = C_T/(2*sqrt(mu^2 + lambda^2)) -- the same
+// mass-flow form this code uses (flag A) -- so a finite-state Peters-He
+// implementation corroborates the Glauert scaling choice.
+//
 // NON-STANDARD / PROJECT-SPECIFIC DEVIATIONS FROM TEXTBOOK PITT-PETERS
 // (each is flagged inline at its use-site with `NON-STANDARD:`):
 //
 //   A. Mass-flow scalar is classical Glauert V_mf = sqrt(mu^2 + lambda^2)
-//      (`v_mass_flow_disk`), NOT Peters' Eq-8 `V`. The two differ by a
-//      factor of 2 in hover (our form reproduces Glauert lambda_0 =
-//      sqrt(C_T/2)); the L-matrix STRUCTURE still matches Peters exactly.
+//      (`v_mass_flow_disk`), NOT the Peters-HaQuang V (Li 2020 Eq 11). The
+//      two differ by ~sqrt(2) in hover (our form reproduces Glauert
+//      lambda_0 = sqrt(C_T/2); the Peters Eq-8 V = 2*nu in hover gives
+//      lambda_0 = sqrt(C_T/4) = sqrt(C_T)/2); the L-matrix STRUCTURE still
+//      matches Peters exactly. Choice is justified empirically (46-point
+//      regression suite) and by Li 2020 Eq 14, which uses the same Glauert
+//      form for uniform inflow. (In Peters' Eq 8, `lambda` is climb and
+//      `nu` is induced flow -- distinct variables; see
+//      Research/Peters_Nikolsky_2008/CLAUDE.md section 8.)
 //   B. Sign/azimuth convention is ours (psi=0 at +X/nose, CCW-from-above),
 //      so our lambda_c = -Peters nu_c and lambda_s = -Peters nu_s; forcing
 //      is {C_T, +C_M_hub, +C_L_hub} (see AGENTS.md "Hub-frame aero moments").
 //   C. VRS empirical override: inside the vortex-ring-state regime the
 //      momentum lam0_ss is replaced by the Leishman polynomial
 //      (`vrs_lambda1`); momentum theory does not apply in a recirculating
-//      wake, so the L-matrix cross-coupling is skipped there too.
+//      wake, so the lam0_ss cross-coupling term (+l_off*C_M) is dropped
+//      there. The cyclic targets lam_c_ss/lam_s_ss are still computed with
+//      their full L-matrix cross-coupling (the regime only overrides the
+//      uniform-inflow component).
 //   D. Wind-axis rotation IS applied (beta_wind) -- forcing and the current
 //      cyclic states are rotated into wind axes, the L relations evaluated
 //      there, and the derivatives rotated back. This makes the model
 //      rotationally covariant in oblique flight. (AGENTS.md documents the
 //      history: it was once reverted for instability, now safe because the
 //      envelope integrator damps all inflow states semi-implicitly.)
-//   E. Dual mass-flow handling: the L-matrix scaling uses a FLOORED
-//      mu_t_eff (>= MU_T_FLOOR) to stay finite at hover, while the time
-//      constants tau_0/tau_cs and the C_L/C_M normalization use the
-//      UN-floored v_mf. Mixing them up doubles v_mf and corrupts the
-//      coefficients (see the inline note).
+//   E. Dual mass-flow handling: the L-matrix scaling uses mu_t_eff clamped at
+//      MU_T_FLOOR to stay finite at hover, while the time constants
+//      tau_0/tau_cs and the C_L/C_M normalization use v_mf directly (which
+//      carries only its own much smaller MASS_FLOW_HOVER_FLOOR_FRAC floor, not
+//      the MU_T_FLOOR clamp). Recomputing v_mf from mu_t_eff would re-impose
+//      the MU_T_FLOOR clamp -- inflating v_mf whenever v_mf/omega_r <
+//      MU_T_FLOOR -- and corrupt the coefficients (see the inline note).
 //   F. Quasi-static blade flap reduction (`apply_flap_reduction`) scales the
 //      hub moments the AIRFRAME sees, but the inflow ODE uses the FULL
 //      aerodynamic moments (the wake responds to disk loading, not to what
@@ -268,14 +291,18 @@ impl<P: Polar + Clone> AeroModel for PittPetersModel<P> {
         let mu_inplane = v_edge / omega_r.max(EPS_OMEGA_R);
         let v0 = lam0 * omega_r;
         // NON-STANDARD (flag A): v_mf is the classical Glauert mass-flow
-        // V_mf = sqrt(v_edge^2 + (v_climb + v0)^2), NOT Peters' Eq-8 V.
-        // Reproduces Glauert hover lambda_0 = sqrt(C_T/2); differs from
-        // Peters' V by ~2x in hover. L-matrix structure is unaffected.
+        // V_mf = sqrt(v_edge^2 + (v_climb + v0)^2), NOT the Peters-HaQuang V
+        // = (mu^2 + (lam+nu)(lam+2nu)) / sqrt(mu^2 + (lam+nu)^2). Reproduces
+        // Glauert hover lambda_0 = sqrt(C_T/2); differs from the Peters-HaQuang
+        // V by ~sqrt(2) in hover (Peters V = 2*nu there). L-matrix structure is
+        // unaffected. Consistent with the Glauert uniform-inflow scaling used
+        // in Li (UC Davis MS, 2020) Eq 14; see flag A in the module header.
         let v_mf = v_mass_flow_disk(v_edge, v_climb, v0, omega_r);
-        // NON-STANDARD (flag E): mu_t_eff is FLOORED at MU_T_FLOOR purely to
+        // NON-STANDARD (flag E): mu_t_eff is clamped at MU_T_FLOOR purely to
         // keep the L-matrix scaling finite near hover. The time constants and
-        // the C_L/C_M normalization below must use the UN-floored v_mf instead
-        // (see the note before `norm`).
+        // the C_L/C_M normalization below must use v_mf directly (which keeps
+        // only its own smaller MASS_FLOW_HOVER_FLOOR_FRAC floor), not this
+        // clamped value (see the note before `norm`).
         let mu_t_eff = (if omega_r > EPS_OMEGA_R {
             v_mf / omega_r
         } else {
@@ -296,7 +323,7 @@ impl<P: Polar + Clone> AeroModel for PittPetersModel<P> {
         };
         let beta_c = beta_wind.cos();
         let beta_s = beta_wind.sin();
-        // small_atan2_eps avoids chi flipping between +-pi/2 when lambda_total
+        // EPS_OMEGA_R avoids chi flipping between +-pi/2 when lambda_total
         // is exactly zero in pure-edgewise flow.
         let chi = mu_inplane.atan2(lambda_total.abs() + EPS_OMEGA_R);
         let cos_chi = chi.cos();
@@ -311,8 +338,9 @@ impl<P: Polar + Clone> AeroModel for PittPetersModel<P> {
 
         // NON-STANDARD (flag E, cont.): keep v_mf as the correctly-computed
         // v_mass_flow_disk value. Do NOT recompute from the clamped mu_t_eff
-        // (that would apply the MU_T_FLOOR constraint, doubling v_mf and
-        // breaking the coefficient calculations).
+        // (that would re-impose the MU_T_FLOOR clamp on v_mf -- inflating it
+        // whenever v_mf/omega_r < MU_T_FLOOR -- and breaking the coefficient
+        // calculations).
         let norm = rho * area * omega_r * r_tip * v_mf;
         let c_l_hub = if norm > EPS_DENOM { mx_hub / norm } else { 0.0 };
         let c_m_hub = if norm > EPS_DENOM { my_hub / norm } else { 0.0 };
@@ -330,7 +358,10 @@ impl<P: Polar + Clone> AeroModel for PittPetersModel<P> {
             // NON-STANDARD (flag C): VRS empirical override. Momentum theory
             // does not apply in a recirculating wake, so lam0_ss comes from the
             // Leishman polynomial instead of the L-matrix relation, and the
-            // cross-coupling term below is skipped in this regime.
+            // uniform-inflow cross-coupling term (+l_off*C_M, in the else
+            // branch) is dropped in this regime. The cyclic targets
+            // lam_c_ss/lam_s_ss below are NOT skipped -- they keep their full
+            // L-matrix cross-coupling even inside VRS.
             if omega_r > EPS_OMEGA_R {
                 vrs_lambda1(vrs.lam2) * vrs.v_h / omega_r
             } else {

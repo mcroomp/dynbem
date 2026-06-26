@@ -10,6 +10,23 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::PyTypeInfo;
 
+fn parse_integration_method(method: Option<&str>) -> PyResult<core_::aero_model::IntegrationMethod> {
+    match method.unwrap_or("semi_implicit").to_ascii_lowercase().as_str() {
+        "semi_implicit" | "semi-implicit" | "semiimplicit" | "implicit" => {
+            Ok(core_::aero_model::IntegrationMethod::SemiImplicitEuler)
+        }
+        "explicit" | "explicit_euler" | "explicit-euler" => {
+            Ok(core_::aero_model::IntegrationMethod::ExplicitEuler)
+        }
+        "exponential" | "exponential_relaxation" | "exponential-relaxation" | "exp" => {
+            Ok(core_::aero_model::IntegrationMethod::ExponentialRelaxation)
+        }
+        other => Err(PyValueError::new_err(format!(
+            "Unknown integration_method '{other}'. Use 'semi_implicit', 'explicit', or 'exponential'."
+        ))),
+    }
+}
+
 // ===========================================================================
 // Polars
 // ===========================================================================
@@ -688,7 +705,10 @@ impl PyOyeRotorState {
 
 #[pyclass(name = "RotorInputs", module = "dynbem._dynbem")]
 #[derive(Clone, Debug)]
-pub struct PyRotorInputs(pub core_::aero_io::RotorInputs);
+pub struct PyRotorInputs {
+    pub inner: core_::aero_io::RotorInputs,
+    pub t: f64,
+}
 
 #[pymethods]
 impl PyRotorInputs {
@@ -710,80 +730,82 @@ impl PyRotorInputs {
         t: f64,
         rho_kg_m3: f64,
     ) -> PyResult<Self> {
-        Ok(PyRotorInputs(core_::aero_io::RotorInputs {
-            collective_rad,
-            tilt_lon,
-            tilt_lat,
-            R_hub: read_mat3(R_hub, "R_hub")?,
-            v_hub_world: read_vec3(v_hub_world, "v_hub_world")?,
-            wind_world: read_vec3(wind_world, "wind_world")?,
+        Ok(PyRotorInputs {
+            inner: core_::aero_io::RotorInputs {
+                collective_rad,
+                tilt_lon,
+                tilt_lat,
+                R_hub: read_mat3(R_hub, "R_hub")?,
+                v_hub_world: read_vec3(v_hub_world, "v_hub_world")?,
+                wind_world: read_vec3(wind_world, "wind_world")?,
+                rho_kg_m3,
+                omega_rad_s,
+            },
             t,
-            rho_kg_m3,
-            omega_rad_s,
-        }))
+        })
     }
 
     #[getter]
     fn collective_rad(&self) -> f64 {
-        self.0.collective_rad
+        self.inner.collective_rad
     }
     #[setter]
     fn set_collective_rad(&mut self, v: f64) {
-        self.0.collective_rad = v;
+        self.inner.collective_rad = v;
     }
     #[getter]
     fn tilt_lon(&self) -> f64 {
-        self.0.tilt_lon
+        self.inner.tilt_lon
     }
     #[setter]
     fn set_tilt_lon(&mut self, v: f64) {
-        self.0.tilt_lon = v;
+        self.inner.tilt_lon = v;
     }
     #[getter]
     fn tilt_lat(&self) -> f64 {
-        self.0.tilt_lat
+        self.inner.tilt_lat
     }
     #[setter]
     fn set_tilt_lat(&mut self, v: f64) {
-        self.0.tilt_lat = v;
+        self.inner.tilt_lat = v;
     }
     #[getter]
     fn t(&self) -> f64 {
-        self.0.t
+        self.t
     }
     #[setter]
     fn set_t(&mut self, v: f64) {
-        self.0.t = v;
+        self.t = v;
     }
     #[getter]
     fn rho_kg_m3(&self) -> f64 {
-        self.0.rho_kg_m3
+        self.inner.rho_kg_m3
     }
     #[setter]
     fn set_rho_kg_m3(&mut self, v: f64) {
-        self.0.rho_kg_m3 = v;
+        self.inner.rho_kg_m3 = v;
     }
     #[getter]
     fn omega_rad_s(&self) -> f64 {
-        self.0.omega_rad_s
+        self.inner.omega_rad_s
     }
     #[setter]
     fn set_omega_rad_s(&mut self, v: f64) {
-        self.0.omega_rad_s = v;
+        self.inner.omega_rad_s = v;
     }
 
     #[getter]
     #[allow(non_snake_case)]
     fn R_hub<'py>(&self, py: Python<'py>) -> Bound<'py, numpy::PyArray2<f64>> {
-        mat3_to_py(py, &self.0.R_hub)
+        mat3_to_py(py, &self.inner.R_hub)
     }
     #[getter]
     fn v_hub_world<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
-        vec3_to_py(py, &self.0.v_hub_world)
+        vec3_to_py(py, &self.inner.v_hub_world)
     }
     #[getter]
     fn wind_world<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
-        vec3_to_py(py, &self.0.wind_world)
+        vec3_to_py(py, &self.inner.wind_world)
     }
 }
 
@@ -801,7 +823,7 @@ impl PyAeroResult {
     #[getter]
     #[allow(non_snake_case)]
     fn M_orbital<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
-        vec3_to_py(py, &self.0.M_orbital)
+        vec3_to_py(py, &self.0.M_hub_world)
     }
     #[getter]
     #[allow(non_snake_case)]
@@ -857,8 +879,20 @@ impl PyQuasiStaticBEMLinear {
         inputs: &PyRotorInputs,
         state: &PyQuasiStaticRotorState,
     ) -> (PyAeroResult, PyQuasiStaticRotorState) {
-        let (r, s) = self.0.compute_forces(&inputs.0, &state.0);
+        let (r, s) = self.0.compute_forces(&inputs.inner, &state.0);
         (PyAeroResult(r), PyQuasiStaticRotorState(s))
+    }
+    #[pyo3(signature = (inputs, state, dt, integration_method=None))]
+    fn step(
+        &self,
+        inputs: &PyRotorInputs,
+        state: &PyQuasiStaticRotorState,
+        dt: f64,
+        integration_method: Option<&str>,
+    ) -> PyResult<(PyAeroResult, PyQuasiStaticRotorState)> {
+        let method = parse_integration_method(integration_method)?;
+        let (r, s) = self.0.step(&inputs.inner, &state.0, dt, method);
+        Ok((PyAeroResult(r), PyQuasiStaticRotorState(s)))
     }
     fn inflow_taus<'py>(
         &self,
@@ -867,7 +901,7 @@ impl PyQuasiStaticBEMLinear {
         state: &PyQuasiStaticRotorState,
     ) -> Bound<'py, PyArray1<f64>> {
         self.0
-            .inflow_taus(&inputs.0, &state.0)
+            .inflow_taus(&inputs.inner, &state.0)
             .into_pyarray_bound(py)
     }
     #[getter]
@@ -905,8 +939,20 @@ impl PyQuasiStaticBEMTabulated {
         inputs: &PyRotorInputs,
         state: &PyQuasiStaticRotorState,
     ) -> (PyAeroResult, PyQuasiStaticRotorState) {
-        let (r, s) = self.0.compute_forces(&inputs.0, &state.0);
+        let (r, s) = self.0.compute_forces(&inputs.inner, &state.0);
         (PyAeroResult(r), PyQuasiStaticRotorState(s))
+    }
+    #[pyo3(signature = (inputs, state, dt, integration_method=None))]
+    fn step(
+        &self,
+        inputs: &PyRotorInputs,
+        state: &PyQuasiStaticRotorState,
+        dt: f64,
+        integration_method: Option<&str>,
+    ) -> PyResult<(PyAeroResult, PyQuasiStaticRotorState)> {
+        let method = parse_integration_method(integration_method)?;
+        let (r, s) = self.0.step(&inputs.inner, &state.0, dt, method);
+        Ok((PyAeroResult(r), PyQuasiStaticRotorState(s)))
     }
     fn inflow_taus<'py>(
         &self,
@@ -915,7 +961,7 @@ impl PyQuasiStaticBEMTabulated {
         state: &PyQuasiStaticRotorState,
     ) -> Bound<'py, PyArray1<f64>> {
         self.0
-            .inflow_taus(&inputs.0, &state.0)
+            .inflow_taus(&inputs.inner, &state.0)
             .into_pyarray_bound(py)
     }
     #[getter]
@@ -957,8 +1003,20 @@ impl PyPittPetersModelLinear {
         inputs: &PyRotorInputs,
         state: &PyPittPetersRotorState,
     ) -> (PyAeroResult, PyPittPetersRotorState) {
-        let (r, s) = self.0.compute_forces(&inputs.0, &state.0);
+        let (r, s) = self.0.compute_forces(&inputs.inner, &state.0);
         (PyAeroResult(r), PyPittPetersRotorState(s))
+    }
+    #[pyo3(signature = (inputs, state, dt, integration_method=None))]
+    fn step(
+        &self,
+        inputs: &PyRotorInputs,
+        state: &PyPittPetersRotorState,
+        dt: f64,
+        integration_method: Option<&str>,
+    ) -> PyResult<(PyAeroResult, PyPittPetersRotorState)> {
+        let method = parse_integration_method(integration_method)?;
+        let (r, s) = self.0.step(&inputs.inner, &state.0, dt, method);
+        Ok((PyAeroResult(r), PyPittPetersRotorState(s)))
     }
     fn inflow_taus<'py>(
         &self,
@@ -967,7 +1025,7 @@ impl PyPittPetersModelLinear {
         state: &PyPittPetersRotorState,
     ) -> Bound<'py, PyArray1<f64>> {
         self.0
-            .inflow_taus(&inputs.0, &state.0)
+            .inflow_taus(&inputs.inner, &state.0)
             .into_pyarray_bound(py)
     }
     #[getter]
@@ -1009,8 +1067,20 @@ impl PyPittPetersModelTabulated {
         inputs: &PyRotorInputs,
         state: &PyPittPetersRotorState,
     ) -> (PyAeroResult, PyPittPetersRotorState) {
-        let (r, s) = self.0.compute_forces(&inputs.0, &state.0);
+        let (r, s) = self.0.compute_forces(&inputs.inner, &state.0);
         (PyAeroResult(r), PyPittPetersRotorState(s))
+    }
+    #[pyo3(signature = (inputs, state, dt, integration_method=None))]
+    fn step(
+        &self,
+        inputs: &PyRotorInputs,
+        state: &PyPittPetersRotorState,
+        dt: f64,
+        integration_method: Option<&str>,
+    ) -> PyResult<(PyAeroResult, PyPittPetersRotorState)> {
+        let method = parse_integration_method(integration_method)?;
+        let (r, s) = self.0.step(&inputs.inner, &state.0, dt, method);
+        Ok((PyAeroResult(r), PyPittPetersRotorState(s)))
     }
     fn inflow_taus<'py>(
         &self,
@@ -1019,7 +1089,7 @@ impl PyPittPetersModelTabulated {
         state: &PyPittPetersRotorState,
     ) -> Bound<'py, PyArray1<f64>> {
         self.0
-            .inflow_taus(&inputs.0, &state.0)
+            .inflow_taus(&inputs.inner, &state.0)
             .into_pyarray_bound(py)
     }
     #[getter]
@@ -1065,8 +1135,20 @@ impl PyOyeBEMModelLinear {
         inputs: &PyRotorInputs,
         state: &PyOyeRotorState,
     ) -> (PyAeroResult, PyOyeRotorState) {
-        let (r, s) = self.0.compute_forces(&inputs.0, &state.0);
+        let (r, s) = self.0.compute_forces(&inputs.inner, &state.0);
         (PyAeroResult(r), PyOyeRotorState(s))
+    }
+    #[pyo3(signature = (inputs, state, dt, integration_method=None))]
+    fn step(
+        &self,
+        inputs: &PyRotorInputs,
+        state: &PyOyeRotorState,
+        dt: f64,
+        integration_method: Option<&str>,
+    ) -> PyResult<(PyAeroResult, PyOyeRotorState)> {
+        let method = parse_integration_method(integration_method)?;
+        let (r, s) = self.0.step(&inputs.inner, &state.0, dt, method);
+        Ok((PyAeroResult(r), PyOyeRotorState(s)))
     }
     fn inflow_taus<'py>(
         &self,
@@ -1075,7 +1157,7 @@ impl PyOyeBEMModelLinear {
         state: &PyOyeRotorState,
     ) -> Bound<'py, PyArray1<f64>> {
         self.0
-            .inflow_taus(&inputs.0, &state.0)
+            .inflow_taus(&inputs.inner, &state.0)
             .into_pyarray_bound(py)
     }
     #[getter]
@@ -1121,8 +1203,20 @@ impl PyOyeBEMModelTabulated {
         inputs: &PyRotorInputs,
         state: &PyOyeRotorState,
     ) -> (PyAeroResult, PyOyeRotorState) {
-        let (r, s) = self.0.compute_forces(&inputs.0, &state.0);
+        let (r, s) = self.0.compute_forces(&inputs.inner, &state.0);
         (PyAeroResult(r), PyOyeRotorState(s))
+    }
+    #[pyo3(signature = (inputs, state, dt, integration_method=None))]
+    fn step(
+        &self,
+        inputs: &PyRotorInputs,
+        state: &PyOyeRotorState,
+        dt: f64,
+        integration_method: Option<&str>,
+    ) -> PyResult<(PyAeroResult, PyOyeRotorState)> {
+        let method = parse_integration_method(integration_method)?;
+        let (r, s) = self.0.step(&inputs.inner, &state.0, dt, method);
+        Ok((PyAeroResult(r), PyOyeRotorState(s)))
     }
     fn inflow_taus<'py>(
         &self,
@@ -1131,7 +1225,7 @@ impl PyOyeBEMModelTabulated {
         state: &PyOyeRotorState,
     ) -> Bound<'py, PyArray1<f64>> {
         self.0
-            .inflow_taus(&inputs.0, &state.0)
+            .inflow_taus(&inputs.inner, &state.0)
             .into_pyarray_bound(py)
     }
     #[getter]

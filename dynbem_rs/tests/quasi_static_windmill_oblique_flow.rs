@@ -25,7 +25,6 @@ fn rawes_row122_inputs() -> RotorInputs {
             -0.4766214883089747,
         ),
         wind_world: Vec3::new(0.0, 10.0, 0.0),
-        t: 51.102500000000254,
         rho_kg_m3: 1.225,
         omega_rad_s: 37.02311435435481,
     }
