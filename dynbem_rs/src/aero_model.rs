@@ -48,7 +48,6 @@ pub trait AeroModel {
 // in `dynbem.mechanical` / `envelope.point_mass._step_state_semi_implicit`
 // when dt is large relative to the inflow time constants.
 
-
 /// Inflow-state serialization for generic integrators.
 /// Omega is part of RotorInputs; state carries only inflow DOFs.
 /// Each concrete state's impl lives in its aero module (quasi_static_bem,

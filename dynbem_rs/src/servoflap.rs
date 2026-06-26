@@ -238,15 +238,7 @@ pub fn solve_feathering(
 
     // Servo-flap moment harmonics (raw physical mapping, no pre-rotation).
     let (m_f0, m_f1c, m_f1s) = servo_flap_moments(
-        &act.flap,
-        theta_0,
-        theta_1c,
-        theta_1s,
-        rho,
-        omega,
-        mu,
-        r_tip,
-        chord,
+        &act.flap, theta_0, theta_1c, theta_1s, rho, omega, mu, r_tip, chord,
     );
 
     // DC response. In true static balance, k_aero * theta_0 = M_f0.
@@ -278,7 +270,11 @@ pub fn solve_feathering(
     let delta_theta_1c = inv_det * (diag * rhs_c - 2.0 * d_mech * rhs_s);
     let delta_theta_1s = inv_det * (2.0 * d_mech * rhs_c + diag * rhs_s);
 
-    FeatheringState { delta_theta_0, delta_theta_1c, delta_theta_1s }
+    FeatheringState {
+        delta_theta_0,
+        delta_theta_1c,
+        delta_theta_1s,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -317,10 +313,16 @@ mod tests {
     fn test_theta_1c_command_cross_couples_to_theta_1s_at_ac() {
         let fp = make_actuation(5.0, 0.0);
         let s = solve_feathering(&fp, 0.0, 0.1, 0.0, 1.225, 33.2, 0.0, 2.5, 0.20, 5.79);
-        assert!(s.delta_theta_1c.abs() < 1e-6,
-            "delta_theta_1c should be ~0 for pure theta_1c command: {}", s.delta_theta_1c);
-        assert!(s.delta_theta_1s.abs() > 1e-4,
-            "delta_theta_1s should be nonzero from 90-deg lag: {}", s.delta_theta_1s);
+        assert!(
+            s.delta_theta_1c.abs() < 1e-6,
+            "delta_theta_1c should be ~0 for pure theta_1c command: {}",
+            s.delta_theta_1c
+        );
+        assert!(
+            s.delta_theta_1s.abs() > 1e-4,
+            "delta_theta_1s should be nonzero from 90-deg lag: {}",
+            s.delta_theta_1s
+        );
     }
 
     // Omega=0 -> RIGID
@@ -340,17 +342,22 @@ mod tests {
         let s_lo = solve_feathering(&fp_lo, 0.0, 0.1, 0.0, 1.225, 33.2, 0.0, 2.5, 0.20, 5.79);
         let s_hi = solve_feathering(&fp_hi, 0.0, 0.1, 0.0, 1.225, 33.2, 0.0, 2.5, 0.20, 5.79);
         // Lower damper -> larger response
-        assert!(s_lo.delta_theta_1s.abs() > s_hi.delta_theta_1s.abs(),
-            "s_lo={}, s_hi={}", s_lo.delta_theta_1s, s_hi.delta_theta_1s);
+        assert!(
+            s_lo.delta_theta_1s.abs() > s_hi.delta_theta_1s.abs(),
+            "s_lo={}, s_hi={}",
+            s_lo.delta_theta_1s,
+            s_hi.delta_theta_1s
+        );
     }
 
     // AC offset creates a spring: larger p_sq reduces authority at 1/rev
     #[test]
     fn test_ac_offset_reduces_authority() {
-        let fp_at_ac   = make_actuation(5.0, 0.0);
-        let fp_offset  = make_actuation(5.0, 0.01);  // 1 cm forward of AC
-        let s_at_ac  = solve_feathering(&fp_at_ac,  0.0, 0.1, 0.0, 1.225, 33.2, 0.0, 2.5, 0.20, 5.79);
-        let s_offset = solve_feathering(&fp_offset, 0.0, 0.1, 0.0, 1.225, 33.2, 0.0, 2.5, 0.20, 5.79);
+        let fp_at_ac = make_actuation(5.0, 0.0);
+        let fp_offset = make_actuation(5.0, 0.01); // 1 cm forward of AC
+        let s_at_ac = solve_feathering(&fp_at_ac, 0.0, 0.1, 0.0, 1.225, 33.2, 0.0, 2.5, 0.20, 5.79);
+        let s_offset =
+            solve_feathering(&fp_offset, 0.0, 0.1, 0.0, 1.225, 33.2, 0.0, 2.5, 0.20, 5.79);
         // AC offset moves p_sq away from 1, det changes
         assert!(s_at_ac.delta_theta_1s.abs() != s_offset.delta_theta_1s.abs());
     }

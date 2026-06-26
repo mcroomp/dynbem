@@ -10,14 +10,16 @@
 
 use dynbem_rs::aero_io::{Mat3, RotorInputs, Vec3};
 use dynbem_rs::aero_model::AeroModel;
+use dynbem_rs::oye::OyeRotorState;
 use dynbem_rs::oye::{OyeBEMModel, OYE_K};
 use dynbem_rs::pitt_peters::PittPetersModel;
-use dynbem_rs::polar::LinearPolar;
-use dynbem_rs::quasi_static_bem::{solve_bem_element, BEMElementGeometry, QuasiStaticBEM};
-use dynbem_rs::rotor_definition::{BladeGeometry, LinearPolarParameters, PitchActuation, RotorDefinition};
-use dynbem_rs::quasi_static_bem::QuasiStaticRotorState;
 use dynbem_rs::pitt_peters::PittPetersRotorState;
-use dynbem_rs::oye::OyeRotorState;
+use dynbem_rs::polar::LinearPolar;
+use dynbem_rs::quasi_static_bem::QuasiStaticRotorState;
+use dynbem_rs::quasi_static_bem::{solve_bem_element, BEMElementGeometry, QuasiStaticBEM};
+use dynbem_rs::rotor_definition::{
+    BladeGeometry, LinearPolarParameters, PitchActuation, RotorDefinition,
+};
 use std::env;
 use std::time::Instant;
 

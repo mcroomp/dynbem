@@ -4,16 +4,16 @@
 use std::f64::consts::PI;
 
 use crate::aero_io::{AeroResult, RotorInputs};
-use crate::aero_model::{AeroModel,RotorStateExt};
+use crate::aero_model::{AeroModel, RotorStateExt};
 use crate::bem_common::{
     apply_flap_reduction, assemble_result, build_psi_trig_table, element_force, kinematics,
     v_mass_flow_disk, vrs_regime, ElementCtx, PsiKernel, RadialGrid, SweepCtx,
 };
 use crate::common::{vrs_lambda1, EPS_DENOM, EPS_OMEGA_R, MAX_BEM_ELEMENTS, MU_T_FLOOR};
 use crate::cyclic::cyclic_coeffs;
-use crate::servoflap::{solve_feathering, FeatheringState};
 use crate::polar::Polar;
 use crate::rotor_definition::{PitchActuation, RotorDefinition};
+use crate::servoflap::{solve_feathering, FeatheringState};
 
 #[derive(Clone, Debug, Default)]
 pub struct PittPetersRotorState {
@@ -21,7 +21,6 @@ pub struct PittPetersRotorState {
     pub lambda_c: f64,
     pub lambda_s: f64,
 }
-
 
 /// Sum thrust and torque over radial elements in axial flight (mu = 0).
 /// Fast path bypassing the full psi-loop -- builds a single SweepCtx
@@ -225,7 +224,10 @@ impl<P: Polar + Clone> AeroModel for PittPetersModel<P> {
             inputs.collective_rad
         };
         let (loop_theta_1c, loop_theta_1s) = if servo_mode {
-            (feathering_state.delta_theta_1c, feathering_state.delta_theta_1s)
+            (
+                feathering_state.delta_theta_1c,
+                feathering_state.delta_theta_1s,
+            )
         } else {
             (theta_1c, theta_1s)
         };
@@ -234,10 +236,13 @@ impl<P: Polar + Clone> AeroModel for PittPetersModel<P> {
         // Blade element forces
         // ------------------------------------------------------------------
         let has_feathering_cyclic = feathering_state.delta_theta_1c.abs()
-            + feathering_state.delta_theta_1s.abs() > EPS_DENOM;
+            + feathering_state.delta_theta_1s.abs()
+            > EPS_DENOM;
         let (mut t_total, mut q_total, mut mx_hub, mut my_hub) = (0.0, 0.0, 0.0, 0.0);
         if omega_r > EPS_OMEGA_R {
-            if (mu > 0.01 || has_cyclic || has_feathering_cyclic
+            if (mu > 0.01
+                || has_cyclic
+                || has_feathering_cyclic
                 || lam_c.abs() + lam_s.abs() > EPS_DENOM)
                 && omega > 1.0
             {
@@ -343,9 +348,7 @@ impl<P: Polar + Clone> AeroModel for PittPetersModel<P> {
         // assembling world-frame result. The inflow ODE above uses the full
         // aerodynamic moments (they drive the wake), but the airframe only sees
         // the fraction that passes through the blade's flap stiffness.
-        let (mx_out, my_out) = apply_flap_reduction(
-            mx_hub, my_hub, self.defn.flap.as_ref(), omega,
-        );
+        let (mx_out, my_out) = apply_flap_reduction(mx_hub, my_hub, self.defn.flap.as_ref(), omega);
         let result = assemble_result(t_total, q_total, mx_out, my_out, hub_axis, &inputs.R_hub);
         let derivative = PittPetersRotorState {
             lambda_0: d_lam0,

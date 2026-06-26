@@ -11,11 +11,19 @@ fn rawes_row122_inputs() -> RotorInputs {
         tilt_lon: 0.012614825392536453,
         tilt_lat: 0.035447368174067954,
         R_hub: Mat3([
-            [-0.007232662001129507, -0.9995813722829041, 0.02801372495419454],
+            [
+                -0.007232662001129507,
+                -0.9995813722829041,
+                0.02801372495419454,
+            ],
             [0.684832857996051, -0.025365018889292906, -0.728258589019448],
             [0.7286642884136498, 0.013917471093409295, 0.684729624547885],
         ]),
-        v_hub_world: Vec3::new(-0.5280840184646872, -0.17333482520461627, -0.4766214883089747),
+        v_hub_world: Vec3::new(
+            -0.5280840184646872,
+            -0.17333482520461627,
+            -0.4766214883089747,
+        ),
         wind_world: Vec3::new(0.0, 10.0, 0.0),
         t: 51.102500000000254,
         rho_kg_m3: 1.225,
@@ -32,7 +40,11 @@ fn rawes_row122_bem_force_should_remain_opposite_body_z() {
     let state = model.initial_state();
 
     let (result, _dstate) = model.compute_forces(&inputs, &state);
-    let body_z = Vec3::new(inputs.R_hub.0[0][2], inputs.R_hub.0[1][2], inputs.R_hub.0[2][2]);
+    let body_z = Vec3::new(
+        inputs.R_hub.0[0][2],
+        inputs.R_hub.0[1][2],
+        inputs.R_hub.0[2][2],
+    );
     let rel_wind_body = inputs.R_hub.transpose() * (inputs.wind_world - inputs.v_hub_world);
     let minus_f_dot_body_z = -result.F_world.dot(body_z);
 

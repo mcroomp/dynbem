@@ -4,16 +4,16 @@
 use std::f64::consts::PI;
 
 use crate::aero_io::{AeroResult, RotorInputs};
-use crate::aero_model::{AeroModel,RotorStateExt};
+use crate::aero_model::{AeroModel, RotorStateExt};
 use crate::bem_common::{
-    apply_flap_reduction, assemble_result, build_psi_trig_table, kinematics, ElementCtx,
-    PsiKernel, RadialGrid, SweepCtx,
+    apply_flap_reduction, assemble_result, build_psi_trig_table, kinematics, ElementCtx, PsiKernel,
+    RadialGrid, SweepCtx,
 };
 use crate::common::{EPS_DENOM, EPS_OMEGA_R, MIN_LOSS_FACTOR};
 use crate::cyclic::cyclic_coeffs;
-use crate::servoflap::{solve_feathering, FeatheringState};
 use crate::polar::Polar;
 use crate::rotor_definition::{PitchActuation, RotorDefinition};
+use crate::servoflap::{solve_feathering, FeatheringState};
 
 const MAX_BEM_ITER: usize = 60;
 const BEM_TOL: f64 = 1e-7;
@@ -112,7 +112,11 @@ impl<'a, P: Polar> BEMElementGeometry<'a, P> {
         root_cutout_m: f64,
     ) -> Self {
         let omega_r = omega * radius_m;
-        let inv_omega_r = if omega_r > EPS_OMEGA_R { 1.0 / omega_r } else { 1.0 };
+        let inv_omega_r = if omega_r > EPS_OMEGA_R {
+            1.0 / omega_r
+        } else {
+            1.0
+        };
         let inv_r = if r > 0.0 { 1.0 / r } else { 0.0 };
         let inv_radius_m = if radius_m > 0.0 { 1.0 / radius_m } else { 0.0 };
         let x = r * inv_radius_m;
@@ -199,7 +203,8 @@ pub fn solve_bem_element<P: Polar>(
         let k = geom.sigma_r * cn / (4.0 * f_loss);
 
         let lambda_r_new = if (k - 1.0).abs() > 1e-6 {
-            let disc = (lambda_climb * lambda_climb - 4.0 * (k - 1.0) * k * geom.x * geom.x).max(0.0);
+            let disc =
+                (lambda_climb * lambda_climb - 4.0 * (k - 1.0) * k * geom.x * geom.x).max(0.0);
             let sq = disc.sqrt();
             let denom = 2.0 * (k - 1.0);
             let r1 = (-lambda_climb + sq) / denom;
@@ -482,7 +487,9 @@ fn solve_bem_element_windmill<P: Polar>(
             None => 1e3,
             // Geometric consistency: sin(phi)*v_t/u_up + cos(phi)*(1-a) = 0
             // v_t/u_up = (1+ap)*lam_local + lam_extra
-            Some(ind) => phi.sin() * ((1.0 + ind.ap) * lam_local + lam_extra) + phi.cos() * (1.0 - ind.a),
+            Some(ind) => {
+                phi.sin() * ((1.0 + ind.ap) * lam_local + lam_extra) + phi.cos() * (1.0 - ind.a)
+            }
         }
     };
 
@@ -532,7 +539,7 @@ impl PsiKernel for BemKernel {
     #[inline(always)]
     fn element<P: Polar>(&mut self, sweep: &SweepCtx<'_, P>, ctx: &ElementCtx) -> (f64, f64) {
         let v_t_extra = ctx.v_t - sweep.omega * ctx.r;
-        
+
         // Construct the geometry once, reuse for both windmill and helicopter paths
         let geom = BEMElementGeometry::new(
             ctx.r,
@@ -547,7 +554,7 @@ impl PsiKernel for BemKernel {
             self.use_tip_loss,
             self.root_cutout_m,
         );
-        
+
         // When v_climb < 0 (upflow through disk), always try the Ning 2014
         // windmill Brent solver first.  The helicopter momentum quadratic
         // cannot find the windmill-brake root in this regime: its two roots
@@ -568,7 +575,9 @@ impl PsiKernel for BemKernel {
         //   residual ≈ small negative.  phi_lo also negative.  No sign change
         //   → windmill solver returns None → falls back to helicopter quadratic.
         if self.v_climb < -EPS_DENOM {
-            if let Some(wm) = solve_bem_element_windmill(&geom, ctx.col_psi, self.v_climb, v_t_extra) {
+            if let Some(wm) =
+                solve_bem_element_windmill(&geom, ctx.col_psi, self.v_climb, v_t_extra)
+            {
                 return (wm.d_t, wm.d_q);
             }
         }
@@ -670,8 +679,8 @@ impl<P: Polar + Clone> AeroModel for QuasiStaticBEM<P> {
                 self.defn.airfoil.CL_alpha_per_rad,
             ),
         };
-        let has_feathering_cyclic = feathering_state.delta_theta_1c.abs()
-            + feathering_state.delta_theta_1s.abs() > 1e-12;
+        let has_feathering_cyclic =
+            feathering_state.delta_theta_1c.abs() + feathering_state.delta_theta_1s.abs() > 1e-12;
         let servo_mode = self.defn.is_servoflap();
         let loop_collective = if servo_mode {
             feathering_state.delta_theta_0
@@ -679,7 +688,10 @@ impl<P: Polar + Clone> AeroModel for QuasiStaticBEM<P> {
             inputs.collective_rad
         };
         let (loop_theta_1c, loop_theta_1s) = if servo_mode {
-            (feathering_state.delta_theta_1c, feathering_state.delta_theta_1s)
+            (
+                feathering_state.delta_theta_1c,
+                feathering_state.delta_theta_1s,
+            )
         } else {
             (theta_1c, theta_1s)
         };
@@ -689,9 +701,7 @@ impl<P: Polar + Clone> AeroModel for QuasiStaticBEM<P> {
         let mut mx_hub: f64 = 0.0;
         let mut my_hub: f64 = 0.0;
 
-        if (mu > 0.01 || has_cyclic || has_feathering_cyclic)
-            && omega > 1.0
-        {
+        if (mu > 0.01 || has_cyclic || has_feathering_cyclic) && omega > 1.0 {
             let mut kernel = BemKernel {
                 v_climb,
                 r_tip,
@@ -741,17 +751,15 @@ impl<P: Polar + Clone> AeroModel for QuasiStaticBEM<P> {
                 if v_climb < -EPS_DENOM {
                     elem = solve_bem_element_windmill(&geom, loop_collective, v_climb, 0.0);
                 }
-                let elem = elem.unwrap_or_else(|| {
-                    solve_bem_element(&geom, loop_collective, v_climb, 0.0)
-                });
+                let elem =
+                    elem.unwrap_or_else(|| solve_bem_element(&geom, loop_collective, v_climb, 0.0));
                 t_total += elem.d_t;
                 q_total += elem.d_q;
             }
         }
 
-        let (mx_out, my_out) = apply_flap_reduction(
-            mx_hub, my_hub, self.defn.flap.as_ref(), inputs.omega_rad_s,
-        );
+        let (mx_out, my_out) =
+            apply_flap_reduction(mx_hub, my_hub, self.defn.flap.as_ref(), inputs.omega_rad_s);
         let result = assemble_result(t_total, q_total, mx_out, my_out, hub_axis, &inputs.R_hub);
 
         let derivative = QuasiStaticRotorState;
