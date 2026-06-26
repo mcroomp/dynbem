@@ -8,7 +8,7 @@
 // there and resolves to one of these generic functions internally.
 
 use crate::aero_io::{Mat3, RotorInputs};
-use crate::aero_model::{AeroModel, RotorStateExt};
+use crate::aero_model::{AeroModel,RotorStateExt};
 
 /// One semi-implicit Euler step: damp dynamic-inflow states by
 /// 1/(1 + dt/tau); explicit Euler on inflow states (tau = inf).

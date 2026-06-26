@@ -4,7 +4,7 @@
 use std::f64::consts::PI;
 
 use crate::aero_io::{AeroResult, RotorInputs};
-use crate::aero_model::AeroModel;
+use crate::aero_model::{AeroModel,RotorStateExt};
 use crate::bem_common::{
     apply_flap_reduction, assemble_result, build_psi_trig_table, kinematics, ElementCtx,
     PsiKernel, RadialGrid, SweepCtx,
@@ -14,10 +14,12 @@ use crate::cyclic::cyclic_coeffs;
 use crate::servoflap::{solve_feathering, FeatheringState};
 use crate::polar::Polar;
 use crate::rotor_definition::{PitchActuation, RotorDefinition};
-use crate::rotor_state::QuasiStaticRotorState;
 
 const MAX_BEM_ITER: usize = 60;
 const BEM_TOL: f64 = 1e-7;
+
+#[derive(Clone, Debug, Default)]
+pub struct QuasiStaticRotorState;
 
 // ---------------------------------------------------------------------------
 // Prandtl tip / hub losses
@@ -65,6 +67,81 @@ pub struct BEMElementResult {
 }
 
 // ---------------------------------------------------------------------------
+// BEM element geometry (constant-per-element cached values)
+// ---------------------------------------------------------------------------
+
+/// Precomputed geometry and constants for one blade element.
+/// Holds the radial/geometric quantities that remain constant across multiple
+/// solver calls at the same station. Only the time-varying aerodynamic
+/// quantities (v_climb, collective_rad per azimuth, v_t_extra) are passed
+/// separately to the solver functions.
+pub struct BEMElementGeometry<'a, P: Polar> {
+    // Blade/rotor geometry
+    pub r: f64,
+    pub dr: f64,
+    pub chord: f64,
+    pub twist_rad: f64,
+    pub omega: f64,
+    pub rho: f64,
+    pub n_blades: usize,
+    pub radius_m: f64,
+    pub polar: &'a P,
+    pub use_tip_loss: bool,
+    pub root_cutout_m: f64,
+    // Precomputed constants
+    pub omega_r: f64,
+    pub inv_omega_r: f64,
+    pub inv_r: f64,
+    pub x: f64,
+    pub x_hub: f64,
+    pub sigma_r: f64,
+}
+
+impl<'a, P: Polar> BEMElementGeometry<'a, P> {
+    pub fn new(
+        r: f64,
+        dr: f64,
+        chord: f64,
+        twist_rad: f64,
+        omega: f64,
+        rho: f64,
+        n_blades: usize,
+        radius_m: f64,
+        polar: &'a P,
+        use_tip_loss: bool,
+        root_cutout_m: f64,
+    ) -> Self {
+        let omega_r = omega * radius_m;
+        let inv_omega_r = if omega_r > EPS_OMEGA_R { 1.0 / omega_r } else { 1.0 };
+        let inv_r = if r > 0.0 { 1.0 / r } else { 0.0 };
+        let inv_radius_m = if radius_m > 0.0 { 1.0 / radius_m } else { 0.0 };
+        let x = r * inv_radius_m;
+        let x_hub = root_cutout_m * inv_radius_m;
+        let sigma_r = (n_blades as f64) * chord * inv_r / (2.0 * PI);
+
+        Self {
+            r,
+            dr,
+            chord,
+            twist_rad,
+            omega,
+            rho,
+            n_blades,
+            radius_m,
+            polar,
+            use_tip_loss,
+            root_cutout_m,
+            omega_r,
+            inv_omega_r,
+            inv_r,
+            x,
+            x_hub,
+            sigma_r,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Helicopter momentum quadratic
 // ---------------------------------------------------------------------------
 
@@ -75,39 +152,17 @@ pub struct BEMElementResult {
 /// lambda_climb (climb -> positive root, descent -> negative). Reverse-flow
 /// region (v_t < 0) breaks out early and returns zero forces -- caller
 /// is responsible for the surrounding ψ-loop's reverse-flow skip.
-#[allow(clippy::too_many_arguments)]
 pub fn solve_bem_element<P: Polar>(
-    r: f64,
-    dr: f64,
-    chord: f64,
-    twist_rad: f64,
+    geom: &BEMElementGeometry<P>,
     collective_rad: f64,
-    omega: f64,
     v_climb: f64,
-    rho: f64,
-    n_blades: usize,
-    radius_m: f64,
-    polar: &P,
-    use_tip_loss: bool,
     v_t_extra: f64,
-    root_cutout_m: f64,
 ) -> BEMElementResult {
-    let omega_r = omega * radius_m;
-    if omega_r < EPS_OMEGA_R {
+    if geom.omega_r < EPS_OMEGA_R {
         return BEMElementResult::default();
     }
-    let inv_radius_m = if radius_m > 0.0 { 1.0 / radius_m } else { 0.0 };
-    let inv_omega_r = 1.0 / omega_r;
-    let inv_r = if r > 0.0 { 1.0 / r } else { 0.0 };
-    let x = r * inv_radius_m;
-    let x_hub = if radius_m > 0.0 {
-        root_cutout_m * inv_radius_m
-    } else {
-        0.0
-    };
-    let sigma_r = (n_blades as f64) * chord * inv_r / (2.0 * PI);
-    let theta = collective_rad + twist_rad;
-    let lambda_climb = v_climb * inv_omega_r;
+    let theta = collective_rad + geom.twist_rad;
+    let lambda_climb = v_climb * geom.inv_omega_r;
 
     let mut lambda_r = if lambda_climb >= 0.0 {
         (lambda_climb + 0.03).max(0.02)
@@ -117,23 +172,23 @@ pub fn solve_bem_element<P: Polar>(
     let mut a_prime: f64 = 0.0;
 
     for _ in 0..MAX_BEM_ITER {
-        let v_a = lambda_r * omega_r;
-        let v_t = omega * r * (1.0 + a_prime) + v_t_extra;
+        let v_a = lambda_r * geom.omega_r;
+        let v_t = geom.omega * geom.r * (1.0 + a_prime) + v_t_extra;
         if v_t < EPS_DENOM {
             break;
         }
 
         let phi = v_a.atan2(v_t);
         let alpha = theta - phi;
-        let (cl, cd) = polar.cl_cd(alpha);
+        let (cl, cd) = geom.polar.cl_cd(alpha);
 
         let cos_p = phi.cos();
         let sin_p = phi.sin();
         let sin_phi_abs = sin_p.abs();
 
-        let f_loss = if use_tip_loss {
-            (prandtl_tip_loss_from_sin_abs(n_blades, x, sin_phi_abs)
-                * prandtl_hub_loss_from_sin_abs(n_blades, x, x_hub, sin_phi_abs))
+        let f_loss = if geom.use_tip_loss {
+            (prandtl_tip_loss_from_sin_abs(geom.n_blades, geom.x, sin_phi_abs)
+                * prandtl_hub_loss_from_sin_abs(geom.n_blades, geom.x, geom.x_hub, sin_phi_abs))
             .max(MIN_LOSS_FACTOR)
         } else {
             1.0
@@ -141,10 +196,10 @@ pub fn solve_bem_element<P: Polar>(
         let cn = cl * cos_p - cd * sin_p;
         let ct = cl * sin_p + cd * cos_p;
 
-        let k = sigma_r * cn / (4.0 * f_loss);
+        let k = geom.sigma_r * cn / (4.0 * f_loss);
 
         let lambda_r_new = if (k - 1.0).abs() > 1e-6 {
-            let disc = (lambda_climb * lambda_climb - 4.0 * (k - 1.0) * k * x * x).max(0.0);
+            let disc = (lambda_climb * lambda_climb - 4.0 * (k - 1.0) * k * geom.x * geom.x).max(0.0);
             let sq = disc.sqrt();
             let denom = 2.0 * (k - 1.0);
             let r1 = (-lambda_climb + sq) / denom;
@@ -163,15 +218,15 @@ pub fn solve_bem_element<P: Polar>(
                 }
             }
         } else if lambda_climb.abs() > 1e-8 {
-            -k * x * x / lambda_climb
+            -k * geom.x * geom.x / lambda_climb
         } else {
-            x * k.max(0.0).sqrt()
+            geom.x * k.max(0.0).sqrt()
         };
         let lambda_r_new = lambda_r_new.clamp(-2.0, 2.0);
 
         let sc = sin_p * cos_p;
         let a_prime_new = if sc.abs() > 1e-8 && ct.abs() > 1e-10 {
-            let ap_denom = 4.0 * f_loss * sc / (sigma_r * ct) - 1.0;
+            let ap_denom = 4.0 * f_loss * sc / (geom.sigma_r * ct) - 1.0;
             let v = if ap_denom.abs() > 1e-8 {
                 1.0 / ap_denom
             } else {
@@ -191,35 +246,35 @@ pub fn solve_bem_element<P: Polar>(
         }
     }
 
-    let v_a = lambda_r * omega_r;
-    let v_t = omega * r * (1.0 + a_prime) + v_t_extra;
+    let v_a = lambda_r * geom.omega_r;
+    let v_t = geom.omega * geom.r * (1.0 + a_prime) + v_t_extra;
     let v_rel_sq = v_a * v_a + v_t * v_t;
     let phi = v_a.atan2(v_t);
     let alpha = theta - phi;
-    let (cl, cd) = polar.cl_cd(alpha);
+    let (cl, cd) = geom.polar.cl_cd(alpha);
     let cos_p = phi.cos();
     let sin_p = phi.sin();
     let sin_phi_abs = sin_p.abs();
     let cn = cl * cos_p - cd * sin_p;
     let ct = cl * sin_p + cd * cos_p;
-    let q = 0.5 * rho * v_rel_sq * chord * dr * (n_blades as f64);
+    let q = 0.5 * geom.rho * v_rel_sq * geom.chord * geom.dr * (geom.n_blades as f64);
 
     // Momentum-balance residual at the converged state:
     //   |4*F*lambda_r*(lambda_r - lambda_climb) - sigma_r*cn*(lambda_r^2 + x^2)|
-    let f_loss = if use_tip_loss {
-        (prandtl_tip_loss_from_sin_abs(n_blades, x, sin_phi_abs)
-            * prandtl_hub_loss_from_sin_abs(n_blades, x, x_hub, sin_phi_abs))
+    let f_loss = if geom.use_tip_loss {
+        (prandtl_tip_loss_from_sin_abs(geom.n_blades, geom.x, sin_phi_abs)
+            * prandtl_hub_loss_from_sin_abs(geom.n_blades, geom.x, geom.x_hub, sin_phi_abs))
         .max(MIN_LOSS_FACTOR)
     } else {
         1.0
     };
     let momentum_residual = (4.0 * f_loss * lambda_r * (lambda_r - lambda_climb)
-        - sigma_r * cn * (lambda_r * lambda_r + x * x))
+        - geom.sigma_r * cn * (lambda_r * lambda_r + geom.x * geom.x))
         .abs();
 
     BEMElementResult {
         d_t: q * cn,
-        d_q: q * ct * r,
+        d_q: q * ct * geom.r,
         lambda_r,
         a_prime,
         momentum_residual,
@@ -318,17 +373,11 @@ struct WindmillInductions {
     ct: f64,
 }
 
-#[allow(clippy::too_many_arguments)]
 fn induction_at_phi<P: Polar>(
     phi: f64,
     theta: f64,
     lam_local: f64,
-    sigma_r: f64,
-    n_blades: usize,
-    x: f64,
-    x_hub: f64,
-    polar: &P,
-    use_tip_loss: bool,
+    geom: &BEMElementGeometry<P>,
 ) -> Option<WindmillInductions> {
     let sin_phi = phi.sin();
     let cos_phi = phi.cos();
@@ -336,11 +385,13 @@ fn induction_at_phi<P: Polar>(
         return None;
     }
     let alpha = theta - phi;
-    let (cl, cd) = polar.cl_cd(alpha);
+    let (cl, cd) = geom.polar.cl_cd(alpha);
     let cn = cl * cos_phi - cd * sin_phi;
     let ct = cl * sin_phi + cd * cos_phi;
-    let f_loss = if use_tip_loss {
-        prandtl_tip_loss(n_blades, x, phi) * prandtl_hub_loss(n_blades, x, x_hub, phi)
+    let sin_phi_abs = sin_phi.abs();
+    let f_loss = if geom.use_tip_loss {
+        prandtl_tip_loss_from_sin_abs(geom.n_blades, geom.x, sin_phi_abs)
+            * prandtl_hub_loss_from_sin_abs(geom.n_blades, geom.x, geom.x_hub, sin_phi_abs)
     } else {
         1.0
     };
@@ -349,11 +400,11 @@ fn induction_at_phi<P: Polar>(
     if cn <= EPS_DENOM {
         return None;
     }
-    let k_axial = sigma_r * cn / (4.0 * f_loss * sin2);
+    let k_axial = geom.sigma_r * cn / (4.0 * f_loss * sin2);
     let mut a = k_axial / (1.0 + k_axial);
     if a > 0.4 {
         // Buhl quadratic in the turbulent-wake state
-        let k = sigma_r * cn / sin2;
+        let k = geom.sigma_r * cn / sin2;
         let aa = 50.0 / 9.0 - 4.0 * f_loss - k;
         let bb = 4.0 * f_loss - 40.0 / 9.0 + 2.0 * k;
         let cc = 8.0 / 9.0 - k;
@@ -379,7 +430,7 @@ fn induction_at_phi<P: Polar>(
     }
     let sc = sin_phi * cos_phi;
     let ap = if ct.abs() > EPS_DENOM && sc.abs() > EPS_DENOM {
-        let k_tan = sigma_r * ct / (4.0 * f_loss * sc);
+        let k_tan = geom.sigma_r * ct / (4.0 * f_loss * sc);
         let v = if (1.0 - k_tan).abs() > EPS_DENOM {
             k_tan / (1.0 - k_tan)
         } else {
@@ -407,59 +458,27 @@ fn induction_at_phi<P: Polar>(
 /// `(1+ap)*lam_local + v_t_extra/u_up` for the tangential term so that
 /// the converged phi reflects the full tangential velocity. Forces are
 /// computed with `v_t = (1+ap)*omega*r + v_t_extra`.
-#[allow(clippy::too_many_arguments)]
 fn solve_bem_element_windmill<P: Polar>(
-    r: f64,
-    dr: f64,
-    chord: f64,
-    twist_rad: f64,
+    geom: &BEMElementGeometry<P>,
     collective_rad: f64,
-    omega: f64,
     v_climb: f64,
-    rho: f64,
-    n_blades: usize,
-    radius_m: f64,
-    polar: &P,
-    use_tip_loss: bool,
-    root_cutout_m: f64,
     v_t_extra: f64,
 ) -> Option<BEMElementResult> {
     if v_climb >= -EPS_DENOM {
         return None;
     }
     let u_up = -v_climb;
-    let omega_r = omega * radius_m;
-    if omega_r < EPS_OMEGA_R {
+    if geom.omega_r < EPS_OMEGA_R {
         return None;
     }
-    let inv_radius_m = if radius_m > 0.0 { 1.0 / radius_m } else { 0.0 };
     let inv_u_up = 1.0 / u_up;
-    let inv_omega_r = 1.0 / omega_r;
-    let inv_r = if r > 0.0 { 1.0 / r } else { 0.0 };
-    let x = r * inv_radius_m;
-    let x_hub = if radius_m > 0.0 {
-        root_cutout_m * inv_radius_m
-    } else {
-        0.0
-    };
-    let sigma_r = (n_blades as f64) * chord * inv_r / (2.0 * PI);
-    let theta = collective_rad + twist_rad;
-    let lam_local = omega * r * inv_u_up;
+    let theta = collective_rad + geom.twist_rad;
+    let lam_local = geom.omega * geom.r * inv_u_up;
     // Tangential wind contribution normalised by u_up (for the geometric residual).
     let lam_extra = v_t_extra * inv_u_up;
 
     let residual = |phi: f64| -> f64 {
-        match induction_at_phi(
-            phi,
-            theta,
-            lam_local,
-            sigma_r,
-            n_blades,
-            x,
-            x_hub,
-            polar,
-            use_tip_loss,
-        ) {
+        match induction_at_phi(phi, theta, lam_local, geom) {
             None => 1e3,
             // Geometric consistency: sin(phi)*v_t/u_up + cos(phi)*(1-a) = 0
             // v_t/u_up = (1+ap)*lam_local + lam_extra
@@ -475,30 +494,20 @@ fn solve_bem_element_windmill<P: Polar>(
         return None;
     }
     let phi_star = brentq(residual, phi_lo, phi_hi, 1e-8, 80)?;
-    let ind = induction_at_phi(
-        phi_star,
-        theta,
-        lam_local,
-        sigma_r,
-        n_blades,
-        x,
-        x_hub,
-        polar,
-        use_tip_loss,
-    )?;
+    let ind = induction_at_phi(phi_star, theta, lam_local, geom)?;
     if ind.cn <= 0.0 || !(0.0..=1.0).contains(&ind.a) {
         return None;
     }
     let v_a = -(1.0 - ind.a) * u_up;
-    let v_t = (1.0 + ind.ap) * omega * r + v_t_extra;
+    let v_t = (1.0 + ind.ap) * geom.omega * geom.r + v_t_extra;
     let v_rel_sq = v_a * v_a + v_t * v_t;
-    let q = 0.5 * rho * v_rel_sq * chord * dr * (n_blades as f64);
+    let q = 0.5 * geom.rho * v_rel_sq * geom.chord * geom.dr * (geom.n_blades as f64);
     // Windmill solver works in (a, a') space, not (lambda_r, a_prime); reconstruct
     // lambda_r consistent with the rest of the pipeline (axial inflow ratio).
-    let lambda_r = v_a * inv_omega_r;
+    let lambda_r = v_a * geom.inv_omega_r;
     Some(BEMElementResult {
         d_t: q * ind.cn,
-        d_q: q * ind.ct * r,
+        d_q: q * ind.ct * geom.r,
         lambda_r,
         a_prime: ind.ap,
         momentum_residual: 0.0, // converged via Brent-on-phi, residual is on phi not lambda_r
@@ -523,6 +532,22 @@ impl PsiKernel for BemKernel {
     #[inline(always)]
     fn element<P: Polar>(&mut self, sweep: &SweepCtx<'_, P>, ctx: &ElementCtx) -> (f64, f64) {
         let v_t_extra = ctx.v_t - sweep.omega * ctx.r;
+        
+        // Construct the geometry once, reuse for both windmill and helicopter paths
+        let geom = BEMElementGeometry::new(
+            ctx.r,
+            ctx.dr,
+            ctx.chord,
+            ctx.twist,
+            sweep.omega,
+            sweep.rho,
+            sweep.n_b,
+            self.r_tip,
+            sweep.polar,
+            self.use_tip_loss,
+            self.root_cutout_m,
+        );
+        
         // When v_climb < 0 (upflow through disk), always try the Ning 2014
         // windmill Brent solver first.  The helicopter momentum quadratic
         // cannot find the windmill-brake root in this regime: its two roots
@@ -543,41 +568,11 @@ impl PsiKernel for BemKernel {
         //   residual ≈ small negative.  phi_lo also negative.  No sign change
         //   → windmill solver returns None → falls back to helicopter quadratic.
         if self.v_climb < -EPS_DENOM {
-            if let Some(wm) = solve_bem_element_windmill(
-                ctx.r,
-                ctx.dr,
-                ctx.chord,
-                ctx.twist,
-                ctx.col_psi,
-                sweep.omega,
-                self.v_climb,
-                sweep.rho,
-                sweep.n_b,
-                self.r_tip,
-                sweep.polar,
-                self.use_tip_loss,
-                self.root_cutout_m,
-                v_t_extra,
-            ) {
+            if let Some(wm) = solve_bem_element_windmill(&geom, ctx.col_psi, self.v_climb, v_t_extra) {
                 return (wm.d_t, wm.d_q);
             }
         }
-        let elem = solve_bem_element(
-            ctx.r,
-            ctx.dr,
-            ctx.chord,
-            ctx.twist,
-            ctx.col_psi,
-            sweep.omega,
-            self.v_climb,
-            sweep.rho,
-            sweep.n_b,
-            self.r_tip,
-            sweep.polar,
-            self.use_tip_loss,
-            v_t_extra,
-            self.root_cutout_m,
-        );
+        let elem = solve_bem_element(&geom, ctx.col_psi, self.v_climb, v_t_extra);
         (elem.d_t, elem.d_q)
     }
 }
@@ -606,6 +601,15 @@ impl<P: Polar + Clone> QuasiStaticBEM<P> {
             polar,
             grid,
         }
+    }
+}
+
+impl RotorStateExt for QuasiStaticRotorState {
+    fn get_inflow(&self) -> Vec<f64> {
+        Vec::new()
+    }
+    fn set_inflow(&mut self, arr: Vec<f64>) {
+        debug_assert!(arr.is_empty());
     }
 }
 
@@ -720,42 +724,25 @@ impl<P: Polar + Clone> AeroModel for QuasiStaticBEM<P> {
             // fall back to helicopter quadratic per element.
             for i_r in 0..n {
                 let r = r_arr[i_r];
+                let geom = BEMElementGeometry::new(
+                    r,
+                    dr,
+                    chord[i_r],
+                    twist[i_r],
+                    omega,
+                    rho,
+                    n_blades,
+                    r_tip,
+                    &self.polar,
+                    use_tip_loss,
+                    blade.root_cutout_m,
+                );
                 let mut elem: Option<BEMElementResult> = None;
                 if v_climb < -EPS_DENOM {
-                    elem = solve_bem_element_windmill(
-                        r,
-                        dr,
-                        chord[i_r],
-                        twist[i_r],
-                        loop_collective,
-                        omega,
-                        v_climb,
-                        rho,
-                        n_blades,
-                        r_tip,
-                        &self.polar,
-                        use_tip_loss,
-                        blade.root_cutout_m,
-                        0.0,
-                    );
+                    elem = solve_bem_element_windmill(&geom, loop_collective, v_climb, 0.0);
                 }
                 let elem = elem.unwrap_or_else(|| {
-                    solve_bem_element(
-                        r,
-                        dr,
-                        chord[i_r],
-                        twist[i_r],
-                        loop_collective,
-                        omega,
-                        v_climb,
-                        rho,
-                        n_blades,
-                        r_tip,
-                        &self.polar,
-                        use_tip_loss,
-                        0.0,
-                        blade.root_cutout_m,
-                    )
+                    solve_bem_element(&geom, loop_collective, v_climb, 0.0)
                 });
                 t_total += elem.d_t;
                 q_total += elem.d_q;

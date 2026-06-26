@@ -4,7 +4,7 @@
 use std::f64::consts::PI;
 
 use crate::aero_io::{AeroResult, RotorInputs};
-use crate::aero_model::AeroModel;
+use crate::aero_model::{AeroModel,RotorStateExt};
 use crate::bem_common::{
     apply_flap_reduction, assemble_result, build_psi_trig_table, element_force, kinematics,
     v_mass_flow_disk, vrs_regime, ElementCtx, PsiKernel, RadialGrid, SweepCtx,
@@ -14,7 +14,14 @@ use crate::cyclic::cyclic_coeffs;
 use crate::servoflap::{solve_feathering, FeatheringState};
 use crate::polar::Polar;
 use crate::rotor_definition::{PitchActuation, RotorDefinition};
-use crate::rotor_state::PittPetersRotorState;
+
+#[derive(Clone, Debug, Default)]
+pub struct PittPetersRotorState {
+    pub lambda_0: f64,
+    pub lambda_c: f64,
+    pub lambda_s: f64,
+}
+
 
 /// Sum thrust and torque over radial elements in axial flight (mu = 0).
 /// Fast path bypassing the full psi-loop -- builds a single SweepCtx
@@ -123,6 +130,18 @@ impl<P: Polar + Clone> PittPetersModel<P> {
             polar,
             grid,
         }
+    }
+}
+
+impl RotorStateExt for PittPetersRotorState {
+    fn get_inflow(&self) -> Vec<f64> {
+        vec![self.lambda_0, self.lambda_c, self.lambda_s]
+    }
+    fn set_inflow(&mut self, arr: Vec<f64>) {
+        debug_assert_eq!(arr.len(), 3);
+        self.lambda_0 = arr[0];
+        self.lambda_c = arr[1];
+        self.lambda_s = arr[2];
     }
 }
 
