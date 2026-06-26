@@ -121,7 +121,7 @@ pub fn solve_trim_cyclic_py(
             let out = solve_trim_cyclic(
                 &$m,
                 s,
-                &base_inputs.0,
+                &base_inputs.inner,
                 target_moment.0,
                 target_moment.1,
                 tilt_lon_init,
@@ -170,7 +170,7 @@ pub fn relax_inflow_py(
     macro_rules! do_relax {
         ($m:expr, $s_ty:ty, $out_wrapper:expr) => {{
             let s = state.extract::<$s_ty>()?.0;
-            let out = relax_inflow(&$m, s, &inputs.0, n_steps, dt);
+            let out = relax_inflow(&$m, s, &inputs.inner, n_steps, dt);
             Ok($out_wrapper(out).into_py(py))
         }};
     }

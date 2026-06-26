@@ -24,7 +24,6 @@ fn identity_inputs(wind: [f64; 3], omega: f64) -> RotorInputs {
         v_hub_world: Vec3::new(0.0, 0.0, 0.0),
         wind_world: Vec3::new(wind[0], wind[1], wind[2]),
         omega_rad_s: omega,
-        t: 0.0,
         rho_kg_m3: 1.225,
     }
 }

@@ -67,7 +67,7 @@ fn eval_moment<M: AeroModel>(
 ) -> (f64, f64, M::State) {
     let (result, deriv) = aero.compute_forces(inputs, state);
     // R_hub.T @ M_orbital -- hub-frame moment.
-    let m_hub = r_hub.transpose() * result.M_orbital;
+    let m_hub = r_hub.transpose() * result.M_hub_world;
     (m_hub[0] - target_x, m_hub[1] - target_y, deriv)
 }
 

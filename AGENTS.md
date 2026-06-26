@@ -239,23 +239,44 @@ a worry about JIT/closure overhead that doesn't apply to monomorphized
 Rust generics — empirical timing (see `dynbem/benchmarks/bench_rust_only.py`)
 confirms zero perf cost from the trait abstraction.
 
-### Wind-axis rotation — NOT applied (limitation)
+### Wind-axis rotation — APPLIED (rotationally covariant)
 
-The L matrix is diagonal-plus-off-diagonal in **wind axes**, but the
-current code treats `(C_M_hub, C_L_hub)` as if already in wind axes
-(i.e. assumes in-plane wind along hub −X).  Exact for axial flight and
-pure-longitudinal forward flight; approximate for oblique flight
-`µ_y ≠ 0`.
+The L matrix is diagonal-plus-off-diagonal in **wind axes**. The code
+rotates into wind axes before applying the steady-state relations and
+rotates the resulting derivatives back, so the model is rotationally
+covariant for oblique flight (`µ_y ≠ 0`).
 
-An earlier implementation rotated forcing/inflow by
-`β = atan2(v_in_hub_y, −v_in_hub_x)` and was rotationally covariant.
-It was reverted because it destabilised the tethered-rotor envelope
+Implementation in `dynbem_rs/src/pitt_peters.rs::compute_forces`:
+
+- `β = atan2(v_in_hub_y, −v_in_hub_x)` (`beta_wind`); `β=0` means the
+  in-plane relative wind is along `−X_hub` (pure longitudinal).
+- Aerodynamic forcing is rotated into wind axes:
+  `C_M_wind = cos β·C_M_hub + sin β·C_L_hub`,
+  `C_L_wind = −sin β·C_M_hub + cos β·C_L_hub`.
+- The current cyclic inflow states are rotated the same way
+  (`lam_c_wind`, `lam_s_wind`) so the relaxation `(ss − current)/τ`
+  is evaluated entirely in wind axes.
+- The harmonic derivatives are rotated back to hub-frame state
+  coordinates before integration:
+  `d_lam_c = cos β·d_lam_c_wind − sin β·d_lam_s_wind`,
+  `d_lam_s = sin β·d_lam_c_wind + cos β·d_lam_s_wind`.
+
+**History / why this is safe now.** An earlier version of this rotation
+was reverted because it destabilised the tethered-rotor envelope
 (`envelope.compute_map`) at descent + edgewise wind operating points
-via a nonlinear feedback `λ_c → BEM(lam_local) → C_L_hub → λ_s_ss`.
-Implicit Euler on the λ states alone (now applied in
-`envelope/point_mass.py`) is necessary but not sufficient — the BEM
-loop's λ_c sensitivity also needs damping before the rotation can be
-re-introduced.
+via the nonlinear feedback `λ_c → BEM(lam_local) → C_L_hub → λ_s_ss`.
+The fix that made re-introduction stable is the **semi-implicit
+(implicit) Euler damping applied to ALL inflow states** in
+`envelope/point_mass.py::_step_state_semi_implicit` — each state is
+damped by `(1 + dt/τ)⁻¹` using the per-state time constants from the
+model's `inflow_taus()`. With that damping in place the BEM-loop λ_c
+sensitivity no longer diverges, so the wind-axis rotation is active in
+all regimes.
+
+Covered by the oblique-flow covariance tests in
+`tests/test_pitt_peters.py::TestPittPetersObliqueFlow` (non-axial flow
+generates cyclic harmonics; a 90° flow-direction rotation rotates the
+`(λ_c, λ_s)` vector consistently).
 
 ## Øye 2-stage annular dynamic inflow (`dynbem_rs/src/oye.rs`)
 

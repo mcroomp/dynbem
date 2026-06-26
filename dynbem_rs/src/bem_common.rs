@@ -267,7 +267,7 @@ pub fn assemble_result(
     let m_spin = hub_axis * q_total;
     AeroResult {
         F_world: f_world,
-        M_orbital: m_orbital,
+        M_hub_world: m_orbital,
         Q_spin: q_total,
         M_spin: m_spin,
     }

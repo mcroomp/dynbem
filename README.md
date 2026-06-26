@@ -94,6 +94,9 @@ inputs = dynbem.RotorInputs(
 result, derivative = model.compute_forces(inputs, state)
 # result.F_world, result.M_orbital, result.M_spin, result.Q_spin
 # derivative carries d/dt of the dynamic-inflow states (lambda_0/c/s or W/W_int)
+# Or use built-in state stepping with an explicit inflow integrator:
+# result, state = model.step(inputs, state, dt, integration_method="semi_implicit")
+# integration_method: "semi_implicit" | "explicit" | "exponential"
 # Mechanical ODE lives in the caller:
 #   from dynbem.mechanical import omega_derivative
 #   omega += dt * omega_derivative(result.Q_spin, motor_torque_Nm, I_ode_kgm2)

@@ -1,16 +1,8 @@
 """Validation of the Level-2 Pitt-Peters model (aero/pitt_peters.py).
 
-Three checks:
-1. Hover CT converges to within 5% of the Level-1 BEM quasi-static result.
-   Both models share the same blade geometry and airfoil, so they should
-   agree in steady hover.  Tight tolerance catches integration bugs.
-
-2. VRS no-blow-up: at a shallow descent (lambda2 ~ 0.4) the Level-1 BEM
-   instantly jumps to 2.4x CT; the Pitt-Peters VRS correction should hold
-   CT below 1.6x at steady state.
-
-3. WBS autorotation: in deep WBS (lambda2 > 2.5), CQ must be negative
-   (rotor extracting energy from the descent wind — autorotation/turbine mode).
+Hover CT-vs-BEM parity coverage is exercised in Rust unit tests
+(dynbem_rs/src/pitt_peters.rs). This Python module covers VRS/WBS behavior,
+inflow transients, and oblique-flow covariance.
 """
 
 import math
@@ -103,6 +95,29 @@ def _bem_ct(model: BEMModel, theta_deg: float, rpm: float, v_climb_ms: float) ->
     return -res.F_world[2] / (_RHO * A * (omega * R) ** 2)
 
 
+def _euler_state_to_steady(
+    model,
+    inp: RotorInputs,
+    state_init: PittPetersRotorState | None = None,
+    n_steps: int = 8000,
+    dt: float = 0.0005,
+) -> tuple[PittPetersRotorState, object]:
+    """Euler-integrate the full Pitt-Peters inflow state to steady state.
+
+    Returns (state_final, result_final).
+    """
+    state = state_init or PittPetersRotorState(0.0, 0.0, 0.0)
+    res = None
+    for _ in range(n_steps):
+        res, drv = model.compute_forces(inp, state)
+        state = PittPetersRotorState(
+            lambda_0=state.lambda_0 + drv.lambda_0 * dt,
+            lambda_c=state.lambda_c + drv.lambda_c * dt,
+            lambda_s=state.lambda_s + drv.lambda_s * dt,
+        )
+    return state, res
+
+
 # ---------------------------------------------------------------------------
 # VRS polynomial unit tests
 # ---------------------------------------------------------------------------
@@ -123,31 +138,6 @@ class TestVRSPolynomial:
         """In mid-VRS (lambda2 ~1), induced velocity exceeds hover value."""
         assert vrs_lambda1(1.0) > 1.2, (
             f"vrs_lambda1(1.0) = {vrs_lambda1(1.0):.4f}, expected > 1.2"
-        )
-
-
-# ---------------------------------------------------------------------------
-# Scenario 1 — Hover convergence
-# ---------------------------------------------------------------------------
-
-class TestPittPetersHover:
-    """Pitt-Peters at steady hover should agree with Level-1 BEM within 5%.
-
-    Both models use the same blade geometry, so any gap is a bug.
-    """
-
-    @pytest.mark.parametrize("theta_deg,rpm", [
-        (8.86, 1200),   # Run 5, CT_nom=0.004
-        (5.13, 1600),   # Run 9, CT_nom=0.002
-    ])
-    def test_hover_ct_matches_bem(self, pp_model, bem_model, theta_deg, rpm):
-        """Pitt-Peters steady hover CT is within 5% of Level-1 BEM CT."""
-        ct_bem = _bem_ct(bem_model, theta_deg, rpm, 0.0)
-        ct_pp, _, _lam0 = _euler_to_steady(pp_model, theta_deg, rpm, 0.0)
-        err = abs(ct_pp - ct_bem) / ct_bem
-        assert err < 0.05, (
-            f"theta={theta_deg} rpm={rpm}: "
-            f"CT_PP={ct_pp:.5f}, CT_BEM={ct_bem:.5f}, err={err:.1%}"
         )
 
 
@@ -285,7 +275,106 @@ class TestPittPetersWBS:
         )
 
 
-# Note: a wind-axis L-matrix rotation was implemented and reverted (it
-# produced rotational covariance for `µ_y ≠ 0` but destabilised the tethered-
-# rotor envelope via λ_c → BEM → C_L_hub → λ_s feedback).  See pitt_peters.py.
+# ---------------------------------------------------------------------------
+# Scenario 4 -- explicit oblique-flow checks (wind-axis covariance)
+# ---------------------------------------------------------------------------
+
+class TestPittPetersObliqueFlow:
+    """Explicit oblique-flow tests for cyclic inflow harmonics.
+
+    These checks verify that:
+    1) non-axial in-plane flow produces nonzero cyclic inflow harmonics, and
+    2) rotating the in-plane flow direction rotates (lambda_c, lambda_s)
+       consistently (wind-axis rotational covariance).
+    """
+
+    def _inputs(self, theta_deg: float, rpm: float, v_hub_xyz: np.ndarray) -> RotorInputs:
+        omega = rpm * math.pi / 30.0
+        return RotorInputs(
+            collective_rad=math.radians(theta_deg),
+            tilt_lon=0.0,
+            tilt_lat=0.0,
+            R_hub=np.eye(3),
+            v_hub_world=v_hub_xyz,
+            wind_world=np.zeros(3),
+            t=0.0,
+            rho_kg_m3=_RHO,
+            omega_rad_s=omega,
+        )
+
+    def test_oblique_flow_generates_harmonics_with_expected_axis_alignment(self, pp_model):
+        """Non-axial flow generates nonzero cyclic inflow harmonics.
+
+        For orthogonal in-plane flow directions at equal speed, both
+        components are generally nonzero and the harmonic vector changes
+        with flow direction.
+        """
+        theta_deg, rpm, vmag = 8.86, 1200, 10.0
+
+        state_x, _ = _euler_state_to_steady(
+            pp_model,
+            self._inputs(theta_deg, rpm, np.array([vmag, 0.0, 0.0])),
+        )
+        state_y, _ = _euler_state_to_steady(
+            pp_model,
+            self._inputs(theta_deg, rpm, np.array([0.0, vmag, 0.0])),
+        )
+
+        # Both orthogonal flows should induce non-trivial cyclic harmonics.
+        n_x = math.hypot(state_x.lambda_c, state_x.lambda_s)
+        n_y = math.hypot(state_y.lambda_c, state_y.lambda_s)
+        assert n_x > 1e-5
+        assert n_y > 1e-5
+
+        # Rotating the in-plane flow direction should change the harmonic
+        # vector direction (not just reproduce the same (lambda_c, lambda_s)).
+        assert not np.allclose(
+            [state_x.lambda_c, state_x.lambda_s],
+            [state_y.lambda_c, state_y.lambda_s],
+            atol=1e-6,
+            rtol=1e-3,
+        )
+
+    def test_oblique_flow_harmonic_vector_rotates_with_flow_direction(self, pp_model):
+        """A 90-deg flow-direction rotation rotates (lambda_c, lambda_s).
+
+        Compare two steady states with equal-speed in-plane flow along +X and +Y.
+        The harmonic vectors should have similar magnitude and be near-orthogonal.
+        """
+        theta_deg, rpm, vmag = 8.86, 1200, 10.0
+
+        state_x, _ = _euler_state_to_steady(
+            pp_model,
+            self._inputs(theta_deg, rpm, np.array([vmag, 0.0, 0.0])),
+        )
+        state_y, _ = _euler_state_to_steady(
+            pp_model,
+            self._inputs(theta_deg, rpm, np.array([0.0, vmag, 0.0])),
+        )
+
+        v_x = np.array([state_x.lambda_c, state_x.lambda_s])
+        v_y = np.array([state_y.lambda_c, state_y.lambda_s])
+        n_x = np.linalg.norm(v_x)
+        n_y = np.linalg.norm(v_y)
+
+        assert n_x > 1e-5 and n_y > 1e-5
+
+        # Magnitude should be comparable for equal-speed orthogonal in-plane flow.
+        rel_mag_diff = abs(n_x - n_y) / max(n_x, n_y)
+        assert rel_mag_diff < 0.25, (
+            f"Expected similar harmonic magnitude for orthogonal equal-speed flow; "
+            f"|v_x|={n_x:.3e}, |v_y|={n_y:.3e}, rel_diff={rel_mag_diff:.1%}"
+        )
+
+        # 90-deg direction change => clearly rotated harmonic vector direction.
+        cosang = float(np.dot(v_x, v_y) / (n_x * n_y))
+        assert abs(cosang) < 0.4, (
+            f"Expected clearly rotated harmonic vectors for 90-deg flow rotation; "
+            f"cos(angle)={cosang:.3f}"
+        )
+
+
+# Wind-axis forcing/harmonic rotation is active in Pitt-Peters. Coverage for
+# oblique-flow covariance lives primarily in test_cyclic/test_force_balance
+# plus the envelope-level regression tests.
 

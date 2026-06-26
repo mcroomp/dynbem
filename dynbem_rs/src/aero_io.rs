@@ -130,7 +130,6 @@ pub struct RotorInputs {
     pub R_hub: Mat3,
     pub v_hub_world: Vec3,
     pub wind_world: Vec3,
-    pub t: f64,
     pub rho_kg_m3: f64,
     pub omega_rad_s: f64,
 }
@@ -139,7 +138,7 @@ pub struct RotorInputs {
 #[allow(non_snake_case)]
 pub struct AeroResult {
     pub F_world: Vec3,
-    pub M_orbital: Vec3,
+    pub M_hub_world: Vec3,
     pub Q_spin: f64,
     pub M_spin: Vec3,
 }
