@@ -342,12 +342,15 @@ class TestNonHoverForceBalance:
                 _make_inputs(collective_deg=coll_deg,
                              v_hub_world=(0.0, 0.0, -v_climb)),
                 rpm=rpm,
+                n_steps=2000,
             )
             return -res.F_world[2]
 
         def solve_coll(v_climb):
             lo, hi = 0.0, 16.0
-            for _ in range(40):
+            # Coarse solve is sufficient: this test only checks that climb
+            # requires noticeably more collective than hover.
+            for _ in range(14):
                 mid = 0.5 * (lo + hi)
                 if thrust(mid, v_climb) < weight:
                     lo = mid
