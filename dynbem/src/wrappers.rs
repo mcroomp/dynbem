@@ -363,11 +363,17 @@ impl PyServoFlapGeometry {
 
     #[getter]
     #[allow(non_snake_case)]
-    fn C_M_delta_per_rad(&self) -> f64 { self.0.C_M_delta_per_rad }
+    fn C_M_delta_per_rad(&self) -> f64 {
+        self.0.C_M_delta_per_rad
+    }
     #[getter]
-    fn r_inner_m(&self) -> f64 { self.0.r_inner_m }
+    fn r_inner_m(&self) -> f64 {
+        self.0.r_inner_m
+    }
     #[getter]
-    fn r_outer_m(&self) -> f64 { self.0.r_outer_m }
+    fn r_outer_m(&self) -> f64 {
+        self.0.r_outer_m
+    }
 }
 
 #[pyclass(name = "ServoFlapActuation", module = "dynbem._dynbem")]
@@ -395,12 +401,18 @@ impl PyServoFlapActuation {
 
     #[getter]
     #[allow(non_snake_case)]
-    fn I_theta_kgm2(&self) -> f64 { self.0.I_theta_kgm2 }
+    fn I_theta_kgm2(&self) -> f64 {
+        self.0.I_theta_kgm2
+    }
     #[getter]
     #[allow(non_snake_case)]
-    fn damper_Nms_per_rad(&self) -> f64 { self.0.damper_Nms_per_rad }
+    fn damper_Nms_per_rad(&self) -> f64 {
+        self.0.damper_Nms_per_rad
+    }
     #[getter]
-    fn ac_offset_m(&self) -> f64 { self.0.ac_offset_m }
+    fn ac_offset_m(&self) -> f64 {
+        self.0.ac_offset_m
+    }
     #[getter]
     fn flap(&self) -> PyServoFlapGeometry {
         PyServoFlapGeometry(self.0.flap.clone())
@@ -425,9 +437,13 @@ impl PyFlapProperties {
 
     #[getter]
     #[allow(non_snake_case)]
-    fn I_blade_flap_kgm2(&self) -> f64 { self.0.I_blade_flap_kgm2 }
+    fn I_blade_flap_kgm2(&self) -> f64 {
+        self.0.I_blade_flap_kgm2
+    }
     #[getter]
-    fn omega_nr_rad_s(&self) -> f64 { self.0.omega_nr_rad_s }
+    fn omega_nr_rad_s(&self) -> f64 {
+        self.0.omega_nr_rad_s
+    }
 
     /// Compute the hub moment reduction factor at a given rotor speed.
     fn hub_moment_factor(&self, omega_rad_s: f64) -> f64 {
@@ -510,13 +526,13 @@ impl PyRotorDefinition {
 
 #[pyclass(name = "QuasiStaticRotorState", module = "dynbem._dynbem")]
 #[derive(Clone, Debug, Default)]
-pub struct PyQuasiStaticRotorState(pub core_::rotor_state::QuasiStaticRotorState);
+pub struct PyQuasiStaticRotorState(pub core_::quasi_static_bem::QuasiStaticRotorState);
 
 #[pymethods]
 impl PyQuasiStaticRotorState {
     #[new]
     fn new() -> Self {
-        PyQuasiStaticRotorState(core_::rotor_state::QuasiStaticRotorState)
+        PyQuasiStaticRotorState(core_::quasi_static_bem::QuasiStaticRotorState)
     }
 
     fn to_array<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
@@ -532,21 +548,21 @@ impl PyQuasiStaticRotorState {
             )));
         }
         Ok(PyQuasiStaticRotorState(
-            core_::rotor_state::QuasiStaticRotorState,
+            core_::quasi_static_bem::QuasiStaticRotorState,
         ))
     }
 }
 
 #[pyclass(name = "PittPetersRotorState", module = "dynbem._dynbem")]
 #[derive(Clone, Debug, Default)]
-pub struct PyPittPetersRotorState(pub core_::rotor_state::PittPetersRotorState);
+pub struct PyPittPetersRotorState(pub core_::pitt_peters::PittPetersRotorState);
 
 #[pymethods]
 impl PyPittPetersRotorState {
     #[new]
     #[pyo3(signature = (lambda_0, lambda_c, lambda_s))]
     fn new(lambda_0: f64, lambda_c: f64, lambda_s: f64) -> Self {
-        PyPittPetersRotorState(core_::rotor_state::PittPetersRotorState {
+        PyPittPetersRotorState(core_::pitt_peters::PittPetersRotorState {
             lambda_0,
             lambda_c,
             lambda_s,
@@ -591,7 +607,7 @@ impl PyPittPetersRotorState {
             )));
         }
         Ok(PyPittPetersRotorState(
-            core_::rotor_state::PittPetersRotorState {
+            core_::pitt_peters::PittPetersRotorState {
                 lambda_0: a[0],
                 lambda_c: a[1],
                 lambda_s: a[2],
@@ -602,7 +618,7 @@ impl PyPittPetersRotorState {
 
 #[pyclass(name = "OyeRotorState", module = "dynbem._dynbem")]
 #[derive(Clone, Debug)]
-pub struct PyOyeRotorState(pub core_::rotor_state::OyeRotorState);
+pub struct PyOyeRotorState(pub core_::oye::OyeRotorState);
 
 #[pymethods]
 impl PyOyeRotorState {
@@ -619,7 +635,7 @@ impl PyOyeRotorState {
             return Err(PyValueError::new_err("W_int and W must have equal length"));
         }
         let n = wi.len();
-        let mut s = core_::rotor_state::OyeRotorState::zeros(n);
+        let mut s = core_::oye::OyeRotorState::zeros(n);
         s.W_int[..n].copy_from_slice(&wi);
         s.W[..n].copy_from_slice(&w);
         Ok(PyOyeRotorState(s))
@@ -627,7 +643,7 @@ impl PyOyeRotorState {
 
     #[staticmethod]
     fn zeros(n_elements: usize) -> Self {
-        PyOyeRotorState(core_::rotor_state::OyeRotorState::zeros(n_elements))
+        PyOyeRotorState(core_::oye::OyeRotorState::zeros(n_elements))
     }
 
     #[getter]
@@ -659,7 +675,7 @@ impl PyOyeRotorState {
             )));
         }
         let n = n_total / 2;
-        let mut s = core_::rotor_state::OyeRotorState::zeros(n);
+        let mut s = core_::oye::OyeRotorState::zeros(n);
         s.W_int[..n].copy_from_slice(&a[..n]);
         s.W[..n].copy_from_slice(&a[n..2 * n]);
         Ok(PyOyeRotorState(s))

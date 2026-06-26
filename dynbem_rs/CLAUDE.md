@@ -32,7 +32,7 @@ Oye filter -- all load-bearing physics.
     src/
     +-- lib.rs                public module declarations
     +-- aero_io.rs            Vec3, Mat3, RotorInputs, AeroResult
-    +-- aero_model.rs         AeroModel trait + RotorStateExt
+    +-- aero_model.rs         AeroModel trait
     +-- bem.rs                BEMModel + pub solve_bem_element + windmill solver
     +-- bem_common.rs         RadialGrid, PolarTable (shared by all models)
     +-- common.rs             numerical floors (EPS_*), VRS polynomial
@@ -43,6 +43,7 @@ Oye filter -- all load-bearing physics.
     +-- polar.rs              LinearPolar, TabulatedPolar, Polar trait
     +-- rotor_definition.rs   Blade / Airfoil / Control / Inertia / etc.
     +-- rotor_state.rs        QuasiStatic / PittPeters / Oye state structs
+    |                         + RotorStateExt trait declaration
     +-- rotor_yaml.rs         YAML loader for RotorDefinition (only file
     |                         IO + serde site in this crate)
     +-- trim.rs               solve_trim_cyclic<M>, relax_inflow<M> (generic)
@@ -51,7 +52,8 @@ Oye filter -- all load-bearing physics.
 
 1. Add `src/foo.rs` with the model struct and `impl AeroModel for FooModel`.
 2. Add `FooRotorState` to `rotor_state.rs` and the `RotorStateExt` impl
-   in `aero_model.rs`. `RotorStateExt` serializes **inflow states only**
+   in the model's aero module (e.g. `foo.rs`). `RotorStateExt` serializes
+   **inflow states only**
    via `get_inflow()` / `set_inflow(Vec<f64>)`.  There are no mechanical
    fields in the state structs; `omega_rad_s` is passed by the caller
    through `RotorInputs` on every call.  The semi-implicit integrator in

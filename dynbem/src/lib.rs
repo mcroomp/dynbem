@@ -91,38 +91,48 @@ fn solve_bem_element(
 ) -> PyResult<PyBEMElementResult> {
     let polar = wrappers::extract_polar(polar)?;
     let res = match polar {
-        wrappers::ResolvedPolar::Linear(p) => dynbem_rs::quasi_static_bem::solve_bem_element(
-            r,
-            dr,
-            chord,
-            twist_rad,
-            collective_rad,
-            omega,
-            v_climb,
-            rho,
-            n_blades,
-            radius_m,
-            &p,
-            use_tip_loss,
-            v_t_extra,
-            root_cutout_m,
-        ),
-        wrappers::ResolvedPolar::Tabulated(p) => dynbem_rs::quasi_static_bem::solve_bem_element(
-            r,
-            dr,
-            chord,
-            twist_rad,
-            collective_rad,
-            omega,
-            v_climb,
-            rho,
-            n_blades,
-            radius_m,
-            &p,
-            use_tip_loss,
-            v_t_extra,
-            root_cutout_m,
-        ),
+        wrappers::ResolvedPolar::Linear(p) => {
+            let geom = dynbem_rs::quasi_static_bem::BEMElementGeometry::new(
+                r,
+                dr,
+                chord,
+                twist_rad,
+                omega,
+                rho,
+                n_blades,
+                radius_m,
+                &p,
+                use_tip_loss,
+                root_cutout_m,
+            );
+            dynbem_rs::quasi_static_bem::solve_bem_element(
+                &geom,
+                collective_rad,
+                v_climb,
+                v_t_extra,
+            )
+        }
+        wrappers::ResolvedPolar::Tabulated(p) => {
+            let geom = dynbem_rs::quasi_static_bem::BEMElementGeometry::new(
+                r,
+                dr,
+                chord,
+                twist_rad,
+                omega,
+                rho,
+                n_blades,
+                radius_m,
+                &p,
+                use_tip_loss,
+                root_cutout_m,
+            );
+            dynbem_rs::quasi_static_bem::solve_bem_element(
+                &geom,
+                collective_rad,
+                v_climb,
+                v_t_extra,
+            )
+        }
     };
     Ok(PyBEMElementResult {
         lambda_r: res.lambda_r,

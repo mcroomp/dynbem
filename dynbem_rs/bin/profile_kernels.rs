@@ -10,12 +10,16 @@
 
 use dynbem_rs::aero_io::{Mat3, RotorInputs, Vec3};
 use dynbem_rs::aero_model::AeroModel;
+use dynbem_rs::oye::OyeRotorState;
 use dynbem_rs::oye::{OyeBEMModel, OYE_K};
 use dynbem_rs::pitt_peters::PittPetersModel;
+use dynbem_rs::pitt_peters::PittPetersRotorState;
 use dynbem_rs::polar::LinearPolar;
-use dynbem_rs::quasi_static_bem::{solve_bem_element, QuasiStaticBEM};
-use dynbem_rs::rotor_definition::{BladeGeometry, LinearPolarParameters, PitchActuation, RotorDefinition};
-use dynbem_rs::rotor_state::{OyeRotorState, PittPetersRotorState, QuasiStaticRotorState};
+use dynbem_rs::quasi_static_bem::QuasiStaticRotorState;
+use dynbem_rs::quasi_static_bem::{solve_bem_element, BEMElementGeometry, QuasiStaticBEM};
+use dynbem_rs::rotor_definition::{
+    BladeGeometry, LinearPolarParameters, PitchActuation, RotorDefinition,
+};
 use std::env;
 use std::time::Instant;
 
@@ -63,24 +67,22 @@ fn make_inputs() -> RotorInputs {
 
 fn bench_solve_bem_element(iterations: usize) {
     let polar = LinearPolar::new(0.0, 5.7, 0.01, 15.0_f64.to_radians());
+    let geom = BEMElementGeometry::new(
+        0.85,
+        0.02,
+        0.06,
+        2.0_f64.to_radians(),
+        120.0,
+        1.225,
+        2,
+        1.0,
+        &polar,
+        true,
+        0.2,
+    );
     let start = Instant::now();
     for _ in 0..iterations {
-        let _ = solve_bem_element(
-            0.85,
-            0.02,
-            0.06,
-            2.0_f64.to_radians(),
-            8.0_f64.to_radians(),
-            120.0,
-            -1.0,
-            1.225,
-            2,
-            1.0,
-            &polar,
-            true,
-            0.0,
-            0.2,
-        );
+        let _ = solve_bem_element(&geom, 8.0_f64.to_radians(), -1.0, 0.0);
     }
     let elapsed = start.elapsed();
     println!(

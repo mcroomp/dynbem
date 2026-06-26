@@ -7,54 +7,6 @@
 // resolves to a trait-using generic function internally.
 
 use crate::aero_io::{AeroResult, RotorInputs};
-use crate::rotor_state::{OyeRotorState, PittPetersRotorState, QuasiStaticRotorState};
-
-/// Inflow-state serialization for generic integrators.
-/// Omega is now part of RotorInputs; state contains only inflow DOFs.
-pub trait RotorStateExt: Clone {
-    fn get_inflow(&self) -> Vec<f64>;
-    fn set_inflow(&mut self, arr: Vec<f64>);
-    fn inflow_dof(&self) -> usize {
-        self.get_inflow().len()
-    }
-}
-
-impl RotorStateExt for QuasiStaticRotorState {
-    fn get_inflow(&self) -> Vec<f64> {
-        Vec::new()
-    }
-    fn set_inflow(&mut self, arr: Vec<f64>) {
-        debug_assert!(arr.is_empty());
-    }
-}
-
-impl RotorStateExt for PittPetersRotorState {
-    fn get_inflow(&self) -> Vec<f64> {
-        vec![self.lambda_0, self.lambda_c, self.lambda_s]
-    }
-    fn set_inflow(&mut self, arr: Vec<f64>) {
-        debug_assert_eq!(arr.len(), 3);
-        self.lambda_0 = arr[0];
-        self.lambda_c = arr[1];
-        self.lambda_s = arr[2];
-    }
-}
-
-impl RotorStateExt for OyeRotorState {
-    fn get_inflow(&self) -> Vec<f64> {
-        let n = self.n_elements;
-        let mut v = Vec::with_capacity(2 * n);
-        v.extend_from_slice(self.w_int_slice());
-        v.extend_from_slice(self.w_slice());
-        v
-    }
-    fn set_inflow(&mut self, arr: Vec<f64>) {
-        let n = self.n_elements;
-        debug_assert_eq!(arr.len(), 2 * n);
-        self.W_int[..n].copy_from_slice(&arr[..n]);
-        self.W[..n].copy_from_slice(&arr[n..2 * n]);
-    }
-}
 
 /// Common aero-model interface. Each implementor caches a polar table
 /// and a radial grid in its struct; compute_forces is the hot path.
@@ -76,4 +28,34 @@ pub trait AeroModel {
 
     /// Zero state at the right shape for this model.
     fn initial_state(&self) -> Self::State;
+}
+
+// Rotor state types: quasi-static, Pitt-Peters, Oye.
+// States carry inflow DOFs only.  omega_rad_s lives in RotorInputs and is
+// supplied by the caller on every compute_forces call; the mechanical ODE
+// is NOT part of this state -- the caller owns and integrates omega.
+//
+// Canonical integration pattern (explicit Euler, same dt as inflow loop):
+//
+//   let (result, dstate) = aero.compute_forces(&inputs, &state);
+//   state = step_state(state, dstate, dt);                     // inflow
+//   omega += dt * (motor_torque - result.Q_spin) / I_kgm2;     // spin
+//   inputs.omega_rad_s = omega;                                 // feed back
+//
+// The Python helper `dynbem.mechanical.omega_derivative` and
+// `euler_step_omega` implement the scalar spin ODE.
+// The inflow states may be stiff (tau << dt); use the semi-implicit stepper
+// in `dynbem.mechanical` / `envelope.point_mass._step_state_semi_implicit`
+// when dt is large relative to the inflow time constants.
+
+/// Inflow-state serialization for generic integrators.
+/// Omega is part of RotorInputs; state carries only inflow DOFs.
+/// Each concrete state's impl lives in its aero module (quasi_static_bem,
+/// pitt_peters, oye).
+pub trait RotorStateExt: Clone {
+    fn get_inflow(&self) -> Vec<f64>;
+    fn set_inflow(&mut self, arr: Vec<f64>);
+    fn inflow_dof(&self) -> usize {
+        self.get_inflow().len()
+    }
 }

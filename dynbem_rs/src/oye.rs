@@ -4,25 +4,52 @@
 use std::f64::consts::PI;
 
 use crate::aero_io::{AeroResult, RotorInputs};
-use crate::aero_model::AeroModel;
+use crate::aero_model::{AeroModel, RotorStateExt};
 use crate::bem_common::{
     apply_flap_reduction, assemble_result, build_psi_trig_table, element_force, kinematics,
     v_mass_flow_disk, vrs_regime, ElementCtx, PsiKernel, RadialGrid, SweepCtx,
 };
 use crate::common::{
-    vrs_lambda1, EPS_OMEGA_R, MIN_LOSS_FACTOR, VRS_DESCENT_THRESHOLD, MASS_FLOW_HOVER_FLOOR_FRAC,
+    vrs_lambda1, EPS_OMEGA_R, MASS_FLOW_HOVER_FLOOR_FRAC, MIN_LOSS_FACTOR, VRS_DESCENT_THRESHOLD,
 };
 use crate::cyclic::cyclic_coeffs;
-use crate::servoflap::{solve_feathering, FeatheringState};
 use crate::polar::Polar;
 use crate::quasi_static_bem::{prandtl_hub_loss, prandtl_tip_loss};
 use crate::rotor_definition::{PitchActuation, RotorDefinition};
-use crate::rotor_state::OyeRotorState;
+use crate::servoflap::{solve_feathering, FeatheringState};
 
 /// Oye empirical coupling constant (original Oye 1990, OpenFAST default).
 /// Damps the coupling between the quasi-steady target W_qs and the
 /// intermediate filter state W_int.
 pub const OYE_K: f64 = 0.6;
+
+#[derive(Clone, Debug)]
+#[allow(non_snake_case)]
+pub struct OyeRotorState {
+    pub n_elements: usize,
+    pub W_int: Vec<f64>,
+    pub W: Vec<f64>,
+}
+
+impl OyeRotorState {
+    pub fn zeros(n_elements: usize) -> Self {
+        Self {
+            n_elements,
+            W_int: vec![0.0; n_elements],
+            W: vec![0.0; n_elements],
+        }
+    }
+
+    #[inline(always)]
+    pub fn w_int_slice(&self) -> &[f64] {
+        &self.W_int[..self.n_elements]
+    }
+
+    #[inline(always)]
+    pub fn w_slice(&self) -> &[f64] {
+        &self.W[..self.n_elements]
+    }
+}
 
 /// Oye 2-stage filter step.
 #[inline(always)]
@@ -143,6 +170,22 @@ impl<P: Polar + Clone> OyeBEMModel<P> {
     }
 }
 
+impl RotorStateExt for OyeRotorState {
+    fn get_inflow(&self) -> Vec<f64> {
+        let n = self.n_elements;
+        let mut v = Vec::with_capacity(2 * n);
+        v.extend_from_slice(self.w_int_slice());
+        v.extend_from_slice(self.w_slice());
+        v
+    }
+    fn set_inflow(&mut self, arr: Vec<f64>) {
+        let n = self.n_elements;
+        debug_assert_eq!(arr.len(), 2 * n);
+        self.W_int[..n].copy_from_slice(&arr[..n]);
+        self.W[..n].copy_from_slice(&arr[n..2 * n]);
+    }
+}
+
 impl<P: Polar + Clone> AeroModel for OyeBEMModel<P> {
     type State = OyeRotorState;
 
@@ -224,7 +267,10 @@ impl<P: Polar + Clone> AeroModel for OyeBEMModel<P> {
             inputs.collective_rad
         };
         let (loop_theta_1c, loop_theta_1s) = if servo_mode {
-            (feathering_state.delta_theta_1c, feathering_state.delta_theta_1s)
+            (
+                feathering_state.delta_theta_1c,
+                feathering_state.delta_theta_1s,
+            )
         } else {
             (theta_1c, theta_1s)
         };
@@ -328,9 +374,8 @@ impl<P: Polar + Clone> AeroModel for OyeBEMModel<P> {
             n,
         );
 
-        let (mx_out, my_out) = apply_flap_reduction(
-            mx_hub, my_hub, self.defn.flap.as_ref(), inputs.omega_rad_s,
-        );
+        let (mx_out, my_out) =
+            apply_flap_reduction(mx_hub, my_hub, self.defn.flap.as_ref(), inputs.omega_rad_s);
         let result = assemble_result(t_total, q_total, mx_out, my_out, hub_axis, &inputs.R_hub);
         let derivative = OyeRotorState {
             n_elements: n,

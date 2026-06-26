@@ -47,9 +47,9 @@ impl AeroAny {
 }
 
 enum FinalState {
-    QuasiStatic(dynbem_rs::rotor_state::QuasiStaticRotorState),
-    PittPeters(dynbem_rs::rotor_state::PittPetersRotorState),
-    Oye(dynbem_rs::rotor_state::OyeRotorState),
+    QuasiStatic(dynbem_rs::quasi_static_bem::QuasiStaticRotorState),
+    PittPeters(dynbem_rs::pitt_peters::PittPetersRotorState),
+    Oye(dynbem_rs::oye::OyeRotorState),
 }
 
 #[pyclass(name = "TrimResult", module = "dynbem._dynbem")]

@@ -3,7 +3,7 @@
 
 use crate::aero_io::{AeroResult, Mat3, RotorInputs, Vec3};
 use crate::common::{
-    AlignedBEMF64, EPS_OMEGA_R, MAX_BEM_ELEMENTS, VRS_DESCENT_THRESHOLD, MASS_FLOW_HOVER_FLOOR_FRAC,
+    AlignedBEMF64, EPS_OMEGA_R, MASS_FLOW_HOVER_FLOOR_FRAC, MAX_BEM_ELEMENTS, VRS_DESCENT_THRESHOLD,
 };
 use crate::polar::Polar;
 use crate::rotor_definition::BladeGeometry;

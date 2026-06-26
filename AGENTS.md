@@ -205,8 +205,9 @@ hover data — defer until needed.
 
 ### Shared BEM infrastructure (`dynbem_rs/src/bem_common.rs`)
 
-`BEMModel`, `PittPetersModel`, and `OyeBEMModel` (in `dynbem_rs/src/bem.rs`,
-`pitt_peters.rs`, `oye.rs`) all delegate to the helpers in
+`QuasiStaticBEM`, `PittPetersModel`, and `OyeBEMModel` (in
+`dynbem_rs/src/quasi_static_bem.rs`, `pitt_peters.rs`, `oye.rs`) all
+delegate to the helpers in
 `dynbem_rs/src/bem_common.rs`:
 
 - `PolarTable` — contiguous-array polar tabulation.
@@ -534,8 +535,10 @@ new aero model"); the short version:
   returning the time constant for each state component (`f64::INFINITY`
   for quasi-static states). The envelope integrator's
   semi-implicit damping needs this.
-- Add a new `RotorState` variant in `dynbem_rs/src/rotor_state.rs` and
-  the matching `RotorStateExt` impl in `dynbem_rs/src/aero_model.rs`.
+- Define the model-specific state struct in that model's aero module and add
+  the matching `RotorStateExt` impl there (`quasi_static_bem.rs`,
+  `pitt_peters.rs`, or `oye.rs`). The `RotorStateExt` trait itself is
+  declared in `dynbem_rs/src/aero_model.rs`.
   `RotorStateExt` serializes **inflow states only** via
   `get_inflow()` / `set_inflow(Vec<f64>)`.  There are no mechanical
   fields in any state struct — `omega_rad_s` is passed by the caller

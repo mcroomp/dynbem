@@ -21,9 +21,9 @@ use dynbem_rs::polar::LinearPolar;
 // body_z = R_hub[:, 2] = [0.0, -0.9041543463617201, 0.4272059432582967]
 fn r_rawes_ic() -> Mat3 {
     Mat3([
-        [0.0,                   -1.0, 0.0                  ],
-        [0.42720594325829603,    0.0, -0.9041543463617201   ],
-        [0.9041543463617201,     0.0,  0.4272059432582967   ],
+        [0.0, -1.0, 0.0],
+        [0.42720594325829603, 0.0, -0.9041543463617201],
+        [0.9041543463617201, 0.0, 0.4272059432582967],
     ])
 }
 
@@ -60,10 +60,14 @@ fn quasi_static_rawes_ic_force_points_against_body_z() {
     assert!(
         f_dot_bz < 0.0,
         "QS RAWES IC: F dot body_z should be negative, got {f_dot_bz:.3}  \
-         F_world={:?}", result.F_world.0,
+         F_world={:?}",
+        result.F_world.0,
     );
-    assert!(downwind > 0.0, "QS RAWES IC: expected F downwind > 0, got {downwind:.3}");
-    assert!(up > 0.0,       "QS RAWES IC: expected F up > 0, got {up:.3}");
+    assert!(
+        downwind > 0.0,
+        "QS RAWES IC: expected F downwind > 0, got {downwind:.3}"
+    );
+    assert!(up > 0.0, "QS RAWES IC: expected F up > 0, got {up:.3}");
 }
 
 // ---------------------------------------------------------------------------
@@ -81,10 +85,14 @@ fn pitt_peters_rawes_ic_force_has_expected_sign() {
     assert!(
         f_dot_bz < 0.0,
         "PP RAWES IC: F dot body_z should be negative, got {f_dot_bz:.3}  \
-         F_world={:?}", result.F_world.0,
+         F_world={:?}",
+        result.F_world.0,
     );
-    assert!(downwind > 0.0, "PP RAWES IC: expected F downwind > 0, got {downwind:.3}");
-    assert!(up > 0.0,       "PP RAWES IC: expected F up > 0, got {up:.3}");
+    assert!(
+        downwind > 0.0,
+        "PP RAWES IC: expected F downwind > 0, got {downwind:.3}"
+    );
+    assert!(up > 0.0, "PP RAWES IC: expected F up > 0, got {up:.3}");
 }
 
 // ---------------------------------------------------------------------------
@@ -101,6 +109,7 @@ fn quasi_static_rawes_ic_sign_with_trim_cyclic() {
     assert!(
         f_dot_bz < 0.0,
         "QS RAWES IC with trim cyclic: F dot body_z should be negative, got {f_dot_bz:.3}  \
-         F_world={:?}", result.F_world.0,
+         F_world={:?}",
+        result.F_world.0,
     );
 }

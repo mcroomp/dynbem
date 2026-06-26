@@ -44,17 +44,29 @@ const V_INPLANE: f64 = 4.27;
 #[test]
 fn case_a_hover_thrust_nontrivial_at_qs_omega() {
     let model = common::qs_model();
-    let (result, _) = model.compute_forces(&identity_inputs([0.0, 0.0, 0.0], OMEGA_QS), &model.initial_state());
+    let (result, _) = model.compute_forces(
+        &identity_inputs([0.0, 0.0, 0.0], OMEGA_QS),
+        &model.initial_state(),
+    );
     let f2 = result.F_world.0[2];
-    assert!(f2.abs() > 10.0, "Case A hover OMEGA_QS: near-zero thrust: {f2:.3}");
+    assert!(
+        f2.abs() > 10.0,
+        "Case A hover OMEGA_QS: near-zero thrust: {f2:.3}"
+    );
 }
 
 #[test]
 fn case_a_hover_thrust_nontrivial_at_pp_omega() {
     let model = common::qs_model();
-    let (result, _) = model.compute_forces(&identity_inputs([0.0, 0.0, 0.0], OMEGA_PP), &model.initial_state());
+    let (result, _) = model.compute_forces(
+        &identity_inputs([0.0, 0.0, 0.0], OMEGA_PP),
+        &model.initial_state(),
+    );
     let f2 = result.F_world.0[2];
-    assert!(f2.abs() > 10.0, "Case A hover OMEGA_PP: near-zero thrust: {f2:.3}");
+    assert!(
+        f2.abs() > 10.0,
+        "Case A hover OMEGA_PP: near-zero thrust: {f2:.3}"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -64,12 +76,19 @@ fn case_a_hover_thrust_nontrivial_at_pp_omega() {
 #[test]
 fn case_b_inplane_sign_consistent() {
     let model = common::qs_model();
-    let (r_high, _) = model.compute_forces(&identity_inputs([V_INPLANE, 0.0, 0.0], OMEGA_QS), &model.initial_state());
-    let (r_low, _)  = model.compute_forces(&identity_inputs([V_INPLANE, 0.0, 0.0], OMEGA_PP), &model.initial_state());
+    let (r_high, _) = model.compute_forces(
+        &identity_inputs([V_INPLANE, 0.0, 0.0], OMEGA_QS),
+        &model.initial_state(),
+    );
+    let (r_low, _) = model.compute_forces(
+        &identity_inputs([V_INPLANE, 0.0, 0.0], OMEGA_PP),
+        &model.initial_state(),
+    );
     let f2_high = r_high.F_world.0[2];
-    let f2_low  = r_low.F_world.0[2];
+    let f2_low = r_low.F_world.0[2];
     assert_eq!(
-        f2_high > 0.0, f2_low > 0.0,
+        f2_high > 0.0,
+        f2_low > 0.0,
         "Case B: sign flips between omegas -- OMEGA_QS={f2_high:.1} OMEGA_PP={f2_low:.1}",
     );
 }
@@ -81,12 +100,19 @@ fn case_b_inplane_sign_consistent() {
 #[test]
 fn case_c_psiloop_matches_axial_windmill_sign_at_high_omega() {
     let model = common::qs_model();
-    let (r_c, _) = model.compute_forces(&identity_inputs([V_INPLANE, 0.0, V_CLIMB], OMEGA_QS), &model.initial_state());
-    let (r_d, _) = model.compute_forces(&identity_inputs([0.0, 0.0, V_CLIMB], OMEGA_QS), &model.initial_state());
+    let (r_c, _) = model.compute_forces(
+        &identity_inputs([V_INPLANE, 0.0, V_CLIMB], OMEGA_QS),
+        &model.initial_state(),
+    );
+    let (r_d, _) = model.compute_forces(
+        &identity_inputs([0.0, 0.0, V_CLIMB], OMEGA_QS),
+        &model.initial_state(),
+    );
     let f2_c = r_c.F_world.0[2];
     let f2_d = r_d.F_world.0[2];
     assert_eq!(
-        f2_c > 0.0, f2_d > 0.0,
+        f2_c > 0.0,
+        f2_d > 0.0,
         "Case C vs D at OMEGA_QS: sign mismatch -- C={f2_c:.1} D={f2_d:.1}",
     );
 }
@@ -94,12 +120,19 @@ fn case_c_psiloop_matches_axial_windmill_sign_at_high_omega() {
 #[test]
 fn case_c_sign_consistent_across_omegas() {
     let model = common::qs_model();
-    let (r_high, _) = model.compute_forces(&identity_inputs([V_INPLANE, 0.0, V_CLIMB], OMEGA_QS), &model.initial_state());
-    let (r_low, _)  = model.compute_forces(&identity_inputs([V_INPLANE, 0.0, V_CLIMB], OMEGA_PP), &model.initial_state());
+    let (r_high, _) = model.compute_forces(
+        &identity_inputs([V_INPLANE, 0.0, V_CLIMB], OMEGA_QS),
+        &model.initial_state(),
+    );
+    let (r_low, _) = model.compute_forces(
+        &identity_inputs([V_INPLANE, 0.0, V_CLIMB], OMEGA_PP),
+        &model.initial_state(),
+    );
     let f2_high = r_high.F_world.0[2];
-    let f2_low  = r_low.F_world.0[2];
+    let f2_low = r_low.F_world.0[2];
     assert_eq!(
-        f2_high > 0.0, f2_low > 0.0,
+        f2_high > 0.0,
+        f2_low > 0.0,
         "Case C: sign flips between omegas (windmill psi-loop regression) -- \
          OMEGA_QS={f2_high:.1} OMEGA_PP={f2_low:.1}",
     );
@@ -112,15 +145,27 @@ fn case_c_sign_consistent_across_omegas() {
 #[test]
 fn case_d_axial_windmill_force_is_upward_at_qs_omega() {
     let model = common::qs_model();
-    let (result, _) = model.compute_forces(&identity_inputs([0.0, 0.0, V_CLIMB], OMEGA_QS), &model.initial_state());
+    let (result, _) = model.compute_forces(
+        &identity_inputs([0.0, 0.0, V_CLIMB], OMEGA_QS),
+        &model.initial_state(),
+    );
     let f2 = result.F_world.0[2];
-    assert!(f2 < 0.0, "Case D OMEGA_QS: expected F_world[2] < 0, got {f2:.3}");
+    assert!(
+        f2 < 0.0,
+        "Case D OMEGA_QS: expected F_world[2] < 0, got {f2:.3}"
+    );
 }
 
 #[test]
 fn case_d_axial_windmill_force_is_upward_at_pp_omega() {
     let model = common::qs_model();
-    let (result, _) = model.compute_forces(&identity_inputs([0.0, 0.0, V_CLIMB], OMEGA_PP), &model.initial_state());
+    let (result, _) = model.compute_forces(
+        &identity_inputs([0.0, 0.0, V_CLIMB], OMEGA_PP),
+        &model.initial_state(),
+    );
     let f2 = result.F_world.0[2];
-    assert!(f2 < 0.0, "Case D OMEGA_PP: expected F_world[2] < 0, got {f2:.3}");
+    assert!(
+        f2 < 0.0,
+        "Case D OMEGA_PP: expected F_world[2] < 0, got {f2:.3}"
+    );
 }
