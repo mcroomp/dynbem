@@ -540,6 +540,11 @@ This rule has bitten before — see [memory feedback-no-silent-reverts].
     - `\text{...}` and `\mathrm{...}` are both supported. Prefer
       `\text{...}` for word-labels inside equations and `\mathrm{...}`
       for function names (atan2, sin, etc.).
+    - Do NOT put underscore-containing identifiers (e.g. `tilt_lon`)
+      inside `\text{...}` or `\mathrm{...}`. GitHub's validator rejects
+      `_` inside text-mode commands (`'_' allowed only in math mode`).
+      Instead, end the `$...$` span before the identifier and write it
+      as an inline code span: `$\theta_{1c} = -$\`tilt_lon\``.
 - **Coordinate frame**: NED everywhere. See README "Coordinate system" —
   the "coordinate trap" section especially matters when you adapt
   equations from a paper, because most rotor literature uses a different

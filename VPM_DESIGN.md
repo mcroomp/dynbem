@@ -496,9 +496,9 @@ handoff.
 The harmonics $(\theta_{1c}, \theta_{1s})$ come from the same
 swashplate-tilt-to-blade-pitch harmonic mapping the BEM models use (with the
 rotor's control gain / phase). With the repo default gain 1 / phase 0 this
-reduces to $\theta_{1c} = -\text{tilt\_lon}$,
-$\theta_{1s} = +\text{tilt\_lat}$, giving the helicopter-standard signs
-($\text{tilt\_lon} > 0$ nose-down, $\text{tilt\_lat} > 0$ roll-right)
+reduces to $\theta_{1c} = -$`tilt_lon`,
+$\theta_{1s} = +$`tilt_lat`, giving the helicopter-standard signs
+(`tilt_lon > 0` nose-down, `tilt_lat > 0` roll-right)
 verified by the moment-sign tests below.
 
 ### 5.5.5 Hub load integration
@@ -801,10 +801,10 @@ quantitative agreement -- the quantitative anchor is the axial reduction.
   $|M_x|, |M_y| < 0.10\,T R$ (axisymmetry). This is the one quantitative
   check and the regression guard on the coupling wiring.
 - **Collective**: $dT/d(\text{collective}) > 0$.
-- **Longitudinal cyclic**: $\text{tilt\_lon} > 0 \Rightarrow M_y < 0$ and
+- **Longitudinal cyclic**: `tilt_lon > 0` $\Rightarrow M_y < 0$ and
   $|M_y|$ grows from the hover baseline (correct cyclic phasing / hub-moment
   sign).
-- **Lateral cyclic**: $\text{tilt\_lat} > 0 \Rightarrow M_x > 0$.
+- **Lateral cyclic**: `tilt_lat > 0` $\Rightarrow M_x > 0$.
 - **Crosswind**: 8 m/s edgewise inflow -- thrust stays finite and positive,
   torque finite, the advancing/retreating asymmetry develops a non-zero hub
   moment, and the wake centroid convects downstream ($x_\text{centroid} > 0$).
