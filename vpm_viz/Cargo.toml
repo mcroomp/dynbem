@@ -1,0 +1,20 @@
+[package]
+name = "vpm_viz"
+version = "0.1.0"
+edition = "2021"
+
+# Standalone project -- NOT a member of the parent workspace.
+[workspace]
+
+[[bin]]
+name = "vpm_viz"
+path = "src/main.rs"
+
+[dependencies]
+dynbem_rs = { path = "../dynbem_rs" }
+eframe  = { version = "0.29", default-features = false, features = ["default_fonts", "glow"] }
+egui    = "0.29"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
