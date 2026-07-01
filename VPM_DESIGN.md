@@ -150,6 +150,10 @@ seven arrays can be read, written, and reduced independently -- the layout
 is chosen precisely so that any loop over `p` is a data-parallel map (or
 map-reduce) with no cross-particle dependence in the inner kernel.
 
+The field exposes a `particles()` iterator that yields `(pos, strength, sigma)`
+tuples for each particle. This is the read path used by the `vpm_viz`
+visualiser and any downstream analysis.
+
 Rationale:
 
 - **SoA, not array-of-structs**: a data-parallel kernel over `p` touches
@@ -341,10 +345,18 @@ symmetry and steady bound circulation -- while reusing the same radial-grid
 
 The rotor is marched at fixed azimuthal step $d\psi = 2\pi / N_\psi$,
 $dt = d\psi / \omega$. Each blade $b$ sits at
-$\psi_b(n) = n\,d\psi + b\,\tfrac{2\pi}{N_b}$. The carried state is the free
-wake (a single shared particle field) plus the previous-step relaxed bound
-circulation $\Gamma_i^{\,n-1}$ per blade, needed for the shed term. The
-solution sought is the **periodic** limit cycle, not a fixed point: loads
+$\psi_b(n) = n\,d\psi + b\,\tfrac{2\pi}{N_b}$. The carried state (`VpmRotorState`) has
+three fields:
+
+- **`wake`** -- the shared free-wake particle field (`Option<ParticleField>`).
+- **`gamma`** -- the previous-step relaxed bound circulation
+  $\Gamma_i^{\,n-1}$ per blade, needed for the shed term.
+- **`psi`** -- the current blade-0 azimuth (rad), accumulated across
+  `step_one` calls so each call sheds particles from the correct rotor
+  position rather than always restarting at $\psi = 0$.
+  `march` always starts at $\psi = 0$ and ignores this field.
+
+The solution sought is the **periodic** limit cycle, not a fixed point: loads
 are phase-averaged over the final revolution once the wake has settled
 ($N_\text{settle\,rev}$ revolutions of spin-up).
 
@@ -572,7 +584,14 @@ trailing near-wake solved within each step (Section 5.5.2); tip-clustered
 (cosine) spanwise spacing and locally scaled core sizing, which together
 close the residual hover thrust bias (Section 8); a monopole Barnes-Hut
 O(N log N) evaluator (`induced_at_points_bh` / `advect_rk2_bh`) for when N
-outgrows the direct path -- see Section 7.1.
+outgrows the direct path -- see Section 7.1; `ParticleField::particles()`
+iterator for downstream wake access; `VpmRotor::step_one()` / `dt_step()`
+for per-frame animation stepping with correct `psi` accumulation across
+calls (the `psi` field in `VpmRotorState` was added to fix a bug where
+all new particles were shed at azimuth 0 when calling `step_one` repeatedly);
+`vpm_viz/` standalone egui/eframe visualiser showing the 30-deg crosswind
+wake animated in real time (top-view XY + side-view XZ, viridis colormap
+by log10 vorticity magnitude).
 
 ---
 
