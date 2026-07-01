@@ -273,7 +273,7 @@ U_a &= \mathbf{U}_\text{rel}\cdot\hat{\mathbf{z}}
    \quad (\text{axial, } +Z) \\
 U_t &= -\,\mathbf{U}_\text{rel}\cdot\hat{\mathbf{t}}
    \quad (\text{tangential, along } -\hat{\mathbf{t}}) \\
-\phi &= \operatorname{atan2}(U_a,\, U_t) \\
+\phi &= \mathrm{atan2}(U_a,\, U_t) \\
 \alpha &= (\theta_\text{coll} + \theta_{\mathrm{tw},i}) - \phi \\
 (C_l, C_d) &= \text{polar}(\alpha) \\
 dL &= \tfrac{1}{2}\rho U^2 c\,C_l\,dr, \qquad
@@ -361,8 +361,9 @@ section sees is split into two parts:
   sheet just behind the blade, linear in the current-step circulation
   $\Gamma$ (Section 5.5.3).
 
-With $\mathbf{u}_\text{ind} = \mathbf{u}_\text{far} + \mathbf{u}_\text{near}(\Gamma)$
-and $U = \sqrt{U_a^2 + U_t^2}$:
+With $U = \sqrt{U_a^2 + U_t^2}$ and
+
+$$\mathbf{u}_\text{ind} = \mathbf{u}_\text{far} + \mathbf{u}_\text{near}(\Gamma):$$
 
 ```math
 \begin{aligned}
@@ -374,7 +375,7 @@ U_a &= \mathbf{U}_\text{rel}\cdot\hat{\mathbf{z}}
    \quad (\text{through-disk, } +Z) \\
 U_t &= -\,\mathbf{U}_\text{rel}\cdot\hat{\mathbf{t}}
    \quad (\text{in-plane, along } -\hat{\mathbf{t}}) \\
-\phi &= \operatorname{atan2}(U_a,\, U_t)
+\phi &= \mathrm{atan2}(U_a,\, U_t)
    \quad (\text{inflow angle}) \\
 \theta &= \theta_\text{coll} + \theta_{\mathrm{tw},i}
    + \theta_{1c}\cos\psi_b + \theta_{1s}\sin\psi_b

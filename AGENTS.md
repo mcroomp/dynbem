@@ -516,6 +516,30 @@ This rule has bitten before — see [memory feedback-no-silent-reverts].
   non-ASCII content in legacy docstrings and Research/ table titles can
   stay until it is edited for another reason; do not introduce new
   instances.
+  - **Exception -- design documents may use GitHub Flavored Markdown
+    math.** For standalone design / documentation Markdown (e.g.
+    `*_DESIGN.md`) that is meant to be read rendered on GitHub, GFM math
+    markup (`$...$` inline and `$$...$$` or ` ```math ` blocks) is
+    allowed and encouraged where it makes the equations more readable.
+    This carve-out is only for the math notation inside such docs -- the
+    ASCII rule still applies to source code, string literals, print
+    output, comments, docstrings, and CSV cells. Keep the surrounding
+    prose ASCII (no em-dashes or smart quotes); the exception covers the
+    LaTeX math spans, not the whole file.
+  - **GFM math traps to avoid in design docs.**
+    - `\operatorname{...}` is not supported by GitHub's math renderer.
+      Use `\mathrm{...}` instead (e.g. `\mathrm{atan2}`).
+    - Multiple `_` subscripts in a single inline `$...$` span confuse
+      GitHub's Markdown parser, which eats the underscores as italic
+      markers before the math renderer runs. Any inline expression with
+      two or more `_` subscripts (e.g.
+      `$\mathbf{u}_\text{ind} = \mathbf{u}_\text{far}$`) should be
+      promoted to a display block (`$$...$$` or ` ```math `).
+      A single subscript in inline math is fine; the problem only
+      triggers when there are two or more `_` in the same `$...$` span.
+    - `\text{...}` and `\mathrm{...}` are both supported. Prefer
+      `\text{...}` for word-labels inside equations and `\mathrm{...}`
+      for function names (atan2, sin, etc.).
 - **Coordinate frame**: NED everywhere. See README "Coordinate system" —
   the "coordinate trap" section especially matters when you adapt
   equations from a paper, because most rotor literature uses a different
