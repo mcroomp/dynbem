@@ -834,16 +834,26 @@ for *trend correctness and stability*, not yet for absolute accuracy.
 
 - Winckelmans, G. and Leonard, A. (1993). "Contributions to Vortex Particle
   Methods for the Computation of Three-Dimensional Incompressible Unsteady
-  Flows." J. Comput. Phys. 109(2). -- the algebraic regularization kernel.
+  Flows." J. Comput. Phys. 109(2), pp. 247-273.
+  DOI: [10.1006/jcph.1993.1216](https://doi.org/10.1006/jcph.1993.1216)
+  -- the algebraic regularization kernel.
 - Cottet, G.-H. and Koumoutsakos, P. (2000). "Vortex Methods: Theory and
-  Practice." Cambridge. -- general VPM theory, stretching, diffusion.
+  Practice." Cambridge University Press. ISBN 978-0-521-62 178-3.
+  -- general VPM theory, stretching, diffusion.
 - Alvarez, E. J. and Ning, A. (2020). "High-Fidelity Modeling of Multirotor
-  Aerodynamic Interactions for Aircraft Design." AIAA J. -- reformulated
-  VPM / FLOWVPM, modern rotorcraft usage.
+  Aerodynamic Interactions for Aircraft Design." AIAA J. 58(10), pp. 4385-4400.
+  DOI: [10.2514/1.J059178](https://doi.org/10.2514/1.J059178)
+  -- reformulated VPM / FLOWVPM, modern rotorcraft usage.
 - Leishman, J. G. (2006). "Principles of Helicopter Aerodynamics," 2nd ed.
-  Cambridge. -- lifting line, Kutta-Joukowski, VRS, tip vortices.
+  Cambridge University Press. ISBN 978-0-521-85860-1.
+  -- lifting line, Kutta-Joukowski, VRS, tip vortices.
 - Bagai, A. and Leishman, J. G. (1995). "Rotor Free-Wake Modeling using a
-  Pseudo-Implicit Technique." J. Aircraft. -- rotor free-wake conventions.
+  Pseudo-Implicit Technique -- Including Comparisons with Experimental Data."
+  J. American Helicopter Society 40(3), pp. 29-41.
+  DOI: [10.4050/jahs.40.29](https://doi.org/10.4050/jahs.40.29)
+  -- rotor free-wake conventions.
 - Landgrebe, A. J. (1972). "The Wake Geometry of a Hovering Helicopter Rotor
-  and its Influence on Rotor Performance." JAHS. -- prescribed / trailing
-  wake geometry.
+  and its Influence on Rotor Performance." J. American Helicopter Society
+  17(4), pp. 3-15.
+  DOI: [10.4050/jahs.17.4.3](https://doi.org/10.4050/jahs.17.4.3)
+  -- prescribed / trailing wake geometry.
