@@ -973,24 +973,21 @@ but VPM's `step()` advances by a fixed number of azimuthal sub-steps derived fro
 rate. This is acceptable provided the VPM step interval is small relative to the spin
 acceleration timescale (which it is: one sub-step = 20 deg at 18 steps/rev, ≈ 4 ms at 270 RPM).
 
-### 11.6 Integration cadence mismatch
+### 11.6 Integration cadence alignment (RESOLVED)
 
-The RAWES physics runs at 400 Hz (dt = 2.5 ms). At 270 RPM / 18 steps/rev, one VPM sub-step
-covers 20 deg ≈ 4 ms -- longer than the physics timestep. Options:
+`VpmRotorConfig` now uses a **fixed sub-step clock** `dt_step_s` (default 1/400 s) instead
+of deriving the sub-step duration from `n_steps_per_rev / omega`. The azimuthal spacing
+per sub-step is `dpsi = omega * dt_step_s`, which varies with rotor speed (physically
+correct -- equal time intervals, not equal angle intervals).
 
-1. **Decouple in time**: run the VPM one sub-step per physics step at 270 RPM (the VPM lags
-   the physics by ~1.5 ms but this is negligible against the wake timescale). The VPM's
-   settled wake is "frozen" for the one or two physics steps between VPM advances; the
-   AeroResult from the last VPM step is held.
-2. **Run VPM in a background thread**: settle the wake offline at steady state, then advance
-   one sub-step per ~4 ms physics block while the physics threads ahead. Valid because the
-   RAWES simulation is not yet real-time on the VPM path -- it is a fidelity tool.
-3. **Reduce steps/rev**: 12 steps/rev → ~3 ms / sub-step at 270 RPM, closer to 2.5 ms, at
-   the cost of coarser azimuthal resolution. The `VpmRotorConfig::fast_test()` preset (12
-   steps, 2 wake revs, 3 settle revs) is available.
+Alignment to a 400 Hz controller loop: set `dt_step_s = 1.0/400.0` (1 VPM sub-step per
+controller tick) or `dt_step_s = 1.0/800.0` (2 sub-steps per tick). The `AeroModel::step`
+call with `dt = 1/400` will then compute `n_sub = round(dt / dt_step_s)` as an exact integer
+with no rounding error. The `max_particles` field (formerly `n_wake_rev * n_steps_per_rev *
+shed_per_step`) is now explicit, giving the caller direct control over the wake buffer.
 
-Option 1 is the simplest entry point. The quasi-static BEM (`model="quasi_static"`) remains
-the production default at 400 Hz; the VPM path would be an optional analysis-time model.
+**Removed fields:** `n_steps_per_rev`, `n_wake_rev`.
+**New fields:** `dt_step_s: f64`, `max_particles: usize`.
 
 ### 11.7 State serialization
 
@@ -1014,7 +1011,7 @@ target at current orbit rates, but would matter if the orbit radius or rate incr
 |----------|------|
 | 1 | Tabulated SG6042 polar (Section 11.3) -- affects every operating point |
 | 2 | Zero-torque autorotation omega iteration (Section 11.1) -- needed for any valid OP |
-| 3 | Cadence decoupling + quasi-static hold (Section 11.6) -- integration logistics |
+| 3 | ~~Cadence decoupling~~ (Section 11.6 -- DONE: fixed-clock `dt_step_s`) |
 | 4 | ServoFlap wiring into VPM inner loop (Section 11.4) -- needed for control realism |
 | 5 | Validated windmill / reel-in regime (Section 11.1) -- only needed for reel-in analysis |
 | 6 | State serialization (Section 11.7) -- needed for checkpointing/factory drop-in |

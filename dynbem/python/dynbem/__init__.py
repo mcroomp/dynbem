@@ -87,10 +87,14 @@ def VpmRotor(defn, polar=None, **config):  # noqa: N802
     Like the BEM-family models, the Rust core is generic over the polar type,
     so this factory dispatches to _VpmRotorLinear or _VpmRotorTabulated based on
     the polar instance. Has no single-shot compute_forces: advance it in time
-    with step(inputs, state, dt). Extra keyword arguments are passed through to
-    the Rust VpmRotorConfig (n_steps_per_rev, n_wake_rev, n_settle_rev, sigma,
-    relax, nonlinear_lifting_line, tip_clustering, local_core, barnes_hut,
-    bh_theta, bh_min_particles).
+    with step(inputs, state, dt).
+
+    Key config kwargs:
+      dt_step_s     -- fixed sub-step clock in seconds (default 1/400 = 0.0025).
+                       Set to 1/rate_hz to align with your controller loop.
+      max_particles -- wake buffer cap (default 4800). Size as:
+                       n_blades * (2*n_elements+1) * steps_per_rev * wake_revs.
+      n_settle_rev  -- revolutions to settle before averaging loads (default 6).
     """
     polar_rs = _build_polar_from_defn(defn, polar)
     defn_rs = _to_rust_defn(defn)

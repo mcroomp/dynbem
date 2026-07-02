@@ -36,8 +36,17 @@ use std::f64::consts::PI;
 /// Solver resolution / wake settings.
 #[derive(Clone, Copy, Debug)]
 pub struct VpmRotorConfig {
-    pub n_steps_per_rev: usize,
-    pub n_wake_rev: usize,
+    /// Fixed sub-step duration (seconds). The wake advances by exactly this dt
+    /// per sub-step; `dpsi = omega * dt_step_s` varies with rotor speed.
+    /// Set to `1.0 / rate_hz` to align with an external control loop (e.g.
+    /// `1.0/400.0` for a 400 Hz controller running 1 sub-step per tick, or
+    /// `1.0/800.0` for 2 sub-steps per 400 Hz tick).
+    pub dt_step_s: f64,
+    /// Maximum number of wake particles retained. Older particles are
+    /// discarded (front-truncation) once this cap is reached. Size this to
+    /// cover the desired wake age: a rough guide is
+    /// `n_blades * (2*n_elements + 1) * steps_per_rev * wake_revs`.
+    pub max_particles: usize,
     /// Revolutions to march before averaging the (periodic) loads.
     pub n_settle_rev: usize,
     /// Particle core size (m).
@@ -71,8 +80,8 @@ pub struct VpmRotorConfig {
 impl Default for VpmRotorConfig {
     fn default() -> Self {
         Self {
-            n_steps_per_rev: 24,
-            n_wake_rev: 4,
+            dt_step_s: 1.0 / 400.0,
+            max_particles: 4800,
             n_settle_rev: 6,
             sigma: 0.18,
             relax: 0.35,
@@ -90,8 +99,8 @@ impl VpmRotorConfig {
     /// Small, fast preset for unit tests (coarse but sign-correct).
     pub fn fast_test() -> Self {
         Self {
-            n_steps_per_rev: 12,
-            n_wake_rev: 2,
+            dt_step_s: 1.0 / 200.0,
+            max_particles: 800,
             n_settle_rev: 3,
             sigma: 0.2,
             relax: 0.4,
@@ -315,9 +324,9 @@ impl<P: Polar> VpmRotor<P> {
         self.march_window(fc, Some(state), state.psi, 1, 1)
     }
 
-    /// Sub-step duration in seconds (`dpsi / omega`).
-    pub fn dt_step(&self, fc: &FlightCondition) -> f64 {
-        (2.0 * PI / self.config.n_steps_per_rev as f64) / fc.omega_rad_s.max(1e-9)
+    /// Fixed sub-step duration in seconds (from `VpmRotorConfig::dt_step_s`).
+    pub fn dt_step(&self, _fc: &FlightCondition) -> f64 {
+        self.config.dt_step_s
     }
 
     /// Core free-wake march. When `warm` carries a persisted wake and bound
@@ -332,16 +341,20 @@ impl<P: Polar> VpmRotor<P> {
         warm: Option<&VpmRotorState>,
     ) -> (VpmRotorResult, VpmRotorState) {
         let cfg = &self.config;
-        let total_steps = (cfg.n_settle_rev + 1) * cfg.n_steps_per_rev;
-        let avg_window = cfg.n_steps_per_rev;
+        // Steps per revolution at current omega, at least 1.
+        let steps_per_rev = (((2.0 * PI) / (fc.omega_rad_s.abs().max(1e-9) * cfg.dt_step_s))
+            .round() as usize)
+            .max(1);
+        let total_steps = (cfg.n_settle_rev + 1) * steps_per_rev;
+        let avg_window = steps_per_rev;
         self.march_window(fc, warm, 0.0, total_steps, avg_window)
     }
 
     /// Free-wake march for an explicit number of sub-steps, averaging loads
     /// over the trailing `avg_window` steps. Each sub-step convects the wake
-    /// by `dt = (2*pi / n_steps_per_rev) / omega`. When `warm` carries a
-    /// persisted wake / circulation the march continues from it; the final
-    /// wake and circulation are returned in the output `VpmRotorState`.
+    /// by `dt = dt_step_s` (fixed clock). When `warm` carries a persisted
+    /// wake / circulation the march continues from it; the final wake and
+    /// circulation are returned in the output `VpmRotorState`.
     /// `psi_offset` is the blade-0 azimuth at the start of this window
     /// (use 0.0 for a fresh settle; use `state.psi` when continuing).
     fn march_window(
@@ -355,9 +368,10 @@ impl<P: Polar> VpmRotor<P> {
         let n = self.n_elements;
         let nb = self.n_blades;
         let cfg = &self.config;
-        let dpsi = 2.0 * PI / cfg.n_steps_per_rev as f64;
         let omega = fc.omega_rad_s;
-        let dt = dpsi / omega;
+        let dt = cfg.dt_step_s;
+        // dpsi = omega * dt: angle swept per sub-step at current rotor speed.
+        let dpsi = omega * dt;
         let (theta_1c, theta_1s) = cyclic_coeffs(fc.tilt_lon, fc.tilt_lat, self.ctrl);
 
         let mut wake = match warm.and_then(|s| s.wake.clone()) {
@@ -374,8 +388,7 @@ impl<P: Polar> VpmRotor<P> {
         };
 
         // Trailed edge particles (n+1) + shed station particles (n), per blade.
-        let shed_per_step = nb * (2 * n + 1);
-        let max_particles = cfg.n_wake_rev * cfg.n_steps_per_rev * shed_per_step;
+        let max_particles = cfg.max_particles;
 
         // `total_steps` sub-steps are taken; loads are averaged over the final
         // `avg_window` of them (both are caller-supplied).
@@ -759,8 +772,7 @@ impl<P: Polar> AeroModel for VpmRotor<P> {
              carries the free wake, not scalar inflow DOFs"
         );
         let (fc, kin) = self.flight_condition(inputs);
-        let dpsi = 2.0 * PI / self.config.n_steps_per_rev as f64;
-        let dt_wake = dpsi / fc.omega_rad_s.abs().max(1e-9);
+        let dt_wake = self.config.dt_step_s;
         let n_sub = ((dt / dt_wake).round() as i64).max(1) as usize;
         let (res, out_state) = self.march_window(&fc, Some(state), state.psi, n_sub, n_sub);
         let result = assemble_result(

@@ -97,8 +97,8 @@ fn build_rotor() -> VpmRotor<LinearPolar> {
     let polar  = LinearPolar::new(0.0, CL_ALPHA, CD0, ALPHA_STALL_DEG.to_radians());
     let ctrl   = ControlGains::default();
     let config = VpmRotorConfig {
-        n_steps_per_rev: 18,
-        n_wake_rev:      3,
+        dt_step_s:      1.0 / 400.0,
+        max_particles:  3_000,
         n_settle_rev:    4,
         sigma:           0.18,
         relax:           0.35,
