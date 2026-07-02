@@ -136,6 +136,14 @@ pub struct ServoFlapActuation {
     /// when AC is forward of the feathering axis (divergent if negative).
     /// 0.0 = feathering axis exactly at AC (Kaman ideal).
     pub ac_offset_m: f64,
+    /// Control-system torsional stiffness about the feathering axis [N*m/rad]
+    /// -- the pushrod / swashplate linkage holding blade pitch. Feathering has
+    /// no centrifugal stiffening, so this (plus any AC-offset aero spring) is
+    /// the restoring moment that makes the DOF well-posed for both collective
+    /// and cyclic. 0.0 = free feathering (singular in DC without an aero
+    /// spring). Consumed by the time-domain VPM feathering DOF; the
+    /// quasi-static BEM feathering solve ignores it.
+    pub control_stiffness_Nm_per_rad: f64,
     /// Servo-flap geometry that drives the feathering DOF.
     pub flap: ServoFlapGeometry,
 }

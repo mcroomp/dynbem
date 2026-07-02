@@ -290,6 +290,7 @@ mod tests {
             I_theta_kgm2: 0.05,
             damper_Nms_per_rad: c_theta,
             ac_offset_m: ac_offset,
+            control_stiffness_Nm_per_rad: 0.0,
             flap: ServoFlapGeometry {
                 C_M_delta_per_rad: -1.5,
                 r_inner_m: 1.2,

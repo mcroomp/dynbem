@@ -27,7 +27,9 @@ use crate::aero_model::{AeroModel, IntegrationMethod, RotorStateExt};
 use crate::bem_common::{assemble_result, kinematics, Kinematics};
 use crate::cyclic::{cyclic_coeffs, ControlGains};
 use crate::polar::Polar;
-use crate::rotor_definition::{FlapProperties, RotorDefinition};
+use crate::rotor_definition::{
+    FlapProperties, PitchActuation, RotorDefinition, ServoFlapActuation,
+};
 use crate::vpm::{
     advect_rk2, advect_rk2_bh, induced_at_points, induced_at_points_bh, ParticleField,
 };
@@ -161,6 +163,9 @@ pub struct VpmRotor<P: Polar> {
     /// Optional rigid-flap properties (inertia + non-rotating flap frequency).
     /// `Some` enables per-blade flap dynamics when `config.flap_dynamics`.
     flap: Option<FlapProperties>,
+    /// Optional servo-flap feathering actuation (Kaman path). `Some` enables
+    /// the per-blade feathering DOF when the control stiffness is positive.
+    feather: Option<ServoFlapActuation>,
     ctrl: ControlGains,
     config: VpmRotorConfig,
 }
@@ -280,6 +285,10 @@ impl<P: Polar> VpmRotor<P> {
             sigma_mid,
             sigma_edge,
             flap: defn.flap.clone(),
+            feather: match &defn.pitch_actuation {
+                PitchActuation::ServoFlap(act) => Some(act.clone()),
+                PitchActuation::DirectMechanical => None,
+            },
             ctrl,
             config,
         }
@@ -396,6 +405,40 @@ impl<P: Polar> VpmRotor<P> {
             _ => vec![0.0f64; nb],
         };
 
+        // Per-blade feathering DOF (Kaman servo-flap path). Active when the
+        // rotor carries a ServoFlapActuation with a positive control stiffness
+        // (the pushrod/linkage restoring moment -- feathering has no
+        // centrifugal stiffening, so without it the DOF is ill-posed). In
+        // servo mode the swashplate collective/cyclic are reinterpreted as
+        // flap deflection commands delta_f, which produce the pitching moment
+        // M_servo that drives feathering; the feathering angle theta_f then
+        // REPLACES the direct swashplate-to-pitch path. The ODE integrated is
+        //   I_theta*theta'' + C_theta*theta' + k_ctrl*theta = M_servo
+        // with the mechanical damper C_theta the only dissipation (axis at the
+        // AC => no aero pitch damping) -- integrated semi-implicitly below.
+        let servo_active = match &self.feather {
+            Some(act) => act.control_stiffness_Nm_per_rad > 0.0,
+            None => false,
+        };
+        // Swashplate commands reinterpreted as flap deflection harmonics.
+        let (delta_f0, delta_f1c, delta_f1s) = (fc.collective_rad, theta_1c, theta_1s);
+        let (flap_r_in, flap_r_out, flap_cm_delta) = match &self.feather {
+            Some(act) => (
+                act.flap.r_inner_m,
+                act.flap.r_outer_m,
+                act.flap.C_M_delta_per_rad,
+            ),
+            None => (0.0, 0.0, 0.0),
+        };
+        let mut theta_f = match warm.and_then(|s| s.theta_f.as_ref()) {
+            Some(t) if servo_active && t.len() == nb => t.clone(),
+            _ => vec![0.0f64; nb],
+        };
+        let mut theta_f_dot = match warm.and_then(|s| s.theta_f_dot.as_ref()) {
+            Some(t) if servo_active && t.len() == nb => t.clone(),
+            _ => vec![0.0f64; nb],
+        };
+
         // Trailed edge particles (n+1) + shed station particles (n), per blade.
         let max_particles = cfg.max_particles;
 
@@ -423,6 +466,9 @@ impl<P: Polar> VpmRotor<P> {
             // Aerodynamic flap moment about the hinge, per blade, accumulated
             // in the loads loop below (M = sum r * dF_z). Drives the flap ODE.
             let mut m_flap = vec![0.0f64; nb];
+            // Servo-flap pitching moment about the feathering axis, per blade,
+            // accumulated over the flap span below. Drives the feathering ODE.
+            let mut m_servo = vec![0.0f64; nb];
 
             // ---- loads on every blade (nonlinear lifting-line solve) ------
             for b in 0..nb {
@@ -437,6 +483,20 @@ impl<P: Polar> VpmRotor<P> {
                 // aerodynamic flap damping, captured exactly here).
                 let beta_b = beta[b];
                 let beta_dot_b = beta_dot[b];
+                // Feathering DOF for this blade. In servo mode the blade pitch
+                // comes from theta_f (which subsumes collective + cyclic via
+                // the servo-flap response); otherwise from the swashplate.
+                let theta_f_b = theta_f[b];
+                let delta_f_b = if servo_active {
+                    delta_f0 + delta_f1c * cpsi + delta_f1s * spsi
+                } else {
+                    0.0
+                };
+                let control_pitch = if servo_active {
+                    theta_f_b
+                } else {
+                    fc.collective_rad + cyc
+                };
 
                 // Far-field (particle wake) induced velocity at station centers.
                 let (tx, ty, tz): (Vec<f32>, Vec<f32>, Vec<f32>) = {
@@ -554,7 +614,7 @@ impl<P: Polar> VpmRotor<P> {
                     let u_mag = (u_a * u_a + u_t * u_t).sqrt().max(1e-6);
                     let phi = u_a.atan2(u_t);
                     let twist = self.twist[i];
-                    let alpha = fc.collective_rad + twist + cyc - phi;
+                    let alpha = twist + control_pitch - phi;
                     let (cl, cd) = self.polar.cl_cd(alpha);
                     (urel, phi, u_mag, cl, cd)
                 };
@@ -599,6 +659,13 @@ impl<P: Polar> VpmRotor<P> {
                     // Aero flap moment about the hinge: out-of-plane force
                     // (d_thrust, up) at arm r. Positive -> flaps blade up.
                     m_flap[b] += r * d_thrust;
+                    // Servo-flap pitching moment about the feathering axis over
+                    // the flap span: dM = q_dyn * c * C_M_delta * delta_f * dr,
+                    // using the true local dynamic pressure (VPM sees the real
+                    // flow, not the Omega*r approximation the BEM solve uses).
+                    if servo_active && r >= flap_r_in && r <= flap_r_out {
+                        m_servo[b] += q_dyn * c * flap_cm_delta * delta_f_b * self.dr[i];
+                    }
 
                     gamma[b][i] = gam[i];
                 }
@@ -695,6 +762,27 @@ impl<P: Polar> VpmRotor<P> {
                 }
             }
 
+            // ---- integrate the feathering DOF one sub-step ----------------
+            // I_theta*theta'' + C_theta*theta' + k_ctrl*theta = M_servo
+            // The mechanical damper C_theta is the ONLY dissipation (Kaman axis
+            // at the AC => no aero pitch damping), so it is integrated
+            // semi-implicitly (implicit on the damping term) for unconditional
+            // stability regardless of how stiff the damper is:
+            //   theta_dot <- (theta_dot + dt*(M_servo - k*theta)/I) / (1 + dt*C/I)
+            //   theta     <- theta + dt*theta_dot
+            if servo_active {
+                let act = self.feather.as_ref().expect("servo_active implies Some");
+                let i_th = act.I_theta_kgm2.max(1e-12);
+                let c_th = act.damper_Nms_per_rad;
+                let k_ctrl = act.control_stiffness_Nm_per_rad;
+                let damp_fac = 1.0 / (1.0 + dt * c_th / i_th);
+                for b in 0..nb {
+                    let rhs = (m_servo[b] - k_ctrl * theta_f[b]) / i_th;
+                    theta_f_dot[b] = (theta_f_dot[b] + dt * rhs) * damp_fac;
+                    theta_f[b] += dt * theta_f_dot[b];
+                }
+            }
+
             // ---- convect and truncate the free wake -----------------------
             let freestream = [fc.v_hub[0] as f32, fc.v_hub[1] as f32, fc.v_hub[2] as f32];
             if cfg.barnes_hut && wake.len() >= cfg.bh_min_particles {
@@ -732,6 +820,8 @@ impl<P: Polar> VpmRotor<P> {
             psi: (psi_offset + total_steps as f64 * dpsi).rem_euclid(2.0 * PI),
             beta: if flap_active { Some(beta) } else { None },
             beta_dot: if flap_active { Some(beta_dot) } else { None },
+            theta_f: if servo_active { Some(theta_f) } else { None },
+            theta_f_dot: if servo_active { Some(theta_f_dot) } else { None },
         };
         (result, out_state)
     }
@@ -762,6 +852,12 @@ pub struct VpmRotorState {
     pub beta: Option<Vec<f64>>,
     /// Per-blade flap rate (rad/s). `None` when flap dynamics are inactive.
     pub beta_dot: Option<Vec<f64>>,
+    /// Per-blade feathering angle (rad) about the pitch axis, driven by the
+    /// servo-flap moment. `None` when the feathering DOF is inactive
+    /// (direct-mechanical pitch or zero control stiffness).
+    pub theta_f: Option<Vec<f64>>,
+    /// Per-blade feathering rate (rad/s). `None` when inactive.
+    pub theta_f_dot: Option<Vec<f64>>,
 }
 
 impl RotorStateExt for VpmRotorState {
@@ -891,6 +987,7 @@ mod tests {
     use crate::quasi_static_bem::{QuasiStaticBEM, QuasiStaticRotorState};
     use crate::rotor_definition::{
         BladeGeometry, FlapProperties, LinearPolarParameters, PitchActuation, RotorDefinition,
+        ServoFlapActuation, ServoFlapGeometry,
     };
 
     const OMEGA: f64 = 120.0;
@@ -1009,6 +1106,103 @@ mod tests {
             "flapping should reduce hub moment: rigid {:.3} vs flex {:.3} N*m",
             m_rigid,
             m_flex
+        );
+    }
+
+    /// Servo-flap actuation with a positive control stiffness so the feathering
+    /// DOF is well-posed. Flap on the outer span [0.5, 0.9] m.
+    fn servo_props(k_ctrl: f64) -> ServoFlapActuation {
+        ServoFlapActuation {
+            I_theta_kgm2: 0.02,
+            damper_Nms_per_rad: 0.5,
+            ac_offset_m: 0.0,
+            control_stiffness_Nm_per_rad: k_ctrl,
+            flap: ServoFlapGeometry {
+                C_M_delta_per_rad: -1.0,
+                r_inner_m: 0.5,
+                r_outer_m: 0.9,
+            },
+        }
+    }
+
+    fn rotor_with_servoflap(n_elements: usize, k_ctrl: f64) -> VpmRotor<LinearPolar> {
+        let mut defn = test_rotor(n_elements);
+        defn.pitch_actuation = PitchActuation::ServoFlap(servo_props(k_ctrl));
+        VpmRotor::new(
+            &defn,
+            polar(),
+            ControlGains::default(),
+            VpmRotorConfig::fast_test(),
+        )
+    }
+
+    /// With no swashplate command the servo-flap deflection is zero, so the
+    /// feathering moment is zero and the blade stays at zero feathering.
+    #[test]
+    fn feather_zero_command_stays_zero() {
+        let vpm = rotor_with_servoflap(8, 150.0);
+        let fc = FlightCondition {
+            collective_rad: 0.0,
+            tilt_lon: 0.0,
+            tilt_lat: 0.0,
+            v_hub: [0.0, 0.0, 0.0],
+            omega_rad_s: OMEGA,
+            rho: RHO,
+        };
+        let (_res, state) = vpm.march(&fc, None, 1.0 / 400.0, 300);
+        let theta_f = state.theta_f.expect("servo active -> theta_f present");
+        for &t in &theta_f {
+            assert!(t.abs() < 1e-6, "zero command -> zero feathering, got {} rad", t);
+        }
+    }
+
+    /// A collective servo-flap command drives the feathering DOF to a steady,
+    /// bounded, non-zero angle (theta_f settles: theta_f_dot -> 0). This is the
+    /// well-posed control-stiffness response (option B).
+    #[test]
+    fn feather_responds_to_collective_and_settles() {
+        let vpm = rotor_with_servoflap(10, 150.0);
+        let fc = hover(8.0); // collective reinterpreted as flap command
+        let (_res, state) = vpm.march(&fc, None, 1.0 / 400.0, 600);
+        let theta_f = state.theta_f.expect("servo active -> theta_f present");
+        let theta_f_dot = state.theta_f_dot.expect("servo active -> present");
+        for (&t, &td) in theta_f.iter().zip(&theta_f_dot) {
+            assert!(
+                t.abs() > 1e-3,
+                "collective command should drive feathering, got {} rad",
+                t
+            );
+            assert!(t.abs() < 0.7, "feathering implausibly large: {} rad", t);
+            // Settled: DC command -> steady angle -> near-zero rate.
+            assert!(
+                td.abs() < 2.0,
+                "feathering should settle (theta_dot ~ 0), got {} rad/s",
+                td
+            );
+        }
+    }
+
+    /// A cyclic servo-flap command produces 1/rev feathering, which tilts the
+    /// disk loading and generates a hub moment that is absent with zero command.
+    #[test]
+    fn feather_cyclic_produces_hub_moment() {
+        let dt = 1.0 / 400.0;
+        let n = 500;
+        let vpm = rotor_with_servoflap(10, 150.0);
+
+        let mut fc = hover(8.0);
+        fc.tilt_lon = 4.0_f64.to_radians();
+        let with_cyclic = vpm.simulate(&fc, dt, n);
+
+        let no_cyclic = vpm.simulate(&hover(8.0), dt, n);
+
+        let m_cyc = with_cyclic.my_hub.hypot(with_cyclic.mx_hub);
+        let m_none = no_cyclic.my_hub.hypot(no_cyclic.mx_hub);
+        assert!(
+            m_cyc > m_none,
+            "cyclic feathering should raise hub moment: {:.3} vs {:.3} N*m",
+            m_cyc,
+            m_none
         );
     }
 

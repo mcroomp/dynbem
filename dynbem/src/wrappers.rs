@@ -400,18 +400,20 @@ pub struct PyServoFlapActuation(pub core_::rotor_definition::ServoFlapActuation)
 #[pymethods]
 impl PyServoFlapActuation {
     #[new]
-    #[pyo3(signature = (I_theta_kgm2, damper_Nms_per_rad, flap, ac_offset_m=0.0))]
+    #[pyo3(signature = (I_theta_kgm2, damper_Nms_per_rad, flap, ac_offset_m=0.0, control_stiffness_Nm_per_rad=0.0))]
     #[allow(non_snake_case)]
     fn new(
         I_theta_kgm2: f64,
         damper_Nms_per_rad: f64,
         flap: PyServoFlapGeometry,
         ac_offset_m: f64,
+        control_stiffness_Nm_per_rad: f64,
     ) -> Self {
         PyServoFlapActuation(core_::rotor_definition::ServoFlapActuation {
             I_theta_kgm2,
             damper_Nms_per_rad,
             ac_offset_m,
+            control_stiffness_Nm_per_rad,
             flap: flap.0,
         })
     }
@@ -429,6 +431,11 @@ impl PyServoFlapActuation {
     #[getter]
     fn ac_offset_m(&self) -> f64 {
         self.0.ac_offset_m
+    }
+    #[getter]
+    #[allow(non_snake_case)]
+    fn control_stiffness_Nm_per_rad(&self) -> f64 {
+        self.0.control_stiffness_Nm_per_rad
     }
     #[getter]
     fn flap(&self) -> PyServoFlapGeometry {
