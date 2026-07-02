@@ -36,19 +36,11 @@ use std::f64::consts::PI;
 /// Solver resolution / wake settings.
 #[derive(Clone, Copy, Debug)]
 pub struct VpmRotorConfig {
-    /// Fixed sub-step duration (seconds). The wake advances by exactly this dt
-    /// per sub-step; `dpsi = omega * dt_step_s` varies with rotor speed.
-    /// Set to `1.0 / rate_hz` to align with an external control loop (e.g.
-    /// `1.0/400.0` for a 400 Hz controller running 1 sub-step per tick, or
-    /// `1.0/800.0` for 2 sub-steps per 400 Hz tick).
-    pub dt_step_s: f64,
     /// Maximum number of wake particles retained. Older particles are
     /// discarded (front-truncation) once this cap is reached. Size this to
     /// cover the desired wake age: a rough guide is
     /// `n_blades * (2*n_elements + 1) * steps_per_rev * wake_revs`.
     pub max_particles: usize,
-    /// Revolutions to march before averaging the (periodic) loads.
-    pub n_settle_rev: usize,
     /// Particle core size (m).
     pub sigma: f32,
     /// Under-relaxation factor on bound circulation.
@@ -80,9 +72,7 @@ pub struct VpmRotorConfig {
 impl Default for VpmRotorConfig {
     fn default() -> Self {
         Self {
-            dt_step_s: 1.0 / 400.0,
             max_particles: 4800,
-            n_settle_rev: 6,
             sigma: 0.18,
             relax: 0.35,
             nonlinear_lifting_line: true,
@@ -99,9 +89,7 @@ impl VpmRotorConfig {
     /// Small, fast preset for unit tests (coarse but sign-correct).
     pub fn fast_test() -> Self {
         Self {
-            dt_step_s: 1.0 / 200.0,
             max_particles: 800,
-            n_settle_rev: 3,
             sigma: 0.2,
             relax: 0.4,
             nonlinear_lifting_line: true,
@@ -308,53 +296,45 @@ impl<P: Polar> VpmRotor<P> {
 
     /// March the free wake from empty to a periodic state and return
     /// cycle-averaged loads (cold start; no persisted wake).
-    pub fn simulate(&self, fc: &FlightCondition) -> VpmRotorResult {
-        self.march(fc, None).0
+    /// `dt` is the sub-step duration (seconds) -- use the same value as your
+    /// controller loop (e.g. 1.0/400.0). `n_steps` is how many sub-steps to
+    /// run in total; loads are averaged over the second half.
+    pub fn simulate(&self, fc: &FlightCondition, dt: f64, n_steps: usize) -> VpmRotorResult {
+        self.march(fc, None, dt, n_steps).0
     }
 
-    /// Advance the free wake by exactly one azimuthal sub-step
-    /// (`dpsi = 2*pi / n_steps_per_rev`).  Call this once per animation
-    /// frame; read `out_state.wake` immediately afterwards for the current
-    /// particle cloud.
+    /// Advance the free wake by exactly one sub-step of duration `dt`.
+    /// Call this once per controller tick; read `out_state.wake` afterwards
+    /// for the current particle cloud.
     pub fn step_one(
         &self,
         fc: &FlightCondition,
         state: &VpmRotorState,
+        dt: f64,
     ) -> (VpmRotorResult, VpmRotorState) {
-        self.march_window(fc, Some(state), state.psi, 1, 1)
+        self.march_window(fc, Some(state), state.psi, dt, 1, 1)
     }
 
-    /// Fixed sub-step duration in seconds (from `VpmRotorConfig::dt_step_s`).
-    pub fn dt_step(&self, _fc: &FlightCondition) -> f64 {
-        self.config.dt_step_s
-    }
-
-    /// Core free-wake march. When `warm` carries a persisted wake and bound
-    /// circulation the march *continues* from them instead of starting from an
-    /// empty wake; the final wake and circulation are returned in the output
-    /// `VpmRotorState`. Runs a full settle (`(n_settle_rev + 1)` revs) and
-    /// averages loads over the final revolution. Standard unsteady
-    /// lifting-line free-wake time-march.
+    /// Settle the free wake for `n_steps` sub-steps of duration `dt`, then
+    /// return loads averaged over the second half. When `warm` carries a
+    /// persisted wake the march continues from it. Typical usage: call once
+    /// at startup with enough steps to develop a periodic wake (~several
+    /// hundred at 400 Hz for a 30 rad/s rotor), then drive with `step()`.
     pub fn march(
         &self,
         fc: &FlightCondition,
         warm: Option<&VpmRotorState>,
+        dt: f64,
+        n_steps: usize,
     ) -> (VpmRotorResult, VpmRotorState) {
-        let cfg = &self.config;
-        // Steps per revolution at current omega, at least 1.
-        let steps_per_rev = (((2.0 * PI) / (fc.omega_rad_s.abs().max(1e-9) * cfg.dt_step_s))
-            .round() as usize)
-            .max(1);
-        let total_steps = (cfg.n_settle_rev + 1) * steps_per_rev;
-        let avg_window = steps_per_rev;
-        self.march_window(fc, warm, 0.0, total_steps, avg_window)
+        let avg_window = (n_steps / 2).max(1);
+        self.march_window(fc, warm, 0.0, dt, n_steps, avg_window)
     }
 
     /// Free-wake march for an explicit number of sub-steps, averaging loads
     /// over the trailing `avg_window` steps. Each sub-step convects the wake
-    /// by `dt = dt_step_s` (fixed clock). When `warm` carries a persisted
-    /// wake / circulation the march continues from it; the final wake and
-    /// circulation are returned in the output `VpmRotorState`.
+    /// by `dt` seconds; `dpsi = omega * dt`. When `warm` carries a persisted
+    /// wake / circulation the march continues from it.
     /// `psi_offset` is the blade-0 azimuth at the start of this window
     /// (use 0.0 for a fresh settle; use `state.psi` when continuing).
     fn march_window(
@@ -362,6 +342,7 @@ impl<P: Polar> VpmRotor<P> {
         fc: &FlightCondition,
         warm: Option<&VpmRotorState>,
         psi_offset: f64,
+        dt: f64,
         total_steps: usize,
         avg_window: usize,
     ) -> (VpmRotorResult, VpmRotorState) {
@@ -369,7 +350,6 @@ impl<P: Polar> VpmRotor<P> {
         let nb = self.n_blades;
         let cfg = &self.config;
         let omega = fc.omega_rad_s;
-        let dt = cfg.dt_step_s;
         // dpsi = omega * dt: angle swept per sub-step at current rotor speed.
         let dpsi = omega * dt;
         let (theta_1c, theta_1s) = cyclic_coeffs(fc.tilt_lon, fc.tilt_lat, self.ctrl);
@@ -752,10 +732,9 @@ impl<P: Polar> AeroModel for VpmRotor<P> {
     /// VPM carries the whole free wake as its state, not scalar inflow DOFs, so
     /// the generic derivative-integration path in the default `AeroModel::step`
     /// (`lam_{n+1} = lam_n + dt*dlam`) is meaningless here and is deliberately
-    /// replaced: the wake itself is marched directly. `method` is ignored for
-    /// the same reason. The wake convects on its own fixed sub-step
-    /// `dt_wake = (2*pi / n_steps_per_rev) / omega`; this advances the smallest
-    /// whole number of sub-steps (>= 1) that covers `dt`.
+    /// replaced: the wake itself is marched directly. `method` is ignored.
+    /// One sub-step of duration `dt` is taken per call -- align `dt` with your
+    /// controller loop (e.g. 1/400 s at 400 Hz).
     fn step(
         &self,
         inputs: &RotorInputs,
@@ -772,9 +751,8 @@ impl<P: Polar> AeroModel for VpmRotor<P> {
              carries the free wake, not scalar inflow DOFs"
         );
         let (fc, kin) = self.flight_condition(inputs);
-        let dt_wake = self.config.dt_step_s;
-        let n_sub = ((dt / dt_wake).round() as i64).max(1) as usize;
-        let (res, out_state) = self.march_window(&fc, Some(state), state.psi, n_sub, n_sub);
+        // One sub-step per call; dt IS the sub-step duration.
+        let (res, out_state) = self.march_window(&fc, Some(state), state.psi, dt, 1, 1);
         let result = assemble_result(
             res.thrust,
             res.torque,
@@ -892,7 +870,7 @@ mod tests {
     #[test]
     fn axial_reduction_matches_bem_hover() {
         let vpm = rotor(12);
-        let res = vpm.simulate(&hover(8.0));
+        let res = vpm.simulate(&hover(8.0), 1.0 / 400.0, 534);
 
         // BEM anchor.
         let bem = QuasiStaticBEM::build(test_rotor(30), 72, polar());
@@ -932,8 +910,8 @@ mod tests {
     #[test]
     fn collective_increases_thrust() {
         let vpm = rotor(10);
-        let lo = vpm.simulate(&hover(5.0)).thrust;
-        let hi = vpm.simulate(&hover(9.0)).thrust;
+        let lo = vpm.simulate(&hover(5.0), 1.0 / 400.0, 400).thrust;
+        let hi = vpm.simulate(&hover(9.0), 1.0 / 400.0, 400).thrust;
         assert!(hi > lo, "thrust should rise with collective: {} -> {}", lo, hi);
     }
 
@@ -942,10 +920,10 @@ mod tests {
     #[test]
     fn longitudinal_cyclic_gives_nose_down_moment() {
         let vpm = rotor(8);
-        let base = vpm.simulate(&hover(8.0));
+        let base = vpm.simulate(&hover(8.0), 1.0 / 400.0, 400);
         let mut fc = hover(8.0);
         fc.tilt_lon = 3.0_f64.to_radians();
-        let tilted = vpm.simulate(&fc);
+        let tilted = vpm.simulate(&fc, 1.0 / 400.0, 400);
         assert!(
             tilted.my_hub < base.my_hub && tilted.my_hub < 0.0,
             "tilt_lon>0 should give nose-down My<0: base {:.3} -> {:.3}",
@@ -958,7 +936,7 @@ mod tests {
     #[test]
     fn lateral_cyclic_gives_roll_right_moment() {
         let vpm = rotor(8);
-        let base = vpm.simulate(&hover(8.0));
+        let base = vpm.simulate(&hover(8.0), 1.0 / 400.0, 400);
         let mut fc = hover(8.0);
         fc.tilt_lat = 3.0_f64.to_radians();
         let tilted = vpm.simulate(&fc);
@@ -977,7 +955,7 @@ mod tests {
         let vpm = rotor(10);
         let mut fc = hover(8.0);
         fc.v_hub = [8.0, 0.0, 0.0]; // 8 m/s edgewise along +X
-        let res = vpm.simulate(&fc);
+        let res = vpm.simulate(&fc, 1.0 / 400.0, 400);
 
         assert!(res.thrust.is_finite() && res.thrust > 0.0, "thrust {}", res.thrust);
         assert!(res.torque.is_finite(), "torque {}", res.torque);

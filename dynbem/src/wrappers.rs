@@ -1307,9 +1307,7 @@ impl PyVpmRotorState {
 // lock-step.
 #[allow(clippy::too_many_arguments)]
 fn build_vpm_config(
-    dt_step_s: f64,
     max_particles: usize,
-    n_settle_rev: usize,
     sigma: f32,
     relax: f64,
     nonlinear_lifting_line: bool,
@@ -1320,9 +1318,7 @@ fn build_vpm_config(
     bh_min_particles: usize,
 ) -> core_::vpm_rotor::VpmRotorConfig {
     core_::vpm_rotor::VpmRotorConfig {
-        dt_step_s,
         max_particles,
-        n_settle_rev,
         sigma,
         relax,
         nonlinear_lifting_line,
@@ -1343,8 +1339,7 @@ impl PyVpmRotorLinear {
     #[new]
     #[pyo3(signature = (
         defn, polar,
-        dt_step_s=0.0025, max_particles=4800, n_settle_rev=6,
-        sigma=0.18, relax=0.35,
+        max_particles=4800, sigma=0.18, relax=0.35,
         nonlinear_lifting_line=true, tip_clustering=true, local_core=true,
         barnes_hut=false, bh_theta=0.5, bh_min_particles=2048,
     ))]
@@ -1352,9 +1347,7 @@ impl PyVpmRotorLinear {
     fn new(
         defn: PyRotorDefinition,
         polar: PyLinearPolar,
-        dt_step_s: f64,
         max_particles: usize,
-        n_settle_rev: usize,
         sigma: f32,
         relax: f64,
         nonlinear_lifting_line: bool,
@@ -1365,9 +1358,7 @@ impl PyVpmRotorLinear {
         bh_min_particles: usize,
     ) -> Self {
         let config = build_vpm_config(
-            dt_step_s,
             max_particles,
-            n_settle_rev,
             sigma,
             relax,
             nonlinear_lifting_line,
@@ -1422,8 +1413,7 @@ impl PyVpmRotorTabulated {
     #[new]
     #[pyo3(signature = (
         defn, polar,
-        dt_step_s=0.0025, max_particles=4800, n_settle_rev=6,
-        sigma=0.18, relax=0.35,
+        max_particles=4800, sigma=0.18, relax=0.35,
         nonlinear_lifting_line=true, tip_clustering=true, local_core=true,
         barnes_hut=false, bh_theta=0.5, bh_min_particles=2048,
     ))]
@@ -1431,9 +1421,7 @@ impl PyVpmRotorTabulated {
     fn new(
         defn: PyRotorDefinition,
         polar: PyTabulatedPolar,
-        dt_step_s: f64,
         max_particles: usize,
-        n_settle_rev: usize,
         sigma: f32,
         relax: f64,
         nonlinear_lifting_line: bool,
@@ -1444,9 +1432,7 @@ impl PyVpmRotorTabulated {
         bh_min_particles: usize,
     ) -> Self {
         let config = build_vpm_config(
-            dt_step_s,
             max_particles,
-            n_settle_rev,
             sigma,
             relax,
             nonlinear_lifting_line,

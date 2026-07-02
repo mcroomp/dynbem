@@ -97,9 +97,7 @@ fn build_rotor() -> VpmRotor<LinearPolar> {
     let polar  = LinearPolar::new(0.0, CL_ALPHA, CD0, ALPHA_STALL_DEG.to_radians());
     let ctrl   = ControlGains::default();
     let config = VpmRotorConfig {
-        dt_step_s:      1.0 / 400.0,
         max_particles:  3_000,
-        n_settle_rev:    4,
         sigma:           0.18,
         relax:           0.35,
         nonlinear_lifting_line: true,
@@ -322,7 +320,7 @@ impl VpmVizApp {
 impl eframe::App for VpmVizApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Advance one sub-step and refresh the particle cache.
-        let (result, new_state) = self.rotor.step_one(&self.fc, &self.state);
+            let (result, new_state) = self.rotor.step_one(&self.fc, &self.state, 1.0 / 400.0);
         self.state       = new_state;
         self.last_result = result;
         self.step_count += 1;
@@ -380,7 +378,7 @@ fn main() {
 
     let rotor = build_rotor();
     let fc    = make_fc();
-    let (result, state) = rotor.march(&fc, None);
+    let (result, state) = rotor.march(&fc, None, 1.0 / 400.0, 800);
 
     println!("  Settled: T = {:.1} N  Q = {:.2} N*m  {} particles",
         result.thrust, result.torque, result.n_particles);
