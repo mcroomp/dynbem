@@ -17,17 +17,23 @@ use dynbem_rs::vpm_rotor::{
 };
 use std::f64::consts::PI;
 
-// ---- theory rotor geometry (constant chord, so BEMT closed forms apply) ----
+// ---- theory rotor geometry --------------------------------------------------
+//
+// All theory tests use the realistic Castles & Gray NACA TN-2474 6-ft rotor
+// (constant chord, so BEMT closed forms still apply) rather than a synthetic
+// low-drag rotor -- a real CD0 / solidity keeps every derived quantity
+// (figure of merit, power, flapping) physical. Hover is validated against
+// this rotor's measured C_T/C_Q directly.
 
-pub const R_TIP: f64 = 1.0;
-pub const R_ROOT: f64 = 0.10;
-pub const CHORD: f64 = 0.08;
-pub const N_BLADES: usize = 4;
-pub const CL_ALPHA: f64 = 5.7; // lift-curve slope a [1/rad]
-pub const CD0: f64 = 0.008;
-pub const ALPHA_STALL_DEG: f64 = 15.0;
+pub const R_TIP: f64 = 0.914;
+pub const R_ROOT: f64 = 0.155;
+pub const CHORD: f64 = 0.0479;
+pub const N_BLADES: usize = 3;
+pub const CL_ALPHA: f64 = 5.90; // lift-curve slope a [1/rad]
+pub const CD0: f64 = 0.01046;
+pub const ALPHA_STALL_DEG: f64 = 15.5;
 pub const RHO: f64 = 1.225;
-pub const OMEGA: f64 = 120.0;
+pub const OMEGA: f64 = 125.6637; // 1200 rpm (matches the CG hover test speed)
 pub const STEPS_PER_REV: usize = 24;
 
 /// Rotor solidity sigma = N_b c / (pi R).
@@ -88,34 +94,11 @@ pub fn polar() -> LinearPolar {
     LinearPolar::new(0.0, CL_ALPHA, CD0, ALPHA_STALL_DEG.to_radians())
 }
 
-/// Castles & Gray (1951) NACA TN-2474 6-ft rotor -- the measured hover dataset
-/// used by the BEM hover empirical tests. Its own linear polar.
+/// Castles & Gray (1951) NACA TN-2474 6-ft rotor -- the realistic rotor all
+/// theory tests share (identical to `theory_rotor` with zero twist). Named
+/// separately for the hover-vs-measured module that references the dataset.
 pub fn castles_gray_rotor(n_elements: usize) -> RotorDefinition {
-    RotorDefinition {
-        blade: BladeGeometry {
-            n_blades: 3,
-            radius_m: 0.914,
-            root_cutout_m: 0.155,
-            chord_m: 0.0479,
-            twist_deg: 0.0,
-            n_elements,
-            tip_loss: true,
-            r_stations_m: Vec::new(),
-            chord_stations_m: Vec::new(),
-            twist_stations_deg: Vec::new(),
-        },
-        airfoil: LinearPolarParameters {
-            CL0: 0.0,
-            CL_alpha_per_rad: 5.90,
-            CD0: 0.01046,
-            alpha_stall_deg: 15.5,
-        },
-        control: None,
-        pitch_actuation: PitchActuation::DirectMechanical,
-        flap: None,
-        name: "castles_gray_6ft".to_string(),
-        description: String::new(),
-    }
+    theory_rotor(n_elements, 0.0)
 }
 
 /// Linear polar matching a given rotor definition's airfoil parameters.

@@ -17,4 +17,5 @@
 
 mod common;
 
+mod flapping_harmonics;
 mod hover_castles_gray;
