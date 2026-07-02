@@ -503,6 +503,13 @@ This rule has bitten before — see [memory feedback-no-silent-reverts].
   --workspace` runs the Rust unit tests; the authoritative regression
   suite is `uv run pytest tests/ -q`, which exercises the full
   Rust-backed Python API.
+  - **VPM tests must be run in release mode.** The VPM rotor marches
+    hundreds of steps per test case and is ~50-100x slower in debug.
+    Always use `cargo test --release -p dynbem_rs -- vpm` (or
+    `cargo test --release --workspace`) when running or adding tests
+    that exercise `VpmRotor`. Running VPM tests in debug is not wrong
+    but takes 10+ minutes and is not practical as part of a normal
+    edit-test loop.
 - **Shell**: always use the Bash tool. Do not switch to the PowerShell
   tool -- its quoting and Unicode handling have bitten this project's
   output (em-dashes render as the replacement glyph, `Select-Object`
