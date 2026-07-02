@@ -41,6 +41,10 @@ harness = false
 name = "vpm_forward_flight_empirical"
 path = "tests/vpm_forward_flight_empirical.rs"
 
+[[test]]
+name = "theory"
+path = "tests/theory/main.rs"
+
 [[bin]]
 name = "profile_kernels"
 path = "bin/profile_kernels.rs"
