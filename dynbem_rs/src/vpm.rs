@@ -296,6 +296,50 @@ pub fn induced_at_points(field: &ParticleField, tx: &[f32], ty: &[f32], tz: &[f3
     out
 }
 
+/// Sequential version of [`induced_at_points`] -- always single-threaded
+/// regardless of the `parallel` feature. Useful for benchmarking or when
+/// the caller manages its own parallelism at a higher level.
+#[cfg(feature = "parallel")]
+pub fn induced_at_points_seq(
+    field: &ParticleField,
+    tx: &[f32],
+    ty: &[f32],
+    tz: &[f32],
+) -> Vec<[f32; 3]> {
+    let n = field.len();
+    let m = tx.len();
+    let mut out = vec![[0.0f32; 3]; m];
+    if n == 0 || m == 0 {
+        return out;
+    }
+    let n_pad = n.div_ceil(8) * 8;
+    let pad = |src: &[f32], fill: f32| -> AVec<f32> {
+        let mut v = AVec::<f32>::with_capacity(SIMD_ALIGN, n_pad);
+        v.extend_from_slice(src);
+        v.resize(n_pad, fill);
+        v
+    };
+    let px = pad(&field.px, 0.0);
+    let py = pad(&field.py, 0.0);
+    let pz = pad(&field.pz, 0.0);
+    let ax = pad(&field.ax, 0.0);
+    let ay = pad(&field.ay, 0.0);
+    let az = pad(&field.az, 0.0);
+    let sg = pad(&field.sigma, 1.0);
+    let src = Chunks::from_avecs(&px, &py, &pz, &ax, &ay, &az, &sg);
+    let n_chunks = n_pad / 8;
+    for j in 0..m {
+        out[j] = eval_target(tx[j], ty[j], tz[j], &src, n_chunks);
+    }
+    out
+}
+
+/// Sequential self-evaluation variant (wake on itself). Always single-threaded.
+#[cfg(feature = "parallel")]
+pub fn induced_velocities_seq(field: &ParticleField) -> Vec<[f32; 3]> {
+    induced_at_points_seq(field, &field.px, &field.py, &field.pz)
+}
+
 /// Scalar `f64` reference implementation of [`induced_velocities`].
 ///
 /// Same formulation, evaluated pair-by-pair with double-precision

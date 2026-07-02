@@ -3,8 +3,8 @@
 // The release profile already builds with full debug symbols
 // (`debug = true`, `strip = "none"` in the workspace Cargo.toml), so:
 //
-//   Build: cargo build --release -p dynbem_rs
-//   Run:   ./target/release/bh_profile.exe [N] [theta] [seconds]
+//   Build: cargo build --release -p dynbem_rs --features parallel
+//   Run:   ./target/release/bh_profile.exe [N] [theta] [seconds] [seq|par]
 //
 // Then point VTune at target/release/bh_profile.exe (Hotspots analysis).
 // The interesting symbols to look for in the breakdown are:
@@ -18,8 +18,15 @@
 // Passing theta <= 0 runs the direct O(N^2) path (`induced_velocities`)
 // instead of the tree, for an apples-to-apples baseline on the same cloud.
 //
+// The optional 4th argument selects the execution path when the binary was
+// built with --features parallel:
+//   par  (default) -- Rayon parallel outer target loop
+//   seq            -- single-threaded path (for comparison)
+//
 // Defaults: N = 8000 particles, theta = 0.5, run for 10 seconds of wall clock.
 
+#[cfg(feature = "parallel")]
+use dynbem_rs::vpm::induced_velocities_seq;
 use dynbem_rs::vpm::{induced_velocities, induced_velocities_bh, ParticleField};
 use std::env;
 use std::time::{Duration, Instant};
@@ -68,21 +75,37 @@ fn main() {
     let n: usize = args.get(1).and_then(|s| s.parse().ok()).unwrap_or(8000);
     let theta: f32 = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(0.5);
     let seconds: f64 = args.get(3).and_then(|s| s.parse().ok()).unwrap_or(10.0);
+    let force_seq: bool = args.get(4).map(|s| s == "seq").unwrap_or(false);
 
     let field = wake_cloud(n);
     let direct = theta <= 0.0;
+
+    #[cfg(feature = "parallel")]
+    let par_label = if force_seq { "sequential (forced)" } else { "parallel (Rayon)" };
+    #[cfg(not(feature = "parallel"))]
+    let par_label = "sequential (no parallel feature)";
+
     eprintln!(
-        "bh_profile: N = {}, {}, target = {} s",
+        "bh_profile: N = {}, {}, {}, target = {} s",
         field.len(),
         if direct {
             "direct O(N^2)".to_string()
         } else {
             format!("theta = {}", theta)
         },
+        par_label,
         seconds
     );
 
     let eval = |f: &ParticleField| {
+        #[cfg(feature = "parallel")]
+        if force_seq {
+            return if direct {
+                induced_velocities_seq(f)
+            } else {
+                induced_velocities_bh(f, theta) // BH seq path unchanged
+            };
+        }
         if direct {
             induced_velocities(f)
         } else {
