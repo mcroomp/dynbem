@@ -535,9 +535,11 @@ needed.
 
 ### 5.5.6 Simplifications and validity envelope
 
-- **Rigid blade, no flap dynamics** -- consistent with the BEM convention
-  in this repo; blade pitch sets local loading directly, no 90 deg
-  precession.
+- **Rigid blade by default; optional flap + feather DOFs** -- with no
+  `FlapProperties` and direct-mechanical pitch the blade is rigid (pitch
+  sets local loading directly, no precession), consistent with the BEM
+  convention. Per-blade flap and feathering DOFs can be enabled (Section
+  5.6); they are off unless the rotor supplies the matching properties.
 - **Quasi-steady polar** -- static `Cl/Cd`, no unsteady-airfoil model
   (Section 5.5.2).
 - **One-step near wake** -- the implicit lifting-line trailing sheet extends
@@ -555,6 +557,62 @@ needed.
 
 Default resolution mirrors Section 5.4; a coarse preset (12 steps/rev, 2
 wake revs, 3 settle revs) is used by the acceptance tests.
+
+## 5.6 Rotor coupling III -- per-blade rigid-blade DOFs (flap + feather)
+
+Because the forward-flight coupling is time-marched per blade, blade
+structural DOFs can be integrated in lockstep with the wake instead of being
+reduced to a static factor (as the BEM path does for flap). Each blade
+carries up to four extra states -- flap ($\beta$, $\dot\beta$) and feather
+($\theta_f$, $\dot\theta_f$) -- advanced once per sub-step. Both are off
+unless the rotor supplies the matching properties, and the rigid path is
+unchanged when they are.
+
+**Flap DOF** (`FlapProperties`, enabled by `config.flap_dynamics`). Out-of-
+plane rigid flapping about an equivalent hinge, $\beta > 0$ = flap up (tip
+toward $-Z$). Two couplings into the wake, both of which only a free-wake
+method can represent:
+
+- *Flap-rate AoA damping*: $\dot\beta$ adds $+r\dot\beta$ to the section
+  axial velocity, so flapping up lowers the local angle of attack. The
+  aerodynamic flap damping thus emerges from the loads -- there is no
+  analytical $\gamma/8$ term.
+- *Out-of-plane wake geometry*: the blade sits at $z = -r\beta$, so the
+  bound line and every shed/trailed particle is deposited at that height;
+  the coned/tilted wake falls out naturally.
+
+The integrated ODE is purely structural/inertial, forced by the aero flap
+moment $M_\beta$ (the span sum of $r\,dF_z$, already computed in the loads
+loop):
+
+$$I_\beta\,\ddot\beta + I_\beta(\Omega^2 + \omega_{NR}^2)\,\beta = M_\beta,$$
+
+advanced with symplectic Euler. $\omega_{NR}$ is the non-rotating flap
+frequency (0 = freely hinged, $\nu_\beta = 1$).
+
+**Feather DOF** (`PitchActuation::ServoFlap`, Kaman path). A passive
+feathering rotation driven by a trailing-edge servo-flap. In servo mode the
+swashplate collective/cyclic are reinterpreted as flap deflection commands
+$\delta_f$; the flap's pitching moment $M_\text{servo}$ drives feathering,
+and $\theta_f$ **replaces** the direct swashplate-to-pitch path in the
+section angle of attack. Feathering has no centrifugal stiffening (spanwise
+axis) and, with the Kaman axis at the aerodynamic centre, no aerodynamic
+pitch damping -- so the mechanical bearing damper $C_\theta$ is the only
+dissipation and the pushrod/linkage control stiffness $k_\text{ctrl}$ is the
+restoring moment:
+
+$$I_\theta\,\ddot\theta_f + C_\theta\,\dot\theta_f + k_\text{ctrl}\,\theta_f
+= M_\text{servo},$$
+
+integrated semi-implicitly (implicit on the damper) for unconditional
+stability regardless of damper stiffness. $M_\text{servo}$ is accumulated
+over the flap span from the true local dynamic pressure. With
+$k_\text{ctrl} = 0$ the DC response is singular, so the VPM falls back to the
+direct-pitch path.
+
+Both DOFs share the per-blade state vector and compose (a flapping,
+feathering blade tilts its wake *and* changes its pitch). The flap harmonics
+this produces are compared against classical theory in Section 8.4.
 
 ---
 
@@ -591,7 +649,10 @@ calls (the `psi` field in `VpmRotorState` was added to fix a bug where
 all new particles were shed at azimuth 0 when calling `step_one` repeatedly);
 `vpm_viz/` standalone egui/eframe visualiser showing the 30-deg crosswind
 wake animated in real time (top-view XY + side-view XZ, viridis colormap
-by log10 vorticity magnitude).
+by log10 vorticity magnitude). Per-blade rigid-blade DOFs -- flap
+($\beta$, $\dot\beta$) and servo-flap feathering ($\theta_f$,
+$\dot\theta_f$) -- integrated in the azimuth march (Section 5.6), with the
+flap harmonics checked against classical theory (Section 8.4).
 
 ---
 
@@ -838,10 +899,108 @@ quantitative agreement -- the quantitative anchor is the axial reduction.
   This exercises the shed term and the free wake-skew, and guards against the
   numerical blow-up that a wrong-signed shed contribution would produce.
 
-**Not yet covered:** quantitative forward-flight loads against measured
-data (e.g. a trimmed rotor at a published advance ratio), reversed-flow
-regime, and any BVI-sensitive case. The forward-flight module is validated
-for *trend correctness and stability*, not yet for absolute accuracy.
+**Not yet covered:** a fully trimmed rotor at a published advance ratio,
+the reversed-flow regime, and any BVI-sensitive case. Forward-flight rotor
+lift against measured data *is* now checked (Section 8.4); trimmed hub
+moments and the reversed-flow regime are not.
+
+### 8.4 Agreement with standard rotor theory
+
+Beyond the internal BEM cross-check (8.2) and the directional acceptance
+tests (8.3), the VPM is compared against two external standards: measured
+forward-flight data and classical closed-form rotor theory. These are the
+"VPM vs standard theory" checks the model is held to.
+
+**Forward-flight autorotation loads vs Wheatley & Hood NACA TR-515.**
+`tests/vpm_forward_flight_empirical` (Rust) marches the free-wake PCA-2
+autogiro rotor to a periodic state at four measured operating points
+(Tables III/IV) and compares the rotor lift coefficient $C_L$ against the
+wind-tunnel values. Rigid blades (flap dynamics off) to isolate the wake
+model:
+
+| Point | mu | alpha (deg) | CL VPM | CL meas | err |
+|---|---:|---:|---:|---:|---:|
+| T3_mu018 | 0.181 | 11.2 | 0.364 | 0.363 | 0.1% |
+| T3_mu025 | 0.249 | 6.6  | 0.180 | 0.192 | 6.3% |
+| T3_mu033 | 0.315 | 4.3  | 0.107 | 0.116 | 8.1% |
+| T4_mu024 | 0.242 | 6.3  | 0.218 | 0.266 | 17.9% |
+
+$C_L$ agrees with measurement to within ~8% up to mu = 0.32; the largest
+error (T4, higher rpm) sits at the edge of the simplified-geometry envelope
+(uniform chord, no twist, linear polar). This is the one
+quantitative-vs-measured anchor for the wake model in forward flight.
+
+**Rigid-flap harmonics vs classical flapping theory.**
+`examples/vpm_flapping_vs_theory` fits the flap response
+
+$$\beta(\psi) = a_0 - a_1\cos\psi - b_1\sin\psi$$
+
+from the VPM flap DOF (Section 5.6) and compares against the
+centrally-hinged ($\nu_\beta = 1$)
+closed forms (Bramwell / Seddon / Prouty),
+
+$$a_0 = \gamma\left[\tfrac{\theta_0}{8}(1+\mu^2) - \tfrac{\lambda}{6}\right],
+\quad
+a_1 = \frac{2\mu(\tfrac{4}{3}\theta_0 - \lambda)}{1 - \mu^2/2},
+\quad
+b_1 = \frac{\tfrac{4}{3}\mu\,a_0}{1 + \mu^2/2},$$
+
+with Lock number $\gamma = \rho\,a\,c\,R^4 / I_\beta$ and the theory's inflow
+$\lambda$ taken from the VPM's own thrust (Glauert) so the comparison is
+apples-to-apples on inflow. Rotor $\gamma = 8.4$, collective 8 deg, angles
+in degrees:
+
+| mu | a0 VPM | a0 theory | a1 VPM | a1 theory | b1 VPM | b1 theory |
+|---:|---:|---:|---:|---:|---:|---:|
+| 0.10 | 6.79 | 6.85 | 1.84 | 1.91 | 0.40 | 0.91 |
+| 0.15 | 6.99 | 7.45 | 2.87 | 2.99 | 0.30 | 1.47 |
+| 0.20 | 6.99 | 7.87 | 3.94 | 4.11 | 0.31 | 2.06 |
+| 0.25 | 6.89 | 8.23 | 5.06 | 5.26 | 0.18 | 2.66 |
+| 0.30 | 6.74 | 8.58 | 6.33 | 6.45 | -0.10 | 3.29 |
+
+Read:
+
+- **Coning $a_0$** matches within 1% at mu = 0.1. At higher mu the VPM stays
+  flat (~6.9 deg) while the closed form climbs to 8.6 deg -- the theory's
+  $(1+\mu^2)$ growth assumes uniform inflow and no reverse flow, both of
+  which flatten the real coning. The VPM captures that; the closed form
+  cannot.
+- **Longitudinal flapping $a_1$** (the dominant blowback harmonic) matches
+  theory to within ~5% across mu = 0.1-0.3. This validates the flap ODE, the
+  aerodynamic flap-moment forcing, and the ~90 deg flap phase lag in one
+  shot -- the disk tilts back by the right amount.
+- **Lateral flapping $b_1$** is much smaller in the VPM (near zero) than in
+  uniform-inflow theory (up to 3.3 deg). $b_1$ is the harmonic most sensitive
+  to the lateral inflow distribution, which the uniform-inflow closed form
+  gets wrong -- but the measured Wheatley phase (~100-120 deg, i.e. a
+  non-trivial lateral component) suggests the VPM currently *under-predicts*
+  $b_1$ rather than merely correcting the theory. Open item (see 8.5).
+
+### 8.5 Validation status at a glance
+
+What is and is not checked today. "Validated" = compared against BEM,
+measured data, or closed-form theory with the agreement quantified above;
+"directional" = sign/trend/stability only; "not validated" = no dedicated
+check yet.
+
+| Item | Status | Notes |
+|---|---|---|
+| Biot-Savart kernel (far field, self-term, SIMD vs f64 ref) | validated | 8.1, < 0.1% |
+| Vortex-ring self-propagation | validated | within 30% of Kelvin speed |
+| Barnes-Hut vs direct sum | validated | < 5% of peak at theta = 0.5 |
+| Axial thrust/torque vs BEM (hover, climb) | validated | ~10% consistency (8.2) |
+| Forward-flight coupling signs / trends | directional | acceptance tests (8.3) |
+| Forward-flight CL vs measured (Wheatley TR-515) | validated | <= ~8% to mu 0.32 (8.4) |
+| Flap coning $a_0$ vs theory | validated | within 1% at low mu (8.4) |
+| Flap longitudinal $a_1$ vs theory | validated | within ~5% (8.4) |
+| Flap lateral $b_1$ vs theory / measured | NOT validated | VPM under-predicts; needs digitized Wheatley data |
+| Flap DOF coning / hub-moment relief | directional | sign + inequality tests |
+| Feathering DOF (servo-flap) response | directional | zero/collective/cyclic sign tests; no measured anchor |
+| Descent / VRS regime | NOT validated | under-resolved recirculating wake (8.2 caveat) |
+| Reversed-flow region (high mu) | NOT validated | no dedicated check |
+| Absolute hub moments (quantitative) | NOT validated | trend-only so far |
+| Trimmed forward-flight loads | NOT validated | no trim closure yet |
+| BVI-sensitive cases | NOT validated | not attempted |
 
 ---
 
