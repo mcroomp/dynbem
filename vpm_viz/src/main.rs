@@ -68,7 +68,7 @@ fn viridis(t: f32) -> Color32 {
 // Simulation helpers
 // ---------------------------------------------------------------------------
 
-fn build_rotor() -> VpmRotor {
+fn build_rotor() -> VpmRotor<LinearPolar> {
     let defn = RotorDefinition {
         blade: BladeGeometry {
             n_blades:          N_BLADES,
@@ -109,7 +109,7 @@ fn build_rotor() -> VpmRotor {
         bh_theta:        0.5,
         bh_min_particles: 2048,
     };
-    VpmRotor::new(&defn, &polar, ctrl, config)
+    VpmRotor::new(&defn, polar, ctrl, config)
 }
 
 fn make_fc() -> FlightCondition {
@@ -178,7 +178,7 @@ fn draw_panel_bg(painter: &egui::Painter, rect: Rect, cx: f32, cy: f32, scale: f
 // ---------------------------------------------------------------------------
 
 struct VpmVizApp {
-    rotor:       VpmRotor,
+    rotor:       VpmRotor<LinearPolar>,
     fc:          FlightCondition,
     state:       VpmRotorState,
     last_result: VpmRotorResult,
@@ -192,7 +192,7 @@ struct VpmVizApp {
 
 impl VpmVizApp {
     fn new(
-        rotor:       VpmRotor,
+        rotor:       VpmRotor<LinearPolar>,
         fc:          FlightCondition,
         state:       VpmRotorState,
         last_result: VpmRotorResult,

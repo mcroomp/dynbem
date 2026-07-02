@@ -24,7 +24,7 @@
 
 use crate::aero_io::{AeroResult, RotorInputs};
 use crate::aero_model::{AeroModel, IntegrationMethod, RotorStateExt};
-use crate::bem_common::{assemble_result, kinematics, Kinematics, PolarTable};
+use crate::bem_common::{assemble_result, kinematics, Kinematics};
 use crate::cyclic::{cyclic_coeffs, ControlGains};
 use crate::polar::Polar;
 use crate::rotor_definition::RotorDefinition;
@@ -137,8 +137,8 @@ pub struct VpmRotorResult {
 
 /// Forward-flight free-wake VPM rotor.
 #[derive(Clone)]
-pub struct VpmRotor {
-    polar: PolarTable,
+pub struct VpmRotor<P: Polar> {
+    polar: P,
     n_blades: usize,
     n_elements: usize,
     /// Radial edges (n+1), possibly cosine-clustered toward the tip.
@@ -198,10 +198,10 @@ fn segment_induced(p: [f64; 3], a: [f64; 3], b: [f64; 3], core: f64) -> [f64; 3]
     [cross[0] * s, cross[1] * s, cross[2] * s]
 }
 
-impl VpmRotor {
-    pub fn new<P: Polar>(
+impl<P: Polar> VpmRotor<P> {
+    pub fn new(
         defn: &RotorDefinition,
-        polar: &P,
+        polar: P,
         ctrl: ControlGains,
         config: VpmRotorConfig,
     ) -> Self {
@@ -263,7 +263,7 @@ impl VpmRotor {
             .collect();
 
         Self {
-            polar: PolarTable::from_polar(polar),
+            polar,
             n_blades: blade.n_blades,
             n_elements: n,
             r_edge,
@@ -514,7 +514,7 @@ impl VpmRotor {
                     let phi = u_a.atan2(u_t);
                     let twist = self.twist[i];
                     let alpha = fc.collective_rad + twist + cyc - phi;
-                    let (cl, cd) = self.polar.interp(alpha);
+                    let (cl, cd) = self.polar.cl_cd(alpha);
                     (urel, phi, u_mag, cl, cd)
                 };
 
@@ -696,7 +696,7 @@ impl RotorStateExt for VpmRotorState {
     }
 }
 
-impl AeroModel for VpmRotor {
+impl<P: Polar> AeroModel for VpmRotor<P> {
     type State = VpmRotorState;
 
     fn initial_state(&self) -> Self::State {
@@ -852,10 +852,10 @@ mod tests {
         LinearPolar::new(0.0, 5.7, 0.01, 15.0_f64.to_radians())
     }
 
-    fn rotor(n_elements: usize) -> VpmRotor {
+    fn rotor(n_elements: usize) -> VpmRotor<LinearPolar> {
         VpmRotor::new(
             &test_rotor(n_elements),
-            &polar(),
+            polar(),
             ControlGains::default(),
             VpmRotorConfig::fast_test(),
         )

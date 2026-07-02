@@ -841,8 +841,11 @@ for *trend correctness and stability*, not yet for absolute accuracy.
 
 - Frame / sign conventions: NED, CCW-from-above -- see AGENTS.md. The
   coupling's r_hat / t_hat match the shared BEM kinematics.
-- Geometry / polars: the shared radial grid, polar table, and airfoil-polar
-  interface used by the BEM models.
+- Geometry / polars: `VpmRotor<P: Polar>` is generic over the polar type (same
+  pattern as `PittPetersModel<P>`, `OyeBEMModel<P>`, `QuasiStaticBEM<P>`).
+  The Python-side `VpmRotor()` factory dispatches to `_VpmRotorLinear` or
+  `_VpmRotorTabulated` based on the polar instance, matching the BEM factory
+  pattern.
 - When promoted to a first-class model (Section 6, item 6): the wake becomes
   carried, serialized inflow state, and the model is registered in the model
   factory alongside the others and exposed through the Python bindings.
@@ -937,9 +940,10 @@ The RAWES blade uses the **SG6042** low-Reynolds-number airfoil (Re ~ 127,000 at
 
 The VPM currently uses a `LinearPolar` (constant Cl_alpha, symmetric stall). SG6042 at
 operating Re requires a tabulated `XFoilPolar` or XFLR5 polar (Cl, Cd, Cm vs alpha at the
-relevant Re range). The dynbem `PolarTable` type accepts any `Polar` implementor; adding a
-spline-interpolated tabular polar is the path forward. The polar also needs to cover at least
-±20 deg to handle the large AoA excursions in autorotation.
+relevant Re range). `VpmRotor<P: Polar>` is now generic over the polar type (same as the
+BEM-family models), so passing a `TabulatedPolar` works directly -- no internal re-sampling
+step. The polar also needs to cover at least +-20 deg to handle the large AoA excursions in
+autorotation.
 
 ### 11.4 Kaman servo-flap pitch actuation
 

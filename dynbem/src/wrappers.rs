@@ -6,7 +6,7 @@ use crate::conv::{mat3_to_py, read_mat3, read_vec3, vec3_to_py};
 use dynbem_rs as core_;
 use dynbem_rs::polar::Polar as _;
 use numpy::{IntoPyArray, PyArray1, PyReadonlyArray1, PyReadonlyArray2};
-use pyo3::exceptions::PyValueError;
+use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::PyTypeInfo;
 
@@ -1239,5 +1239,255 @@ impl PyOyeBEMModelTabulated {
     #[getter]
     fn coupling_k(&self) -> f64 {
         self.0.coupling_k
+    }
+}
+
+// ---------------------------------------------------------------------------
+// VpmRotor (forward-flight free-wake VPM)
+//
+// Unlike the BEM-family models, VpmRotor is a time-marching free-wake solver:
+// it has no valid single-shot instantaneous evaluation, so `compute_forces`
+// raises instead of running. Advance it with `step(inputs, state, dt)` and let
+// the caller own the settling loop. The whole wake is carried on the state
+// object (VpmRotorState), NOT in the inflow vector -- `to_array` is empty.
+//
+// Like the BEM-family models, VpmRotor is generic over the polar type
+// (VpmRotor<P: Polar>), so there are two Python classes -- _VpmRotorLinear and
+// _VpmRotorTabulated -- selected by the polar passed in. The Python-side
+// VpmRotor() factory dispatches on the polar instance.
+// ---------------------------------------------------------------------------
+
+#[pyclass(name = "VpmRotorState", module = "dynbem._dynbem")]
+#[derive(Clone, Debug)]
+pub struct PyVpmRotorState(pub core_::vpm_rotor::VpmRotorState);
+
+#[pymethods]
+impl PyVpmRotorState {
+    #[new]
+    fn new() -> Self {
+        PyVpmRotorState(core_::vpm_rotor::VpmRotorState::default())
+    }
+
+    #[staticmethod]
+    #[pyo3(signature = (n_elements=0))]
+    fn zeros(n_elements: usize) -> Self {
+        // VPM state has no scalar inflow DOFs sized by n; the wake starts empty.
+        let _ = n_elements;
+        PyVpmRotorState(core_::vpm_rotor::VpmRotorState::default())
+    }
+
+    /// Number of wake particles currently carried (diagnostic).
+    #[getter]
+    fn n_particles(&self) -> usize {
+        self.0.wake.as_ref().map_or(0, |w| w.len())
+    }
+
+    /// Inflow serialization. VPM carries no scalar inflow DOFs (the free wake
+    /// lives on this object), so the inflow vector is always empty.
+    fn to_array<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
+        Vec::<f64>::new().into_pyarray_bound(py)
+    }
+
+    /// Round-trip the inflow vector (which must be empty for VPM). The wake is
+    /// preserved -- pass the state object itself back into `step` to continue
+    /// the wake; array serialization only ever covers scalar inflow DOFs.
+    fn from_array(&self, arr: PyReadonlyArray1<'_, f64>) -> PyResult<Self> {
+        let a = arr.as_slice()?;
+        if !a.is_empty() {
+            return Err(PyValueError::new_err(
+                "VpmRotorState.from_array expects an empty array (no scalar inflow DOFs)",
+            ));
+        }
+        Ok(self.clone())
+    }
+}
+
+// Build a VpmRotorConfig from the individual pyo3 signature parameters. Shared
+// by the Linear and Tabulated wrapper constructors so the two classes stay in
+// lock-step.
+#[allow(clippy::too_many_arguments)]
+fn build_vpm_config(
+    n_steps_per_rev: usize,
+    n_wake_rev: usize,
+    n_settle_rev: usize,
+    sigma: f32,
+    relax: f64,
+    nonlinear_lifting_line: bool,
+    tip_clustering: bool,
+    local_core: bool,
+    barnes_hut: bool,
+    bh_theta: f32,
+    bh_min_particles: usize,
+) -> core_::vpm_rotor::VpmRotorConfig {
+    core_::vpm_rotor::VpmRotorConfig {
+        n_steps_per_rev,
+        n_wake_rev,
+        n_settle_rev,
+        sigma,
+        relax,
+        nonlinear_lifting_line,
+        tip_clustering,
+        local_core,
+        barnes_hut,
+        bh_theta,
+        bh_min_particles,
+    }
+}
+
+#[pyclass(name = "_VpmRotorLinear", module = "dynbem._dynbem", subclass)]
+#[derive(Clone)]
+pub struct PyVpmRotorLinear(pub Box<core_::vpm_rotor::VpmRotor<core_::polar::LinearPolar>>);
+
+#[pymethods]
+impl PyVpmRotorLinear {
+    #[new]
+    #[pyo3(signature = (
+        defn, polar,
+        n_steps_per_rev=24, n_wake_rev=4, n_settle_rev=6,
+        sigma=0.18, relax=0.35,
+        nonlinear_lifting_line=true, tip_clustering=true, local_core=true,
+        barnes_hut=false, bh_theta=0.5, bh_min_particles=2048,
+    ))]
+    #[allow(clippy::too_many_arguments)]
+    fn new(
+        defn: PyRotorDefinition,
+        polar: PyLinearPolar,
+        n_steps_per_rev: usize,
+        n_wake_rev: usize,
+        n_settle_rev: usize,
+        sigma: f32,
+        relax: f64,
+        nonlinear_lifting_line: bool,
+        tip_clustering: bool,
+        local_core: bool,
+        barnes_hut: bool,
+        bh_theta: f32,
+        bh_min_particles: usize,
+    ) -> Self {
+        let config = build_vpm_config(
+            n_steps_per_rev,
+            n_wake_rev,
+            n_settle_rev,
+            sigma,
+            relax,
+            nonlinear_lifting_line,
+            tip_clustering,
+            local_core,
+            barnes_hut,
+            bh_theta,
+            bh_min_particles,
+        );
+        let ctrl = defn.0.control_gains();
+        PyVpmRotorLinear(Box::new(core_::vpm_rotor::VpmRotor::new(
+            &defn.0, polar.0, ctrl, config,
+        )))
+    }
+
+    fn initial_rotor_state(&self) -> PyVpmRotorState {
+        PyVpmRotorState(self.0.initial_state())
+    }
+
+    fn compute_forces(
+        &self,
+        _inputs: &PyRotorInputs,
+        _state: &PyVpmRotorState,
+    ) -> PyResult<(PyAeroResult, PyVpmRotorState)> {
+        Err(PyRuntimeError::new_err(
+            "VpmRotor has no single-shot compute_forces: a free-wake VPM rotor \
+             must be advanced in time. Call step(inputs, state, dt) repeatedly \
+             (the caller owns the settling loop).",
+        ))
+    }
+
+    #[pyo3(signature = (inputs, state, dt, integration_method=None))]
+    fn step(
+        &self,
+        inputs: &PyRotorInputs,
+        state: &PyVpmRotorState,
+        dt: f64,
+        integration_method: Option<&str>,
+    ) -> PyResult<(PyAeroResult, PyVpmRotorState)> {
+        let method = parse_integration_method(integration_method)?;
+        let (r, s) = self.0.step(&inputs.inner, &state.0, dt, method);
+        Ok((PyAeroResult(r), PyVpmRotorState(s)))
+    }
+}
+
+#[pyclass(name = "_VpmRotorTabulated", module = "dynbem._dynbem", subclass)]
+#[derive(Clone)]
+pub struct PyVpmRotorTabulated(pub Box<core_::vpm_rotor::VpmRotor<core_::polar::TabulatedPolar>>);
+
+#[pymethods]
+impl PyVpmRotorTabulated {
+    #[new]
+    #[pyo3(signature = (
+        defn, polar,
+        n_steps_per_rev=24, n_wake_rev=4, n_settle_rev=6,
+        sigma=0.18, relax=0.35,
+        nonlinear_lifting_line=true, tip_clustering=true, local_core=true,
+        barnes_hut=false, bh_theta=0.5, bh_min_particles=2048,
+    ))]
+    #[allow(clippy::too_many_arguments)]
+    fn new(
+        defn: PyRotorDefinition,
+        polar: PyTabulatedPolar,
+        n_steps_per_rev: usize,
+        n_wake_rev: usize,
+        n_settle_rev: usize,
+        sigma: f32,
+        relax: f64,
+        nonlinear_lifting_line: bool,
+        tip_clustering: bool,
+        local_core: bool,
+        barnes_hut: bool,
+        bh_theta: f32,
+        bh_min_particles: usize,
+    ) -> Self {
+        let config = build_vpm_config(
+            n_steps_per_rev,
+            n_wake_rev,
+            n_settle_rev,
+            sigma,
+            relax,
+            nonlinear_lifting_line,
+            tip_clustering,
+            local_core,
+            barnes_hut,
+            bh_theta,
+            bh_min_particles,
+        );
+        let ctrl = defn.0.control_gains();
+        PyVpmRotorTabulated(Box::new(core_::vpm_rotor::VpmRotor::new(
+            &defn.0, polar.0, ctrl, config,
+        )))
+    }
+
+    fn initial_rotor_state(&self) -> PyVpmRotorState {
+        PyVpmRotorState(self.0.initial_state())
+    }
+
+    fn compute_forces(
+        &self,
+        _inputs: &PyRotorInputs,
+        _state: &PyVpmRotorState,
+    ) -> PyResult<(PyAeroResult, PyVpmRotorState)> {
+        Err(PyRuntimeError::new_err(
+            "VpmRotor has no single-shot compute_forces: a free-wake VPM rotor \
+             must be advanced in time. Call step(inputs, state, dt) repeatedly \
+             (the caller owns the settling loop).",
+        ))
+    }
+
+    #[pyo3(signature = (inputs, state, dt, integration_method=None))]
+    fn step(
+        &self,
+        inputs: &PyRotorInputs,
+        state: &PyVpmRotorState,
+        dt: f64,
+        integration_method: Option<&str>,
+    ) -> PyResult<(PyAeroResult, PyVpmRotorState)> {
+        let method = parse_integration_method(integration_method)?;
+        let (r, s) = self.0.step(&inputs.inner, &state.0, dt, method);
+        Ok((PyAeroResult(r), PyVpmRotorState(s)))
     }
 }

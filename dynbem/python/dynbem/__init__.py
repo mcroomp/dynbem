@@ -15,6 +15,7 @@ from ._dynbem import (  # noqa: F401
     QuasiStaticRotorState,
     PittPetersRotorState,
     OyeRotorState,
+    VpmRotorState,
     RotorInputs,
     AeroResult,
     TrimResult,
@@ -22,6 +23,7 @@ from ._dynbem import (  # noqa: F401
 from ._dynbem import _QuasiStaticBEMLinear, _QuasiStaticBEMTabulated  # noqa: F401
 from ._dynbem import _PittPetersModelLinear, _PittPetersModelTabulated  # noqa: F401
 from ._dynbem import _OyeBEMModelLinear, _OyeBEMModelTabulated  # noqa: F401
+from ._dynbem import _VpmRotorLinear, _VpmRotorTabulated  # noqa: F401
 from .rotor_definition import (  # noqa: F401
     BladeGeometry,
     KamanFlap,
@@ -79,6 +81,24 @@ def OyeBEMModel(defn, polar=None, n_psi_elements=36, coupling_k=0.6):  # noqa: N
     return _OyeBEMModelTabulated(defn_rs, polar_rs, n_psi_elements, coupling_k)
 
 
+def VpmRotor(defn, polar=None, **config):  # noqa: N802
+    """Forward-flight free-wake VPM rotor (Level 3).
+
+    Like the BEM-family models, the Rust core is generic over the polar type,
+    so this factory dispatches to _VpmRotorLinear or _VpmRotorTabulated based on
+    the polar instance. Has no single-shot compute_forces: advance it in time
+    with step(inputs, state, dt). Extra keyword arguments are passed through to
+    the Rust VpmRotorConfig (n_steps_per_rev, n_wake_rev, n_settle_rev, sigma,
+    relax, nonlinear_lifting_line, tip_clustering, local_core, barnes_hut,
+    bh_theta, bh_min_particles).
+    """
+    polar_rs = _build_polar_from_defn(defn, polar)
+    defn_rs = _to_rust_defn(defn)
+    if isinstance(polar_rs, LinearPolar):
+        return _VpmRotorLinear(defn_rs, polar_rs, **config)
+    return _VpmRotorTabulated(defn_rs, polar_rs, **config)
+
+
 
 # Legacy alias: the original pure-Python package exposed `AirfoilPolar`
 # as a marker for the two concrete polar types. Provide it as a tuple
@@ -98,8 +118,10 @@ __all__ = [
     "InertiaProperties", "ControlProperties", "AutorotationProperties",
     "RotorDefinition",
     "QuasiStaticRotorState", "PittPetersRotorState", "OyeRotorState",
+    "VpmRotorState",
     "RotorInputs", "AeroResult",
     "QuasiStaticBEM", "BEMModel", "PittPetersModel", "OyeBEMModel",
+    "VpmRotor",
     "TrimResult",
 ]
 

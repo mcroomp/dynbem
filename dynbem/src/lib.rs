@@ -163,6 +163,7 @@ fn _dynbem(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyQuasiStaticRotorState>()?;
     m.add_class::<PyPittPetersRotorState>()?;
     m.add_class::<PyOyeRotorState>()?;
+    m.add_class::<PyVpmRotorState>()?;
     m.add_class::<PyRotorInputs>()?;
     m.add_class::<PyAeroResult>()?;
     m.add_class::<PyQuasiStaticBEMLinear>()?;
@@ -171,6 +172,8 @@ fn _dynbem(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyPittPetersModelTabulated>()?;
     m.add_class::<PyOyeBEMModelLinear>()?;
     m.add_class::<PyOyeBEMModelTabulated>()?;
+    m.add_class::<PyVpmRotorLinear>()?;
+    m.add_class::<PyVpmRotorTabulated>()?;
     m.add_class::<PyTrimResult>()?;
     m.add_function(wrap_pyfunction!(solve_trim_cyclic_py, m)?)?;
     m.add_function(wrap_pyfunction!(relax_inflow_py, m)?)?;
