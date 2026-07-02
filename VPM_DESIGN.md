@@ -876,3 +876,141 @@ for *trend correctness and stability*, not yet for absolute accuracy.
   17(4), pp. 3-15.
   DOI: [10.4050/jahs.17.4.3](https://doi.org/10.4050/jahs.17.4.3)
   -- prescribed / trailing wake geometry.
+
+---
+
+## 11. Gaps for RAWES application
+
+RAWES (`c:\repos\windpower`) is a tethered 4-blade autorotating rotor kite. The rotor disk
+is tilted ~67 deg from vertical at the nominal operating point (disk tilt from wind ξ ≈ 29 deg;
+tether elevation β ≈ 8 deg); it operates in continuous autorotation with no engine, and the
+pumping cycle alternates between a reel-out (climbing, windmill, power-generating) phase and a
+reel-in (descending, reduced-power) phase. The production sim uses `dynbem quasi_static` BEM at
+400 Hz; the VPM would be an optional higher-fidelity path for specific operating-point analysis,
+not a real-time drop-in. What needs to change before VPM produces useful results for RAWES:
+
+### 11.1 Autorotation / windmill torque balance
+
+The RAWES rotor runs in **autorotation**: net shaft torque is zero (or slightly positive to
+reel-in drag). The current VPM marches at a fixed `omega_rad_s` from `FlightCondition`; it does
+not close the torque balance. For a meaningful autorotating operating point the caller needs to
+drive omega to the zero-torque equilibrium, either by running an outer Newton iteration over
+`omega_rad_s` until `VpmRotorResult.torque == 0`, or by coupling the VPM to the omega_spin ODE
+from `windpower/simulation/dynamics.py` through the `AeroModel::step` interface.
+
+The windmill quadrant (negative `v_climb`, advancing-tip regime, where BEM switches to the
+Ning/Brent windmill solver) is present in the quasi-static BEM path but has never been exercised
+through the VPM's shedding loop. The VPM's lifting-line solve uses `Kutta-Joukowski + polar`
+on every blade element without a separate windmill branch; the polar and circulation solve should
+naturally handle windmilling if the inflow angle `phi` goes past 90 deg (rotor acts as turbine),
+but this has not been validated. Section 8 explicitly flags the descent/windmill regime as
+unvalidated.
+
+### 11.2 Heavily oblique disk tilt (ξ ~ 29-70 deg from wind)
+
+In hover or gentle forward flight the disk is roughly perpendicular to the gravity vector and
+the in-plane wind is a small fraction of the tip speed. For RAWES the disk may be tilted up to
+~67 deg from vertical (ξ ≈ 29 deg from wind, or steeper during reel-in). The VPM `v_hub` is
+already given in hub frame with `v_hub[2]` as axial (through-disk) and `v_hub[0:2]` as
+in-plane, so the frame decomposition is correct for any tilt. What is NOT validated:
+
+- **High advance ratio**: RAWES tip speed ~52 m/s at 270 RPM; 10 m/s wind at ξ ≈ 29 deg gives
+  in-plane component ~5 m/s → mu ≈ 0.10. This is modest. At reel-in tilt (ξ ≈ 55-70 deg) the
+  in-plane component grows to ~8-9 m/s → mu ≈ 0.15-0.18, which is within the validated range
+  of the crosswind tests but at the upper end.
+- **Near-axial reversed flow on the retreating side** has not been tested at these advance
+  ratios. The lifting-line solve uses a static polar with no reversed-flow extension (Section
+  5.5.6); if retreating-blade AoA exceeds stall, the polar will clip but not diverge.
+- **Tether attachment below the disk plane**: the tether hangs below the hub. At steep tilt the
+  tether direction is nearly in-plane with the disk. This affects the force balance (the net
+  aerodynamic force must balance tether tension + gravity component) but does not change the
+  rotor aerodynamics internally; it is a coupling issue, not a VPM model issue.
+
+### 11.3 Nonlinear SG6042 airfoil polar
+
+The RAWES blade uses the **SG6042** low-Reynolds-number airfoil (Re ~ 127,000 at 50% span,
+10 m/s wind). This is a cambered, low-Re profile with:
+- Non-zero CL0 (zero-lift angle ≈ -4.92 deg)
+- Nonlinear Cl vs alpha above ~8 deg
+- Pronounced laminar separation bubble and hysteresis near stall
+- Thin blade (10% thickness) -- different Cl_alpha slope from NACA profiles
+
+The VPM currently uses a `LinearPolar` (constant Cl_alpha, symmetric stall). SG6042 at
+operating Re requires a tabulated `XFoilPolar` or XFLR5 polar (Cl, Cd, Cm vs alpha at the
+relevant Re range). The dynbem `PolarTable` type accepts any `Polar` implementor; adding a
+spline-interpolated tabular polar is the path forward. The polar also needs to cover at least
+±20 deg to handle the large AoA excursions in autorotation.
+
+### 11.4 Kaman servo-flap pitch actuation
+
+The RAWES blades use a **Kaman-type trailing-edge servo flap** for pitch control
+(`PitchActuation::ServoFlap` in `dynbem_rs`). The VPM currently only exercises
+`PitchActuation::DirectMechanical`. The servo-flap path:
+- Introduces a first-order feathering lag (~90 deg phase at 1/rev)
+- Attenuates high-frequency cyclic authority
+- Requires the `ServoFlapActuation` / `ServoFlapGeometry` parameters from the RAWES YAML
+  (`beaupoil_2026.yaml`)
+
+The VPM's `march_window` passes `fc.collective_rad`, `fc.tilt_lon`, `fc.tilt_lat` through
+`cyclic_coeffs` as direct swashplate commands. To use `ServoFlap` actuation the VPM would
+need to call the servo-flap dynamics at each azimuthal step alongside the existing
+lifting-line solve, rather than mapping tilt directly to blade pitch. This is
+`dynbem_rs::servoflap` already exists for the BEM-family models; it needs wiring into the
+VPM's inner blade loop.
+
+### 11.5 Variable omega coupling to the spin ODE
+
+RAWES omega evolves in time as a state variable (`omega_spin` ODE in `dynamics.py`). The VPM
+`FlightCondition.omega_rad_s` is a fixed parameter per call. For proper coupling the caller
+must update `omega_rad_s` each step from the physics ODE. The `AeroModel::step` interface in
+`dynbem_rs` already supports this (it rebuilds `FlightCondition` from `RotorInputs` each call),
+but VPM's `step()` advances by a fixed number of azimuthal sub-steps derived from the
+**current** omega, so a large omega change mid-simulation will alter the real-time advancement
+rate. This is acceptable provided the VPM step interval is small relative to the spin
+acceleration timescale (which it is: one sub-step = 20 deg at 18 steps/rev, ≈ 4 ms at 270 RPM).
+
+### 11.6 Integration cadence mismatch
+
+The RAWES physics runs at 400 Hz (dt = 2.5 ms). At 270 RPM / 18 steps/rev, one VPM sub-step
+covers 20 deg ≈ 4 ms -- longer than the physics timestep. Options:
+
+1. **Decouple in time**: run the VPM one sub-step per physics step at 270 RPM (the VPM lags
+   the physics by ~1.5 ms but this is negligible against the wake timescale). The VPM's
+   settled wake is "frozen" for the one or two physics steps between VPM advances; the
+   AeroResult from the last VPM step is held.
+2. **Run VPM in a background thread**: settle the wake offline at steady state, then advance
+   one sub-step per ~4 ms physics block while the physics threads ahead. Valid because the
+   RAWES simulation is not yet real-time on the VPM path -- it is a fidelity tool.
+3. **Reduce steps/rev**: 12 steps/rev → ~3 ms / sub-step at 270 RPM, closer to 2.5 ms, at
+   the cost of coarser azimuthal resolution. The `VpmRotorConfig::fast_test()` preset (12
+   steps, 2 wake revs, 3 settle revs) is available.
+
+Option 1 is the simplest entry point. The quasi-static BEM (`model="quasi_static"`) remains
+the production default at 400 Hz; the VPM path would be an optional analysis-time model.
+
+### 11.7 State serialization
+
+The RAWES simulation uses `to_dict()` / `from_dict()` on all state objects for
+checkpointing (e.g. `steady_state_starting.json`). `VpmRotorState` carries a
+`ParticleField` (SoA of f32 arrays) and a `gamma` matrix; neither is currently
+serializable. For the VPM to be a drop-in for the `dynbem` factory, its state needs
+`get_inflow()` / `set_inflow()` that round-trips through a flat vector, or alternatively a
+bespoke `to_dict()` that serializes the raw particle arrays to JSON/binary.
+
+### 11.8 Non-inertial hub acceleration
+
+The RAWES hub orbits the tether anchor at ~0.105 rad/s with radius ~15 m → centripetal
+acceleration ≈ 0.16 m/s^2 (≈ 1.7% g). The VPM treats the hub as inertially fixed; blade
+element inertial corrections for hub acceleration are not modelled and are below the accuracy
+target at current orbit rates, but would matter if the orbit radius or rate increases.
+
+### Priority order for RAWES integration
+
+| Priority | Item |
+|----------|------|
+| 1 | Tabulated SG6042 polar (Section 11.3) -- affects every operating point |
+| 2 | Zero-torque autorotation omega iteration (Section 11.1) -- needed for any valid OP |
+| 3 | Cadence decoupling + quasi-static hold (Section 11.6) -- integration logistics |
+| 4 | ServoFlap wiring into VPM inner loop (Section 11.4) -- needed for control realism |
+| 5 | Validated windmill / reel-in regime (Section 11.1) -- only needed for reel-in analysis |
+| 6 | State serialization (Section 11.7) -- needed for checkpointing/factory drop-in |
