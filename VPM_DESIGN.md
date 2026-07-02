@@ -644,8 +644,8 @@ to the ~7,900-particle cap over the first ~4 revs.
 
 The Barnes-Hut row is the expensive end-of-march step at N≈8,000. Each
 velocity eval costs ~19.5 ms (seq, Section 7.1); RK2 = two evals plus
-advection overhead → ~0.04 s. Parallel gives no benefit for the tree walk
-(Section 7.1), so seq ≈ par for BH. The tree engages only above
+advection overhead → ~0.04 s. The BH path benefits from Rayon at ~1.6x
+(Section 7.1), giving a par step ~0.025 s. The tree engages only above
 `bh_min_particles` and is off by default, so the direct par row is the
 normal operating figure; a tree-enabled march would stay near ~0.04 s/step
 for full-cloud steps.
@@ -733,16 +733,19 @@ worth it). A dipole term could be added later for more accuracy at a given
 
 Measured direct O(N^2) vs tree (`theta = 0.5`) on the profiler's wake-like
 cloud (`bh_profile <N> 0|0.5 10 seq|par`, release, 10 s measurement windows).
-All four combinations measured back-to-back on the same machine state. Rayon
-parallel (`par`) benefits the direct path but gives essentially no speedup
-for the tree (the tree walk has per-target evaluation order that limits
-coarse-grained parallelism; at N=4,000–16,000 par≈seq for BH):
+All four combinations measured back-to-back on the same machine state. The
+direct path scales near-linearly with cores (3.1–3.4x at N=4k–16k). The BH
+path also benefits from Rayon but less so (1.6–1.75x): all threads share the
+same flat-tree node array, which fits in L3 at these sizes, so L3 read
+bandwidth becomes the bottleneck once ~2 threads saturate it. The parallel
+BH path uses `par_chunks_mut(64)` (64 targets per Rayon task) to amortise
+dispatch overhead while keeping the per-thread `Scratch` buffer warm:
 
-| N | direct seq [ms] | direct par [ms] | par speedup | tree seq [ms] | direct-vs-tree (seq) |
-|---:|---:|---:|---:|---:|---:|
-| 4,000 | 96.8 | 38.0 | 2.5x | 11.6 | 8.4x |
-| 8,000 | 386.9 | 124.1 | 3.1x | 19.5 | 19.8x |
-| 16,000 | 1,595.6 | 466.7 | 3.4x | 39.8 | 40.1x |
+| N | direct seq [ms] | direct par [ms] | par speedup | tree seq [ms] | tree par [ms] | par speedup |
+|---:|---:|---:|---:|---:|---:|---:|
+| 4,000 | 96.8 | 38.0 | 2.5x | 27.8 | 17.3 | 1.6x |
+| 8,000 | 386.9 | 124.1 | 3.1x | 60.1 | 37.9 | 1.6x |
+| 16,000 | 1,595.6 | 466.7 | 3.4x | 151 | 86.3 | 1.75x |
 
 The direct columns scale cleanly O(N^2) (each doubling ≈ 4x); the tree column
 grows ~1.8x per doubling (close to O(N log N)); the direct-vs-tree speedup
