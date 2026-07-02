@@ -17,6 +17,7 @@ name = "dynbem_rs"
 path = "src/lib.rs"
 
 [features]
+default = ["parallel"]
 parallel = ["dep:rayon"]
 
 [dependencies]
