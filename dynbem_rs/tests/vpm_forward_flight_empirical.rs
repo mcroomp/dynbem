@@ -81,6 +81,7 @@ fn pca2_rotor() -> VpmRotor<LinearPolar> {
         barnes_hut: true,
         bh_theta: 0.5,
         bh_min_particles: 200,  // engage BH early -- wake fills fast at 4 blades
+        flap_dynamics: false,   // rigid blades: isolate the wake model here
     };
     VpmRotor::new(&defn, polar, ControlGains::default(), config)
 }

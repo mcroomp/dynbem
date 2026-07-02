@@ -27,7 +27,7 @@ use crate::aero_model::{AeroModel, IntegrationMethod, RotorStateExt};
 use crate::bem_common::{assemble_result, kinematics, Kinematics};
 use crate::cyclic::{cyclic_coeffs, ControlGains};
 use crate::polar::Polar;
-use crate::rotor_definition::RotorDefinition;
+use crate::rotor_definition::{FlapProperties, RotorDefinition};
 use crate::vpm::{
     advect_rk2, advect_rk2_bh, induced_at_points, induced_at_points_bh, ParticleField,
 };
@@ -67,6 +67,10 @@ pub struct VpmRotorConfig {
     /// Particle count below which the direct sum is used even with
     /// `barnes_hut` on (the tree overhead is not worth it for small wakes).
     pub bh_min_particles: usize,
+    /// Model per-blade rigid flap dynamics (beta, beta_dot) when the rotor
+    /// definition supplies `FlapProperties`. When false (or no FlapProperties)
+    /// blades are rigid in flap and the wake stays in the disk plane.
+    pub flap_dynamics: bool,
 }
 
 impl Default for VpmRotorConfig {
@@ -81,6 +85,7 @@ impl Default for VpmRotorConfig {
             barnes_hut: false,
             bh_theta: 0.5,
             bh_min_particles: 2048,
+            flap_dynamics: true,
         }
     }
 }
@@ -98,6 +103,7 @@ impl VpmRotorConfig {
             barnes_hut: false,
             bh_theta: 0.5,
             bh_min_particles: 2048,
+            flap_dynamics: true,
         }
     }
 }
@@ -152,6 +158,9 @@ pub struct VpmRotor<P: Polar> {
     sigma_mid: Vec<f32>,
     /// Per-edge trailed-particle / near-wake filament core size (n+1).
     sigma_edge: Vec<f32>,
+    /// Optional rigid-flap properties (inertia + non-rotating flap frequency).
+    /// `Some` enables per-blade flap dynamics when `config.flap_dynamics`.
+    flap: Option<FlapProperties>,
     ctrl: ControlGains,
     config: VpmRotorConfig,
 }
@@ -270,6 +279,7 @@ impl<P: Polar> VpmRotor<P> {
             twist,
             sigma_mid,
             sigma_edge,
+            flap: defn.flap.clone(),
             ctrl,
             config,
         }
@@ -367,6 +377,25 @@ impl<P: Polar> VpmRotor<P> {
             _ => vec![vec![0.0f64; n]; nb],
         };
 
+        // Per-blade rigid-flap DOF. Active only when the rotor supplies
+        // FlapProperties AND config.flap_dynamics is on. beta > 0 = flap up
+        // (tip toward -Z, the thrust side). The aerodynamic flap damping is
+        // NOT added as an analytical term here -- it emerges from the loads,
+        // because beta_dot feeds the section angle of attack below (the whole
+        // reason to model flap in the time-marched VPM rather than as a static
+        // hub-moment factor). The ODE integrated per step is therefore the
+        // purely structural/inertial one, forced by the aero flap moment:
+        //   I_beta * beta'' + I_beta*(Omega^2 + omega_NR^2)*beta = M_flap_aero
+        let flap_active = cfg.flap_dynamics && self.flap.is_some();
+        let mut beta = match warm.and_then(|s| s.beta.as_ref()) {
+            Some(b) if flap_active && b.len() == nb => b.clone(),
+            _ => vec![0.0f64; nb],
+        };
+        let mut beta_dot = match warm.and_then(|s| s.beta_dot.as_ref()) {
+            Some(b) if flap_active && b.len() == nb => b.clone(),
+            _ => vec![0.0f64; nb],
+        };
+
         // Trailed edge particles (n+1) + shed station particles (n), per blade.
         let max_particles = cfg.max_particles;
 
@@ -391,6 +420,10 @@ impl<P: Polar> VpmRotor<P> {
             let mut mx_step = 0.0;
             let mut my_step = 0.0;
 
+            // Aerodynamic flap moment about the hinge, per blade, accumulated
+            // in the loads loop below (M = sum r * dF_z). Drives the flap ODE.
+            let mut m_flap = vec![0.0f64; nb];
+
             // ---- loads on every blade (nonlinear lifting-line solve) ------
             for b in 0..nb {
                 let psi_b = psi0 + b as f64 * 2.0 * PI / nb as f64;
@@ -398,6 +431,12 @@ impl<P: Polar> VpmRotor<P> {
                 let th = t_hat(psi_b);
                 let (spsi, cpsi) = psi_b.sin_cos();
                 let cyc = theta_1c * cpsi + theta_1s * spsi;
+                // Flap DOF for this blade (0 when inactive). beta tilts the
+                // blade out of plane (z = -r*beta, up = -Z); beta_dot adds a
+                // vertical section velocity that changes the local AoA (the
+                // aerodynamic flap damping, captured exactly here).
+                let beta_b = beta[b];
+                let beta_dot_b = beta_dot[b];
 
                 // Far-field (particle wake) induced velocity at station centers.
                 let (tx, ty, tz): (Vec<f32>, Vec<f32>, Vec<f32>) = {
@@ -408,7 +447,7 @@ impl<P: Polar> VpmRotor<P> {
                         let r = self.r_mid[i];
                         xs.push((r * rh[0]) as f32);
                         ys.push((r * rh[1]) as f32);
-                        zs.push(0.0);
+                        zs.push((-r * beta_b) as f32);
                     }
                     (xs, ys, zs)
                 };
@@ -426,11 +465,17 @@ impl<P: Polar> VpmRotor<P> {
                 // near-wake trailing-leg geometry for this step.
                 let mut urel_bg = vec![[0.0f64; 3]; n];
                 for i in 0..n {
-                    let vb = omega * self.r_mid[i];
+                    let r = self.r_mid[i];
+                    let vb = omega * r;
+                    // Flap-rate vertical velocity: blade section moves at
+                    // -r*beta_dot in Z (up = -Z), so the relative wind gains
+                    // +r*beta_dot in Z. Increasing u_a lowers the AoA -> flap
+                    // aerodynamic damping.
+                    let v_flap = r * beta_dot_b;
                     urel_bg[i] = [
                         fc.v_hub[0] + u_far[i][0] - vb * th[0],
                         fc.v_hub[1] + u_far[i][1] - vb * th[1],
-                        fc.v_hub[2] + u_far[i][2] - vb * th[2],
+                        fc.v_hub[2] + u_far[i][2] - vb * th[2] + v_flap,
                     ];
                 }
 
@@ -448,7 +493,7 @@ impl<P: Polar> VpmRotor<P> {
                     let mut leg = Vec::with_capacity(n + 1);
                     for k in 0..=n {
                         let r_edge = self.r_edge[k];
-                        ep.push([r_edge * rh[0], r_edge * rh[1], 0.0]);
+                        ep.push([r_edge * rh[0], r_edge * rh[1], -r_edge * beta_b]);
                         let ur = if k == 0 {
                             urel_bg[0]
                         } else if k == n {
@@ -465,7 +510,7 @@ impl<P: Polar> VpmRotor<P> {
                     b_inf = vec![vec![[0.0f64; 3]; n + 1]; n];
                     for i in 0..n {
                         let r = self.r_mid[i];
-                        let cp = [r * rh[0], r * rh[1], 0.0];
+                        let cp = [r * rh[0], r * rh[1], -r * beta_b];
                         for k in 0..=n {
                             let a = ep[k];
                             let bb = [a[0] + leg[k][0], a[1] + leg[k][1], a[2] + leg[k][2]];
@@ -496,10 +541,13 @@ impl<P: Polar> VpmRotor<P> {
                     let u_ind = trail_downwash(gam, i);
                     let r = self.r_mid[i];
                     let vb = omega * r;
+                    // Flap-rate vertical velocity (see urel_bg above): +r*beta_dot
+                    // in Z, so flapping up reduces the AoA (flap damping).
+                    let v_flap = r * beta_dot_b;
                     let urel = [
                         fc.v_hub[0] + u_far[i][0] + u_ind[0] - vb * th[0],
                         fc.v_hub[1] + u_far[i][1] + u_ind[1] - vb * th[1],
-                        fc.v_hub[2] + u_far[i][2] + u_ind[2] - vb * th[2],
+                        fc.v_hub[2] + u_far[i][2] + u_ind[2] - vb * th[2] + v_flap,
                     ];
                     let u_a = urel[2];
                     let u_t = -(urel[0] * th[0] + urel[1] * th[1]);
@@ -548,6 +596,9 @@ impl<P: Polar> VpmRotor<P> {
                     // Hub moments (AGENTS.md): Mx = r dT sin psi, My = r dT cos psi.
                     mx_step += r * d_thrust * spsi;
                     my_step += r * d_thrust * cpsi;
+                    // Aero flap moment about the hinge: out-of-plane force
+                    // (d_thrust, up) at arm r. Positive -> flaps blade up.
+                    m_flap[b] += r * d_thrust;
 
                     gamma[b][i] = gam[i];
                 }
@@ -557,6 +608,8 @@ impl<P: Polar> VpmRotor<P> {
             for b in 0..nb {
                 let psi_b = psi0 + b as f64 * 2.0 * PI / nb as f64;
                 let rh = r_hat(psi_b);
+                // Out-of-plane flap displacement of this blade (z = -r*beta).
+                let beta_b = beta[b];
 
                 // Trailed vorticity: edge j strength = Gamma_{j-1} - Gamma_j,
                 // Gamma outside the blade = 0. Segment aligned with the local
@@ -582,7 +635,11 @@ impl<P: Polar> VpmRotor<P> {
                     };
                     let seg = [ur[0] * dt, ur[1] * dt, ur[2] * dt];
                     let r_edge = self.r_edge[j];
-                    let pos = [(r_edge * rh[0]) as f32, (r_edge * rh[1]) as f32, 0.0];
+                    let pos = [
+                        (r_edge * rh[0]) as f32,
+                        (r_edge * rh[1]) as f32,
+                        (-r_edge * beta_b) as f32,
+                    ];
                     let a = [
                         (g_trail * seg[0]) as f32,
                         (g_trail * seg[1]) as f32,
@@ -601,7 +658,7 @@ impl<P: Polar> VpmRotor<P> {
                     let r = self.r_mid[i];
                     // Spanwise vortex line: strength -dGamma, length dr along r_hat.
                     let mag = -d_gamma * self.dr[i];
-                    let pos = [(r * rh[0]) as f32, (r * rh[1]) as f32, 0.0];
+                    let pos = [(r * rh[0]) as f32, (r * rh[1]) as f32, (-r * beta_b) as f32];
                     let a = [
                         (mag * rh[0]) as f32,
                         (mag * rh[1]) as f32,
@@ -614,6 +671,28 @@ impl<P: Polar> VpmRotor<P> {
             // Save relaxed circulation for the next step's dGamma/dt.
             for b in 0..nb {
                 gamma_prev[b].copy_from_slice(&gamma[b]);
+            }
+
+            // ---- integrate the rigid-flap DOF one sub-step ----------------
+            // Structural/inertial ODE forced by the aero flap moment (the aero
+            // damping is already inside m_flap via the beta_dot AoA term):
+            //   I_beta*beta'' = M_flap - I_beta*(Omega^2 + omega_NR^2)*beta
+            // Symplectic (semi-implicit) Euler: advance the rate first, then
+            // the angle with the new rate -- stable for the lightly-damped
+            // flap oscillator at the resolved sub-step (dpsi ~ 0.1-0.3 rad).
+            if flap_active {
+                let fp = self.flap.as_ref().expect("flap_active implies Some");
+                let i_beta = fp.I_blade_flap_kgm2.max(1e-9);
+                let omega_nr = fp.omega_nr_rad_s;
+                // Effective rotating flap stiffness / inertia:
+                //   K/I = Omega^2 + omega_NR^2  (centrifugal + structural spring)
+                //        = Omega^2 * nu_beta^2
+                let k_over_i = omega * omega + omega_nr * omega_nr;
+                for b in 0..nb {
+                    let beta_ddot = m_flap[b] / i_beta - k_over_i * beta[b];
+                    beta_dot[b] += dt * beta_ddot;
+                    beta[b] += dt * beta_dot[b];
+                }
             }
 
             // ---- convect and truncate the free wake -----------------------
@@ -651,6 +730,8 @@ impl<P: Polar> VpmRotor<P> {
             wake: Some(wake),
             gamma: Some(gamma),
             psi: (psi_offset + total_steps as f64 * dpsi).rem_euclid(2.0 * PI),
+            beta: if flap_active { Some(beta) } else { None },
+            beta_dot: if flap_active { Some(beta_dot) } else { None },
         };
         (result, out_state)
     }
@@ -676,6 +757,11 @@ pub struct VpmRotorState {
     /// call sheds particles from the correct rotor position rather than always
     /// restarting at psi=0. `march` ignores this field and always starts at 0.
     pub psi: f64,
+    /// Per-blade flap angle (rad), positive = flap up (tip toward -Z, the
+    /// thrust side). `None` when flap dynamics are inactive.
+    pub beta: Option<Vec<f64>>,
+    /// Per-blade flap rate (rad/s). `None` when flap dynamics are inactive.
+    pub beta_dot: Option<Vec<f64>>,
 }
 
 impl RotorStateExt for VpmRotorState {
@@ -804,7 +890,7 @@ mod tests {
     use crate::polar::LinearPolar;
     use crate::quasi_static_bem::{QuasiStaticBEM, QuasiStaticRotorState};
     use crate::rotor_definition::{
-        BladeGeometry, LinearPolarParameters, PitchActuation, RotorDefinition,
+        BladeGeometry, FlapProperties, LinearPolarParameters, PitchActuation, RotorDefinition,
     };
 
     const OMEGA: f64 = 120.0;
@@ -860,6 +946,70 @@ mod tests {
             omega_rad_s: OMEGA,
             rho: RHO,
         }
+    }
+
+    /// Freely-hinged (nu_beta = 1) central flap: I_beta chosen so hover coning
+    /// is a few degrees at OMEGA. omega_NR = 0 -> articulated rotor.
+    fn flap_props() -> FlapProperties {
+        FlapProperties {
+            I_blade_flap_kgm2: 0.1,
+            omega_nr_rad_s: 0.0,
+        }
+    }
+
+    fn rotor_with_flap(n_elements: usize) -> VpmRotor<LinearPolar> {
+        let mut defn = test_rotor(n_elements);
+        defn.flap = Some(flap_props());
+        VpmRotor::new(
+            &defn,
+            polar(),
+            ControlGains::default(),
+            VpmRotorConfig::fast_test(),
+        )
+    }
+
+    /// With flap dynamics on, the blade cones up (beta > 0) to a steady angle
+    /// where the aero flap moment balances the centrifugal stiffness. All
+    /// blades reach the same coning in hover (axisymmetric).
+    #[test]
+    fn flap_cones_in_hover() {
+        let vpm = rotor_with_flap(10);
+        let (_res, state) = vpm.march(&hover(8.0), None, 1.0 / 400.0, 500);
+        let beta = state.beta.expect("flap active -> beta present");
+        for &b in &beta {
+            assert!(b > 0.0, "blade should cone up (beta>0), got {} rad", b);
+            assert!(b < 0.35, "coning implausibly large: {} rad", b);
+        }
+        let hi = beta.iter().cloned().fold(f64::MIN, f64::max);
+        let lo = beta.iter().cloned().fold(f64::MAX, f64::min);
+        assert!(
+            hi - lo < 0.02,
+            "hover coning should be ~equal per blade, spread {} rad",
+            hi - lo
+        );
+    }
+
+    /// A freely-hinged rotor relieves hub moment: under longitudinal cyclic the
+    /// blades flap (90 deg lagged) instead of transmitting the full aerodynamic
+    /// moment to the hub, so |M_hub| is smaller than the rigid-blade case.
+    #[test]
+    fn flap_relieves_hub_moment() {
+        let dt = 1.0 / 400.0;
+        let n = 500;
+        let mut fc = hover(8.0);
+        fc.tilt_lon = 4.0_f64.to_radians();
+
+        let rigid = rotor(10).simulate(&fc, dt, n); // test_rotor has flap: None
+        let flex = rotor_with_flap(10).simulate(&fc, dt, n);
+
+        let m_rigid = rigid.my_hub.hypot(rigid.mx_hub);
+        let m_flex = flex.my_hub.hypot(flex.mx_hub);
+        assert!(
+            m_flex < m_rigid,
+            "flapping should reduce hub moment: rigid {:.3} vs flex {:.3} N*m",
+            m_rigid,
+            m_flex
+        );
     }
 
     /// With no cyclic and no crosswind the forward-flight model reduces to

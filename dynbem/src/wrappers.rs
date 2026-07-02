@@ -1327,6 +1327,7 @@ fn build_vpm_config(
         barnes_hut,
         bh_theta,
         bh_min_particles,
+        flap_dynamics: true,
     }
 }
 

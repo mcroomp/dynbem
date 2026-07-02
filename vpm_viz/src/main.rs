@@ -113,6 +113,7 @@ fn build_rotor() -> VpmRotor<LinearPolar> {
         barnes_hut:      false,
         bh_theta:        0.5,
         bh_min_particles: 2048,
+        flap_dynamics:   true,
     };
     VpmRotor::new(&defn, polar, ctrl, config)
 }
