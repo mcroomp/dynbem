@@ -485,6 +485,12 @@ This rule has bitten before — see [memory feedback-no-silent-reverts].
 
 ## Workflow
 
+- **Temporary output files**: when a script, command, or tool needs to
+  write scratch output (plots, CSV dumps, debug logs, pytest redirects,
+  etc.) always write it under `tmp/` in the repo root. That directory is
+  git-ignored. Never write temp files directly into the repo root or any
+  tracked directory.
+
 - **Python**: this repo is a uv workspace + Cargo workspace. `uv sync`
   from the repo root builds the Rust extension (via maturin) and
   installs `dynbem` editable; `uv sync --group dev` also pulls pytest +

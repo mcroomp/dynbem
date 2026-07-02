@@ -37,6 +37,7 @@ Thumbs.db
 
 # Output artifacts
 out/
+tmp/
 *.npz
 
 # Rust build artifacts (workspace target dir at root; the per-crate
