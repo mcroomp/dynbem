@@ -1055,32 +1055,63 @@ pub fn induced_at_points_bh(
     let theta2 = theta * theta;
     let cap = tree.nodes.len();
 
+    let mut out = vec![[0.0f32; 3]; m];
+
     #[cfg(not(feature = "parallel"))]
     {
-        // The far-cell batch can hold at most one monopole per node.
         let mut far = Scratch::with_capacity(cap);
-        let mut out = vec![[0.0f32; 3]; m];
         for j in 0..m {
             out[j] = tree.evaluate(tx[j], ty[j], tz[j], theta2, &mut far);
         }
-        out
     }
 
     #[cfg(feature = "parallel")]
-    // Each thread gets its own Scratch via map_init so there is no
-    // cross-thread mutable state.  FlatTree is read-only and Sync.
-    (0..m)
-        .into_par_iter()
-        .map_init(
-            || Scratch::with_capacity(cap),
-            |far, j| tree.evaluate(tx[j], ty[j], tz[j], theta2, far),
-        )
-        .collect()
+    {
+        // Parallel: each Rayon task handles one target; per-thread Scratch
+        // eliminates cross-thread mutable state.  FlatTree is read-only (Sync).
+        // Using par_chunks_mut(CHUNK) gives each thread CHUNK targets per
+        // task -- enough work to amortize Rayon dispatch overhead, while
+        // staying cache-friendly (each thread's Scratch stays warm between
+        // consecutive targets in the same chunk).
+        const CHUNK: usize = 64;
+        out.par_chunks_mut(CHUNK)
+            .zip(tx.par_chunks(CHUNK))
+            .zip(ty.par_chunks(CHUNK))
+            .zip(tz.par_chunks(CHUNK))
+            .for_each(|(((oc, tc_x), tc_y), tc_z)| {
+                let mut far = Scratch::with_capacity(cap);
+                for k in 0..tc_x.len() {
+                    oc[k] = tree.evaluate(tc_x[k], tc_y[k], tc_z[k], theta2, &mut far);
+                }
+            });
+    }
+
+    out
 }
 
 /// Barnes-Hut version of [`induced_velocities`] (targets are the particles).
 pub fn induced_velocities_bh(field: &ParticleField, theta: f32) -> Vec<[f32; 3]> {
     induced_at_points_bh(field, &field.px, &field.py, &field.pz, theta)
+}
+
+/// Sequential (single-threaded) BH velocity evaluation, for benchmarking
+/// the parallel speedup of the BH path.  Bypasses the Rayon dispatch in
+/// `induced_at_points_bh` and runs the per-target tree walk on one thread.
+#[cfg(feature = "parallel")]
+pub fn induced_velocities_bh_seq(field: &ParticleField, theta: f32) -> Vec<[f32; 3]> {
+    let n = field.len();
+    if n == 0 {
+        return vec![];
+    }
+    let tree = FlatTree::build(field);
+    let theta2 = theta * theta;
+    let cap = tree.nodes.len();
+    let mut far = Scratch::with_capacity(cap);
+    let mut out = vec![[0.0f32; 3]; n];
+    for j in 0..n {
+        out[j] = tree.evaluate(field.px[j], field.py[j], field.pz[j], theta2, &mut far);
+    }
+    out
 }
 
 /// Barnes-Hut version of [`advect_rk2`]. Identical midpoint integration, but

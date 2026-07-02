@@ -26,7 +26,7 @@
 // Defaults: N = 8000 particles, theta = 0.5, run for 10 seconds of wall clock.
 
 #[cfg(feature = "parallel")]
-use dynbem_rs::vpm::induced_velocities_seq;
+use dynbem_rs::vpm::{induced_velocities_bh_seq, induced_velocities_seq};
 use dynbem_rs::vpm::{induced_velocities, induced_velocities_bh, ParticleField};
 use std::env;
 use std::time::{Duration, Instant};
@@ -103,7 +103,7 @@ fn main() {
             return if direct {
                 induced_velocities_seq(f)
             } else {
-                induced_velocities_bh(f, theta) // BH seq path unchanged
+                induced_velocities_bh_seq(f, theta)
             };
         }
         if direct {
