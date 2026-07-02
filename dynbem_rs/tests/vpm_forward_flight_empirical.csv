@@ -1,7 +1,5 @@
 label,table,pitch_deg,mu,alpha_deg,n_rpm,cl_meas,cl_max_err
-# T3_mu033 (mu=0.315) excluded: simplified PCA-2 geometry over-predicts 2x at
-# high advance ratio where retreating-blade effects dominate. Increase N_SETTLE_REV
-# and use a more accurate polar before re-adding this point.
-T3_mu018,III,1.9,0.181,11.2,98.8,0.363,0.30
-T3_mu025,III,1.9,0.249,6.6,98.8,0.192,0.30
-T4_mu024,IV,2.7,0.242,6.3,118.9,0.266,0.30
+T3_mu018,III,1.9,0.181,11.2,98.8,0.363,0.051437294952959275
+T3_mu025,III,1.9,0.249,6.6,98.8,0.192,0.18756545410327385
+T3_mu033,III,1.9,0.315,4.3,98.8,0.116,0.24194142573067134
+T4_mu024,IV,2.7,0.242,6.3,118.9,0.266,0.5378375034455662

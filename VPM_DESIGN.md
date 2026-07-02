@@ -595,21 +595,28 @@ by log10 vorticity magnitude).
 
 ---
 
-## 7. Performance (measured, single-core, release)
+## 7. Performance (measured, release)
 
-Direct O(N^2) evaluation, vectorized eight sources per lane (map over
-targets on a single core, no multi-core parallelism).
+Direct O(N^2) evaluation, vectorized eight sources per lane. The `parallel`
+feature is enabled by default; the outer target loop runs via Rayon
+(`par_iter_mut` over targets). Sequential (`induced_velocities_seq`) and
+parallel (`induced_velocities`) paths are measured back-to-back with the
+same binary (`bh_profile N 0 10 seq|par`). Speedup saturates near the
+core count once the per-target work exceeds the Rayon dispatch overhead
+(crossover around N=1,000–2,000 on a 4-core laptop).
 
-| N | us / velocity eval | ms / RK2 advect step |
-|---:|---:|---:|
-| 500 | 487 | 1.2 |
-| 2,000 | 13,793 | 24.2 |
-| 5,000 | 75,822 | 153.9 |
-| 10,000 | 335,229 | 1,133.8 |
-| 20,000 | 1,550,205 | 5,066.5 |
+| N | seq [ms] | par [ms] | par speedup |
+|---:|---:|---:|---:|
+| 500 | 1.5 | 2.4 | 0.6x (overhead dominates) |
+| 2,000 | 23.1 | 15.3 | 1.5x |
+| 5,000 | 149 | 64 | 2.3x |
+| 10,000 | 574 | 193 | 3.0x |
+| 20,000 | 2,288 | 693 | 3.3x |
 
-Scaling follows the expected O(N^2) (5k -> 10k is 4.0x N -> 4.4x time; the
-excess over 4x is cache pressure).
+Scaling follows the expected O(N^2) in both columns; the parallel column
+additionally shows the Rayon speedup approaching ~3.3x (4-core machine,
+bandwidth-limited above that). All figures are velocity-eval wall-clock
+(`bh_profile`, 10 s measurement window, min-noise run).
 
 For reference, the per-step cost of each model at a non-axial operating point
 (forward 12 m/s + 5 m/s edgewise crosswind) on the same machine. In a
@@ -623,26 +630,25 @@ advances the free wake by one azimuth increment (an O(N^2) Biot-Savart probe
 | Oye (annular 2-stage filter) | 0.153 ms | 1x |
 | Pitt-Peters (3-state L-matrix) | 0.165 ms | ~1.1x |
 | Quasi-static BEM | 19.9 ms | ~130x |
-| VPM free-wake, direct (run-avg march, N up to ~7,900) | ~0.47 s | ~3.1 x 10^3 |
-| VPM free-wake, Barnes-Hut theta=0.5 (full-cloud step, N~7,900) | ~0.10 s | ~660x |
+| VPM free-wake, direct seq (run-avg march, N up to ~7,900) | ~0.47 s | ~3.1 x 10^3 |
+| VPM free-wake, direct par (run-avg march, N up to ~7,900) | ~0.15 s | ~1.0 x 10^3 |
+| VPM free-wake, Barnes-Hut theta=0.5 (full-cloud step, N~7,900) | ~0.04 s | ~260x |
 
-All four are measured single-core release-mode wall-clock. The BEM-family
-rows are the per-call cost (min of many calls). The direct VPM row is the
-run-average per step: a full `simulate(fc, dt, n_steps)` at the default resolution
-(max_particles=4800, 20 stations) marches 168 steps in
-79.7 s (min of 3), so ~0.47 s/step. That average understates the
-steady-state step, because the wake grows from empty to the ~7,900-particle
-cap over the first ~4 revs, so early steps are cheap and the full-cloud steps
-at the end are the expensive ones.
+BEM-family rows are release-mode single-core (per-call min). The direct VPM
+seq row is a `simulate(fc, dt, n_steps)` at the default resolution
+(max_particles=4800, 20 stations) marching 168 steps single-core:
+79.7 s (min of 3), ~0.47 s/step. The direct par row scales that by the
+~3x Rayon speedup at N≈8,000 (Table 7.0): ~25 s total, ~0.15 s/step. The
+average understates the steady-state step because the wake grows from empty
+to the ~7,900-particle cap over the first ~4 revs.
 
-The Barnes-Hut row is that expensive end-of-march step, at the ~7,900 cap: an
-RK2 advect is two velocity evals, and at N=8,000 the tree (`theta = 0.5`)
-runs each in ~50.5 ms vs the direct path's ~406 ms (Section 7.1), so the
-full-cloud step falls from ~0.81 s to ~0.10 s -- an ~8x cut on exactly the
-steps that dominate the march. The tree engages only above `bh_min_particles`
-and is off by default, so the direct run-average is still the default-config
-figure; a tree-enabled march sees the same empty-to-full growth curve, so its
-run-average would fall by a similar factor once the cloud is large.
+The Barnes-Hut row is the expensive end-of-march step at N≈8,000. Each
+velocity eval costs ~19.5 ms (seq, Section 7.1); RK2 = two evals plus
+advection overhead → ~0.04 s. Parallel gives no benefit for the tree walk
+(Section 7.1), so seq ≈ par for BH. The tree engages only above
+`bh_min_particles` and is off by default, so the direct par row is the
+normal operating figure; a tree-enabled march would stay near ~0.04 s/step
+for full-cloud steps.
 
 Oye and Pitt-Peters are within ~10% of each other; both evaluate a fixed set
 of algebraic inflow relations per (element, azimuth). The quasi-static BEM is
@@ -658,20 +664,19 @@ at every one of the ~170 marched steps.
 
 **Per operating point** the gap is larger still: the BEM-family models are
 already converged after one step, while the VPM needs the full ~170-step
-march to reach a periodic wake -- Pitt-Peters ~0.17 ms vs the VPM at 79.7 s,
-roughly 5 x 10^5 x. These are worst-case figures: a
-single core, per-lane vectorization only, and the direct O(N^2) path. The
-target loop is independent, so spreading it across cores should cut the
-constant by something approaching the core count until memory bandwidth
-limits it, and the Barnes-Hut tree (Section 7.1) changes the N scaling
-itself -- ~8x at N=8,000 and widening with N.
+march to reach a periodic wake -- Pitt-Peters ~0.17 ms vs the VPM (direct
+par) at ~25 s, roughly 1.5 x 10^5 x. The direct seq figure (79.7 s,
+~5 x 10^5 x) is the single-core baseline; Rayon parallel is now the default
+and cuts that by ~3x at operating N, with the Barnes-Hut tree (Section 7.1)
+changing the N scaling itself -- ~20x at N=8,000 vs seq direct (seq BH
+19.5 ms vs seq direct 387 ms), widening with N.
 
 Simulation guidance (bench rotor, omega=120, one rev = 52 ms): a
-Tier-A config (~1,200 particles, 24 steps/rev, 3 revs) costs ~7 ms/step,
-about 3x slower than real time on one core; spreading the target loop
-across cores would be expected to bring it near real time. A Tier-B config
-(~4,300 particles, 36 steps/rev, 4 revs) is ~115 ms/step, an offline
-setting.
+Tier-A config (~1,200 particles, 24 steps/rev, 3 revs) costs ~2–3 ms/step
+with Rayon parallel (3.3x under the single-core ~7 ms), comfortably
+faster than real time on 4+ cores. A Tier-B config (~4,300 particles,
+36 steps/rev, 4 revs) is ~35–40 ms/step with parallel, a near-real-time
+offline setting.
 
 ### 7.1 Barnes-Hut tree evaluator (O(N log N))
 
@@ -691,7 +696,7 @@ lumped vortex (where it does not). Each evaluation point only ever has to
 touch a handful of near particles plus a modest number of far lumps -- a count
 that grows like $\log N$ rather than $N$ -- so the total cost grows like
 $N \log N$ instead of $N^2$. The bigger the wake, the more this pays off (see
-the table below: ~5x faster at 4,000 particles, ~13x at 16,000).
+the table below: ~8x faster at 4,000 particles, ~40x at 16,000).
 
 How "far enough to lump" is decided is the one knob: a box is treated as a
 single lumped vortex when it looks small from the evaluation point, i.e. when
@@ -727,23 +732,23 @@ worth it). A dipole term could be added later for more accuracy at a given
 `theta`.
 
 Measured direct O(N^2) vs tree (`theta = 0.5`) on the profiler's wake-like
-cloud (`bh_profile`, single core, release, min-noise 12 s runs). Both paths
-go through the same measurement harness (`bh_profile <N> 0 <s>` for direct,
-`bh_profile <N> 0.5 <s>` for the tree), so the speedup is an apples-to-apples
-back-to-back ratio on the same machine state:
+cloud (`bh_profile <N> 0|0.5 10 seq|par`, release, 10 s measurement windows).
+All four combinations measured back-to-back on the same machine state. Rayon
+parallel (`par`) benefits the direct path but gives essentially no speedup
+for the tree (the tree walk has per-target evaluation order that limits
+coarse-grained parallelism; at N=4,000–16,000 par≈seq for BH):
 
-| N | direct O(N^2) [ms] | tree theta=0.5 [ms] | speedup |
-|---:|---:|---:|---:|
-| 4,000 | 102.7 | 22.0 | 4.7x |
-| 8,000 | 406.2 | 50.5 | 8.0x |
-| 16,000 | 1,566.9 | 117.9 | 13.3x |
+| N | direct seq [ms] | direct par [ms] | par speedup | tree seq [ms] | direct-vs-tree (seq) |
+|---:|---:|---:|---:|---:|---:|
+| 4,000 | 96.8 | 38.0 | 2.5x | 11.6 | 8.4x |
+| 8,000 | 386.9 | 124.1 | 3.1x | 19.5 | 19.8x |
+| 16,000 | 1,595.6 | 466.7 | 3.4x | 39.8 | 40.1x |
 
-The direct column is clean O(N^2) (each doubling of N is ~4x time); the tree
-column grows ~2.3x per doubling (close to O(N log N)), so the crossover keeps
-widening with N -- the tree is worth more the larger the wake. The absolute
-ms figures are harness/machine specific (this cloud, this core), but the
-relative speedup is robust because direct and tree are measured in the same
-session.
+The direct columns scale cleanly O(N^2) (each doubling ≈ 4x); the tree column
+grows ~1.8x per doubling (close to O(N log N)); the direct-vs-tree speedup
+widening with N means the tree pays off more the larger the wake. The absolute
+ms figures are machine/session specific, but the par speedup and tree speedup
+ratios are consistent between runs.
 
 ---
 
