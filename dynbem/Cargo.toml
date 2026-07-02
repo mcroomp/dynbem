@@ -14,6 +14,6 @@ path = "src/lib.rs"
 crate-type = ["cdylib"]
 
 [dependencies]
-dynbem_rs = { path = "../dynbem_rs" }
+dynbem_rs = { path = "../dynbem_rs", features = ["parallel"] }
 pyo3 = { workspace = true }
 numpy = { workspace = true }

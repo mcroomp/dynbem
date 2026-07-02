@@ -75,6 +75,8 @@
 use aligned_vec::AVec;
 use bytemuck::cast_slice;
 use wide::f32x8;
+#[cfg(feature = "parallel")]
+use rayon::prelude::*;
 
 /// 1 / (4 pi), the Biot-Savart prefactor.
 const INV_4PI: f32 = 0.079_577_47;
@@ -223,11 +225,31 @@ pub fn induced_velocities(field: &ParticleField) -> Vec<[f32; 3]> {
     induced_at_points(field, &field.px, &field.py, &field.pz)
 }
 
+/// Evaluate the Biot-Savart kernel at a single target point given the
+/// pre-built `Chunks` view of the source field. Shared by the sequential
+/// and parallel paths in [`induced_at_points`].
+#[inline]
+fn eval_target(xj: f32, yj: f32, zj: f32, src: &Chunks<'_>, n_chunks: usize) -> [f32; 3] {
+    let xjv = f32x8::splat(xj);
+    let yjv = f32x8::splat(yj);
+    let zjv = f32x8::splat(zj);
+    let mut ux = f32x8::splat(0.0);
+    let mut uy = f32x8::splat(0.0);
+    let mut uz = f32x8::splat(0.0);
+    accumulate_chunks(xjv, yjv, zjv, src, 0, n_chunks, &mut ux, &mut uy, &mut uz);
+    reduce_velocity(ux, uy, uz)
+}
+
 /// Regularized-Biot-Savart velocity induced by `field` at a set of arbitrary
 /// probe points (e.g. blade-element control points). Same kernel and
 /// singularity-free formulation as [`induced_velocities`]; a probe point that
 /// coincides with a particle still gets a finite, self-free contribution
 /// because the cross product vanishes there.
+///
+/// When the `parallel` crate feature is enabled the outer target loop runs on
+/// the Rayon thread pool (one target per task, sources vectorized eight-wide
+/// per lane as in the sequential path). The number of threads is controlled by
+/// Rayon's global pool (defaults to the logical core count).
 pub fn induced_at_points(field: &ParticleField, tx: &[f32], ty: &[f32], tz: &[f32]) -> Vec<[f32; 3]> {
     let n = field.len();
     let m = tx.len();
@@ -261,16 +283,16 @@ pub fn induced_at_points(field: &ParticleField, tx: &[f32], ty: &[f32], tz: &[f3
     let src = Chunks::from_avecs(&px, &py, &pz, &ax, &ay, &az, &sg);
     let n_chunks = n_pad / 8;
 
+    #[cfg(not(feature = "parallel"))]
     for j in 0..m {
-        let xj = f32x8::splat(tx[j]);
-        let yj = f32x8::splat(ty[j]);
-        let zj = f32x8::splat(tz[j]);
-        let mut ux = f32x8::splat(0.0);
-        let mut uy = f32x8::splat(0.0);
-        let mut uz = f32x8::splat(0.0);
-        accumulate_chunks(xj, yj, zj, &src, 0, n_chunks, &mut ux, &mut uy, &mut uz);
-        out[j] = reduce_velocity(ux, uy, uz);
+        out[j] = eval_target(tx[j], ty[j], tz[j], &src, n_chunks);
     }
+
+    #[cfg(feature = "parallel")]
+    out.par_iter_mut().enumerate().for_each(|(j, o)| {
+        *o = eval_target(tx[j], ty[j], tz[j], &src, n_chunks);
+    });
+
     out
 }
 
@@ -982,18 +1004,34 @@ pub fn induced_at_points_bh(
 ) -> Vec<[f32; 3]> {
     let n = field.len();
     let m = tx.len();
-    let mut out = vec![[0.0f32; 3]; m];
     if n == 0 || m == 0 {
-        return out;
+        return vec![[0.0f32; 3]; m];
     }
     let tree = FlatTree::build(field);
     let theta2 = theta * theta;
-    // The far-cell batch can hold at most one monopole per node.
-    let mut far = Scratch::with_capacity(tree.nodes.len());
-    for j in 0..m {
-        out[j] = tree.evaluate(tx[j], ty[j], tz[j], theta2, &mut far);
+    let cap = tree.nodes.len();
+
+    #[cfg(not(feature = "parallel"))]
+    {
+        // The far-cell batch can hold at most one monopole per node.
+        let mut far = Scratch::with_capacity(cap);
+        let mut out = vec![[0.0f32; 3]; m];
+        for j in 0..m {
+            out[j] = tree.evaluate(tx[j], ty[j], tz[j], theta2, &mut far);
+        }
+        out
     }
-    out
+
+    #[cfg(feature = "parallel")]
+    // Each thread gets its own Scratch via map_init so there is no
+    // cross-thread mutable state.  FlatTree is read-only and Sync.
+    (0..m)
+        .into_par_iter()
+        .map_init(
+            || Scratch::with_capacity(cap),
+            |far, j| tree.evaluate(tx[j], ty[j], tz[j], theta2, far),
+        )
+        .collect()
 }
 
 /// Barnes-Hut version of [`induced_velocities`] (targets are the particles).

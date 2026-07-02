@@ -16,11 +16,15 @@ exclude = ["CLAUDE.md"]
 name = "dynbem_rs"
 path = "src/lib.rs"
 
+[features]
+parallel = ["dep:rayon"]
+
 [dependencies]
 aligned = "0.4"
 aligned-vec = "0.6"
 bytemuck = "1"
 wide = "0.7"
+rayon = { version = "1", optional = true }
 
 [dev-dependencies]
 criterion = { version = "0.5", default-features = false, features = ["cargo_bench_support"] }
