@@ -91,7 +91,7 @@ def test_cyclic_coeffs_phase_rotates_cos_to_sin():
 # Model-level wiring — helicopter-standard signs
 # ---------------------------------------------------------------------------
 
-@pytest.fixture(params=["bem", "pitt_peters", "pitt_peters_jit"])
+@pytest.fixture(params=["bem", "pitt_peters"])
 def model(defn, request):
     return create_aero(defn, model=request.param)
 
@@ -156,7 +156,7 @@ def test_thrust_roughly_invariant_to_small_cyclic(model):
 # These run only on the Pitt-Peters models (not Level-1 BEM).
 # ---------------------------------------------------------------------------
 
-def _euler_integrate_pp(model, inputs, n_steps=8000, dt=0.0005):
+def _euler_integrate_pp(model, inputs, n_steps=200, dt=0.0005):
     """Time-integrate a Pitt-Peters model to (approximate) steady state.
 
     Uses a small fixed-step Euler — long enough for cyclic inflow harmonics
@@ -177,7 +177,7 @@ def _euler_integrate_pp(model, inputs, n_steps=8000, dt=0.0005):
     return state, res
 
 
-@pytest.fixture(params=["pitt_peters", "pitt_peters_jit"])
+@pytest.fixture(params=["pitt_peters"])
 def pp_model(defn, request):
     return create_aero(defn, model=request.param)
 

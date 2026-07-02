@@ -38,7 +38,7 @@ Oye filter -- all load-bearing physics.
     +-- common.rs             numerical floors (EPS_*), VRS polynomial
     +-- cyclic.rs             swashplate -> theta_1c, theta_1s mapping
     +-- oye.rs                OyeBEMModel (annular 2-stage filter)
-   +-- servoflap.rs          quasi-static servo-flap-driven feathering model
+    +-- servoflap.rs          quasi-static servo-flap-driven feathering model
     +-- pitt_peters.rs        PittPetersModel (3-state L-matrix ODE)
     +-- polar.rs              LinearPolar, TabulatedPolar, Polar trait
     +-- rotor_definition.rs   Blade / Airfoil / Control / Inertia / etc.
@@ -47,6 +47,10 @@ Oye filter -- all load-bearing physics.
     +-- rotor_yaml.rs         YAML loader for RotorDefinition (only file
     |                         IO + serde site in this crate)
     +-- trim.rs               solve_trim_cyclic<M>, relax_inflow<M> (generic)
+    +-- vpm.rs                ParticleField + regularized Biot-Savart engine
+    |                         (induced_at_points, advect_rk2, push)
+    +-- vpm_rotor.rs          VpmRotor free-wake forward-flight coupling
+    |                         (implicit lifting-line; see VPM_DESIGN.md)
 
 ## Adding a new aero model
 

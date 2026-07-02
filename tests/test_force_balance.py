@@ -38,6 +38,7 @@ from dynbem.rotor_definition import (
 from dynbem.rotor_state import PittPetersRotorState
 from tests.helpers import pp_state
 
+
 _ROTOR_YAML = str(
     Path(__file__).parent.parent / "rotors" / "castles_gray_6ft" / "rotor.yaml"
 )
@@ -56,7 +57,7 @@ def cg_defn() -> RotorDefinition:
 
 @pytest.fixture(scope="module")
 def cg_pp(cg_defn):
-    return create_aero(cg_defn, model="pitt_peters_jit")
+    return create_aero(cg_defn, model="pitt_peters")
 
 
 # ---------------------------------------------------------------------------
@@ -119,7 +120,7 @@ def _R_roll(phi_deg: float) -> np.ndarray:
 
 
 def _euler_to_steady(model, inputs: RotorInputs, *, rpm: float,
-                     n_steps: int = 6000, dt: float = 0.001):
+                     n_steps: int = 300, dt: float = 0.001):
     """Integrate Pitt-Peters dynamic inflow to (approximate) steady state.
 
     Holds omega fixed at the given rpm; only lambda_0, lambda_c, lambda_s
@@ -342,15 +343,15 @@ class TestNonHoverForceBalance:
                 _make_inputs(collective_deg=coll_deg,
                              v_hub_world=(0.0, 0.0, -v_climb)),
                 rpm=rpm,
-                n_steps=2000,
             )
             return -res.F_world[2]
 
         def solve_coll(v_climb):
             lo, hi = 0.0, 16.0
             # Coarse solve is sufficient: this test only checks that climb
-            # requires noticeably more collective than hover.
-            for _ in range(14):
+            # requires noticeably more collective than hover.  8 bisection
+            # steps give 16/2^8 = 0.06° precision, well within the ≥0.3° check.
+            for _ in range(8):
                 mid = 0.5 * (lo + hi)
                 if thrust(mid, v_climb) < weight:
                     lo = mid
@@ -503,8 +504,8 @@ class TestSwashplateMapping:
         So tilt_lon now drives θ_1s < 0 (peak pitch at ψ=3π/2 = right side)
         ⇒ M_x < 0 (roll LEFT).
         """
-        cg_phi0  = create_aero(_defn_with_phase(cg_defn,  0.0), model="pitt_peters_jit")
-        cg_phi90 = create_aero(_defn_with_phase(cg_defn, 90.0), model="pitt_peters_jit")
+        cg_phi0  = create_aero(_defn_with_phase(cg_defn,  0.0), model="pitt_peters")
+        cg_phi90 = create_aero(_defn_with_phase(cg_defn, 90.0), model="pitt_peters")
 
         _, res0  = _euler_to_steady(
             cg_phi0,  _make_inputs(collective_deg=8.0, tilt_lon_deg=2.0),

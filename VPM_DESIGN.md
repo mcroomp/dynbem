@@ -259,7 +259,7 @@ flowchart TD
     B --> C[Gamma_i = 0.5 U c Cl, under-relax]
     C --> D[shed trailing particles from all blades]
     D --> E[RK2 advect free wake]
-    E --> F[FIFO-truncate oldest wake beyond n_wake_rev]
+    E --> F[FIFO-truncate oldest wake beyond max_particles cap]
     F --> G[accumulate thrust/torque over final rev]
     G --> A
 ```
@@ -585,7 +585,7 @@ trailing near-wake solved within each step (Section 5.5.2); tip-clustered
 close the residual hover thrust bias (Section 8); a monopole Barnes-Hut
 O(N log N) evaluator (`induced_at_points_bh` / `advect_rk2_bh`) for when N
 outgrows the direct path -- see Section 7.1; `ParticleField::particles()`
-iterator for downstream wake access; `VpmRotor::step_one()` / `dt_step()`
+iterator for downstream wake access; `VpmRotor::step_one(fc, state, dt)`
 for per-frame animation stepping with correct `psi` accumulation across
 calls (the `psi` field in `VpmRotorState` was added to fix a bug where
 all new particles were shed at azimuth 0 when calling `step_one` repeatedly);
@@ -628,8 +628,8 @@ advances the free wake by one azimuth increment (an O(N^2) Biot-Savart probe
 
 All four are measured single-core release-mode wall-clock. The BEM-family
 rows are the per-call cost (min of many calls). The direct VPM row is the
-run-average per step: a full `simulate()` at the default resolution (24
-steps/rev, 4 wake revs, 6 settle revs, 20 stations) marches 168 steps in
+run-average per step: a full `simulate(fc, dt, n_steps)` at the default resolution
+(max_particles=4800, 20 stations) marches 168 steps in
 79.7 s (min of 3), so ~0.47 s/step. That average understates the
 steady-state step, because the wake grows from empty to the ~7,900-particle
 cap over the first ~4 revs, so early steps are cheap and the full-cloud steps
@@ -975,19 +975,21 @@ acceleration timescale (which it is: one sub-step = 20 deg at 18 steps/rev, ≈ 
 
 ### 11.6 Integration cadence alignment (RESOLVED)
 
-`VpmRotorConfig` now uses a **fixed sub-step clock** `dt_step_s` (default 1/400 s) instead
-of deriving the sub-step duration from `n_steps_per_rev / omega`. The azimuthal spacing
-per sub-step is `dpsi = omega * dt_step_s`, which varies with rotor speed (physically
-correct -- equal time intervals, not equal angle intervals).
+`VpmRotorConfig` no longer carries any timestep concept. The sub-step duration
+is the caller's `dt`, passed directly into `step()`, `march()`, and `simulate()`:
 
-Alignment to a 400 Hz controller loop: set `dt_step_s = 1.0/400.0` (1 VPM sub-step per
-controller tick) or `dt_step_s = 1.0/800.0` (2 sub-steps per tick). The `AeroModel::step`
-call with `dt = 1/400` will then compute `n_sub = round(dt / dt_step_s)` as an exact integer
-with no rounding error. The `max_particles` field (formerly `n_wake_rev * n_steps_per_rev *
-shed_per_step`) is now explicit, giving the caller direct control over the wake buffer.
+- `step(inputs, state, dt)` -- one sub-step per call; `dpsi = omega * dt`.
+  Pass your controller loop `dt` (e.g. 1/400 s) and psi accumulates exactly.
+- `march(fc, warm, dt, n_steps)` -- settle for `n_steps` sub-steps of `dt`;
+  loads averaged over the second half. Caller computes
+  `n_steps = round(settle_s / dt)`.
+- `simulate(fc, dt, n_steps)` -- convenience wrapper around `march()`.
 
-**Removed fields:** `n_steps_per_rev`, `n_wake_rev`.
-**New fields:** `dt_step_s: f64`, `max_particles: usize`.
+`VpmRotorConfig` is now purely model fidelity: `max_particles`, `sigma`,
+`relax`, and the lifting-line / clustering / Barnes-Hut flags.
+
+**Removed fields:** `n_steps_per_rev`, `n_wake_rev`, `n_settle_rev`, `dt_step_s`.
+**New field:** `max_particles: usize`.
 
 ### 11.7 State serialization
 
@@ -1011,7 +1013,7 @@ target at current orbit rates, but would matter if the orbit radius or rate incr
 |----------|------|
 | 1 | Tabulated SG6042 polar (Section 11.3) -- affects every operating point |
 | 2 | Zero-torque autorotation omega iteration (Section 11.1) -- needed for any valid OP |
-| 3 | ~~Cadence decoupling~~ (Section 11.6 -- DONE: fixed-clock `dt_step_s`) |
+| 3 | ~~Cadence decoupling~~ (Section 11.6 -- DONE: caller dt drives step/march) |
 | 4 | ServoFlap wiring into VPM inner loop (Section 11.4) -- needed for control realism |
 | 5 | Validated windmill / reel-in regime (Section 11.1) -- only needed for reel-in analysis |
 | 6 | State serialization (Section 11.7) -- needed for checkpointing/factory drop-in |

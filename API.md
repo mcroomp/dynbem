@@ -24,7 +24,7 @@ Build an aero model from a `RotorDefinition`.
 | `model` string | Type returned | Dynamic inflow |
 |---|---|---|
 | `"quasi_static"` / `"bem"` | `QuasiStaticBEM` | none (steady BEM) |
-| `"pitt_peters"` / `"pitt_peters_jit"` | `PittPetersModel` | Pitt-Peters 3-state |
+| `"pitt_peters"` | `PittPetersModel` | Pitt-Peters 3-state |
 | `"oye"` / `"oye_bem"` | `OyeBEMModel` | Oye 2-stage annular |
 
 `n_psi_elements` controls the number of azimuth stations in the

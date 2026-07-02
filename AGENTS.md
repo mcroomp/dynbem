@@ -235,7 +235,7 @@ delegate to the helpers in
 Reach for these helpers when adding a new model rather than duplicating
 the math. The earlier guidance in this section ("don't unify the
 ψ-loop kernels") was written before the helpers existed and reflected
-a worry about JIT/closure overhead that doesn't apply to monomorphized
+a worry about closure/indirection overhead that doesn't apply to monomorphized
 Rust generics — empirical timing (see `dynbem/benchmarks/bench_rust_only.py`)
 confirms zero perf cost from the trait abstraction.
 

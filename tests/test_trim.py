@@ -43,7 +43,7 @@ def _inputs() -> RotorInputs:
     )
 
 
-@pytest.mark.parametrize("model_name", ["pitt_peters_jit", "oye"])
+@pytest.mark.parametrize("model_name", ["pitt_peters", "oye"])
 def test_solve_trim_cyclic_api_smoke(defn, model_name):
     aero = create_aero(defn, model=model_name)
     state = aero.initial_rotor_state()
@@ -52,7 +52,7 @@ def test_solve_trim_cyclic_api_smoke(defn, model_name):
         aero,
         state,
         _inputs(),
-        tolerance_Nm=1.7 if model_name == "pitt_peters_jit" else 0.05,
+        tolerance_Nm=1.7 if model_name == "pitt_peters" else 0.05,
     )
 
     assert isinstance(result.converged, bool)
@@ -62,7 +62,7 @@ def test_solve_trim_cyclic_api_smoke(defn, model_name):
     assert hasattr(result.final_state, "to_array")
 
 
-@pytest.mark.parametrize("model_name", ["pitt_peters_jit", "oye"])
+@pytest.mark.parametrize("model_name", ["pitt_peters", "oye"])
 def test_relax_inflow_api_smoke(defn, model_name):
     aero = create_aero(defn, model=model_name)
     s0 = aero.initial_rotor_state()

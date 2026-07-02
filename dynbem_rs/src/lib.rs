@@ -17,3 +17,5 @@ pub mod quasi_static_bem;
 pub mod rotor_definition;
 pub mod servoflap;
 pub mod trim;
+pub mod vpm;
+pub mod vpm_rotor;

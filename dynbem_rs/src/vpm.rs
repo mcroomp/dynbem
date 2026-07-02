@@ -183,6 +183,31 @@ impl ParticleField {
             )
         })
     }
+
+    /// Remove the oldest `k` particles from the front of the SoA arrays.
+    ///
+    /// `AVec` does not implement `drain`, so we rotate the survivors to the
+    /// front (an in-place O(n) slice operation) and then truncate.
+    pub fn drain_front(&mut self, k: usize) {
+        let n = self.px.len();
+        if k == 0 || k > n {
+            return;
+        }
+        let keep = n - k;
+        macro_rules! rotate_trunc {
+            ($field:expr) => {
+                $field.rotate_left(k);
+                $field.truncate(keep);
+            };
+        }
+        rotate_trunc!(self.px);
+        rotate_trunc!(self.py);
+        rotate_trunc!(self.pz);
+        rotate_trunc!(self.ax);
+        rotate_trunc!(self.ay);
+        rotate_trunc!(self.az);
+        rotate_trunc!(self.sigma);
+    }
 }
 
 /// Regularized-Biot-Savart velocity induced by the whole field at every

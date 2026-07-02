@@ -157,7 +157,7 @@ def simulate_attitude(
     *,
     # ---- rotor / aero ----
     defn:                RotorDefinition,
-    model:               str = "pitt_peters_jit",
+    model:               str = "pitt_peters",
     # ---- operating point (typically from a compute_map sweep cell) ----
     elevation_deg:       float,
     tension_n:           float,

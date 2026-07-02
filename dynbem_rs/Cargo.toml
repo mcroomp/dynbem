@@ -18,6 +18,9 @@ path = "src/lib.rs"
 
 [dependencies]
 aligned = "0.4"
+aligned-vec = "0.6"
+bytemuck = "1"
+wide = "0.7"
 
 [dev-dependencies]
 criterion = { version = "0.5", default-features = false, features = ["cargo_bench_support"] }
@@ -32,3 +35,7 @@ harness = false
 [[bin]]
 name = "profile_kernels"
 path = "bin/profile_kernels.rs"
+
+[[bin]]
+name = "bh_profile"
+path = "bin/bh_profile.rs"

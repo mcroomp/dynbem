@@ -1,0 +1,28 @@
+name: de_schutter_2018_reference
+
+description: >
+  Reference rotor fixture for staged De Schutter validation in this repo.
+  Geometry follows the 2018 paper values used in windpower docs:
+  3 blades, radius 3.1 m, root cutout 1.6 m, chord 0.125 m, AR ~= 12.
+  This fixture is intentionally simple and uses linear airfoil coefficients.
+
+rotor:
+  n_blades: 3
+  radius_m: 3.1
+  root_cutout_m: 1.6
+  chord_m: 0.125
+  twist_deg: 0.0
+  n_elements: 18
+  tip_loss: true
+
+airfoil:
+  designation: de_schutter_linear
+  source: "De Schutter 2018 Eq.25 linearized coefficients"
+  Re_design: 300000
+  CL0: 0.0
+  CL_alpha_per_rad: 5.385587406153931
+  CD0: 0.01
+  alpha_stall_deg: 15.0
+
+autorotation:
+  I_ode_kgm2: 20.0

@@ -73,7 +73,7 @@ impl RadialGrid {
     }
 }
 
-/// Tabulate any polar onto contiguous arrays for the JIT-equivalent inner
+/// Tabulate any polar onto contiguous arrays for the fast inner
 /// loop. TabulatedPolar passes its arrays through; analytical polars get
 /// sampled to 4001 points over [-pi/2, pi/2] (matching the Python version).
 #[derive(Clone, Debug)]

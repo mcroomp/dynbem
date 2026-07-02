@@ -47,7 +47,7 @@ def bem_model(defn):
 # ---------------------------------------------------------------------------
 
 def _euler_to_steady(model, theta_deg: float, rpm: float, v_climb_ms: float,
-                     n_steps: int = 6000, dt: float = 0.001,
+                     n_steps: int = 1500, dt: float = 0.001,
                      lam0_init: float = 0.0) -> tuple[float, float, float]:
     """Euler-integrate the Pitt-Peters inflow ODE to steady state.
 
@@ -99,7 +99,7 @@ def _euler_state_to_steady(
     model,
     inp: RotorInputs,
     state_init: PittPetersRotorState | None = None,
-    n_steps: int = 8000,
+    n_steps: int = 1500,
     dt: float = 0.0005,
 ) -> tuple[PittPetersRotorState, object]:
     """Euler-integrate the full Pitt-Peters inflow state to steady state.

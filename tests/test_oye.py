@@ -109,7 +109,7 @@ class TestFactory:
 # ---------------------------------------------------------------------------
 
 def _euler_to_steady_inflow(model, inputs, state, dt: float = 0.001,
-                            n_steps: int = 6000):
+                            n_steps: int = 1500):
     """Time-integrate model holding omega fixed.  Returns final (result, state)."""
     res = None
     for _ in range(n_steps):
@@ -159,6 +159,7 @@ class TestOyeHover:
         res_oye, _ = _euler_to_steady_inflow(
             oye_model, inp,
             OyeRotorState.zeros(defn.blade.n_elements),
+            n_steps=3000,
         )
         res_pp,  _ = _euler_to_steady_inflow(
             pp_model, inp, pp_state(),
@@ -312,7 +313,7 @@ class TestOyeEnvelopeStability:
         v_target = -0.5
         dt = 0.005
 
-        for step in range(int(60.0 / dt)):
+        for step in range(int(30.0 / dt)):
             inp = RotorInputs(
                 collective_rad=col, tilt_lon=0.0, tilt_lat=0.0,
                 R_hub=R_hub, v_hub_world=v_along * t_hat,

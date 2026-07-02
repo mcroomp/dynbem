@@ -392,13 +392,11 @@ developer of the Pitt-Peters model. Specifically:
   ±15π·X/64 wake-skew coupling)
 - Eq 11 — Inflow distribution `υ(r, ψ) = ν₀ + ν_s · r · sin(ψ) + ν_c · r · cos(ψ)`
 
-Used in [`dynbem/pitt_peters.py`](dynbem/pitt_peters.py) and
-[`dynbem/pitt_peters_jit.py`](dynbem/pitt_peters_jit.py).
+Used in [`dynbem/pitt_peters.py`](dynbem/pitt_peters.py).
 
 **No tolerance to report** — this is formulation, not data. The tests
 that exercise Pitt-Peters
 ([`tests/test_pitt_peters.py`](tests/test_pitt_peters.py),
-[`tests/test_pitt_peters_jit.py`](tests/test_pitt_peters_jit.py),
 [`tests/test_cyclic.py`](tests/test_cyclic.py)) verify Eq-10 structure:
 diagonal terms, off-diagonal cross-coupling sign, wake-skew angle
 response to advance ratio, and λ_c/λ_s response to cyclic forcing.

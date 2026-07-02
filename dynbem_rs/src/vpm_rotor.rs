@@ -939,7 +939,7 @@ mod tests {
         let base = vpm.simulate(&hover(8.0), 1.0 / 400.0, 400);
         let mut fc = hover(8.0);
         fc.tilt_lat = 3.0_f64.to_radians();
-        let tilted = vpm.simulate(&fc);
+        let tilted = vpm.simulate(&fc, 1.0 / 400.0, 400);
         assert!(
             tilted.mx_hub > base.mx_hub && tilted.mx_hub > 0.0,
             "tilt_lat>0 should give roll-right Mx>0: base {:.3} -> {:.3}",

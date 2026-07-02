@@ -146,7 +146,7 @@ def simulate_point(
     Parameters
     ----------
     model           AeroBase instance (create once, reuse across calls) —
-                    any of PittPetersModel, PittPetersModelJIT, OyeBEMModel, etc.
+                    any of PittPetersModel, OyeBEMModel, etc.
     mass_kg         vehicle mass for force balance
     col_rad         initial collective pitch (rad); ignored when warm_start provided
     elevation_deg   tether elevation above horizontal (degrees)
@@ -333,7 +333,7 @@ def ramp_column_worker(args: dict) -> dict:
     from dynbem import create_aero
 
     defn        = args["defn"]
-    model_name  = args.get("model", "pitt_peters_jit")
+    model_name  = args.get("model", "pitt_peters")
     model       = create_aero(defn, model=model_name)
 
     mass_kg = float(args["mass_kg"])

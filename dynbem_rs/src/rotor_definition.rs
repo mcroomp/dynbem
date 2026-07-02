@@ -125,6 +125,7 @@ pub struct ControlProperties {
 ///
 /// For the Kaman design the feathering axis is placed at the aerodynamic centre
 /// so the aerodynamic restoring moment is zero; set ac_offset_m=0 for this.
+#[allow(non_snake_case)]
 #[derive(Clone, Debug)]
 pub struct ServoFlapActuation {
     /// Blade pitch moment of inertia about the feathering axis [kg*m^2].
@@ -144,6 +145,7 @@ pub struct ServoFlapActuation {
 /// In servo-flap mode the swashplate collective AND cyclic drive flap deflection
 /// delta_f(psi) = delta_f0 + delta_f1c*cos(psi) + delta_f1s*sin(psi); delta_f
 /// produces an aerodynamic pitching moment about the feathering axis.
+#[allow(non_snake_case)]
 #[derive(Clone, Debug)]
 pub struct ServoFlapGeometry {
     /// Pitching moment coefficient per unit flap deflection [rad^-1].
@@ -168,6 +170,7 @@ pub struct ServoFlapGeometry {
 /// and the hub moment is zero (all absorbed by flapping).
 /// For a rigid blade: nu_beta -> infinity, hub moment = full aero moment.
 /// For a flexible blade: nu_beta ~ 1.05-1.15 typically.
+#[allow(non_snake_case)]
 #[derive(Clone, Debug)]
 pub struct FlapProperties {
     /// Blade flap moment of inertia about the (virtual) flap hinge [kg*m^2].

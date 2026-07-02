@@ -162,46 +162,59 @@ def compute_grid(params: dict[str, Any] | None = None, **kwargs: Any) -> dict[st
     t0 = time.time()
     done = 0
 
-    with ProcessPoolExecutor(max_workers=n_workers) as pool:
-        future_to_idx = {
-            pool.submit(ramp_column_worker, wargs): idx
-            for idx, wargs in worker_jobs
-        }
-        for future in as_completed(future_to_idx):
-            vi, wi, ai = future_to_idx[future]
-            done += 1
+    def _process_result(res, vi, wi, ai):
+        nonlocal done
+        done += 1
+        ret_t  = res["tensions"]
+        ret_c  = res["cols"]
+        ret_v  = res["v_alongs"]
+        ret_s  = res["sats"]
+        ret_o  = res["omegas"]
+        ret_tl = res["tilts"]
+        ret_lc = res["lambda_c"]
+        ret_ls = res["lambda_s"]
+        for si, t_s in enumerate(tensions_arr):
+            idx_near = int(np.argmin(np.abs(ret_t - t_s)))
+            if abs(ret_t[idx_near] - t_s) < sample_dn:
+                cols_arr    [vi, wi, ai, si] = ret_c[idx_near]
+                v_alongs_arr[vi, wi, ai, si] = ret_v[idx_near]
+                sats_arr    [vi, wi, ai, si] = ret_s[idx_near]
+                omegas_arr  [vi, wi, ai, si] = ret_o[idx_near]
+                tilts_arr   [vi, wi, ai, si] = ret_tl[idx_near]
+                lambda_c_arr[vi, wi, ai, si] = ret_lc[idx_near]
+                lambda_s_arr[vi, wi, ai, si] = ret_ls[idx_near]
+        elapsed = time.time() - t0
+        rate = done / elapsed
+        eta = (total - done) / rate if rate > 0 else 0
+        print(f"  [{done}/{total}] el={elevations[ai]:.0f}deg "
+              f"w={winds[wi]:.0f} vt={v_targets[vi]:+.1f}  ETA {eta:.0f}s")
+
+    if n_workers <= 1:
+        # Run inline to avoid subprocess startup overhead (significant for
+        # short jobs, e.g. unit tests).
+        for (vi, wi, ai), wargs in worker_jobs:
             try:
-                res = future.result()
+                res = ramp_column_worker(wargs)
+                _process_result(res, vi, wi, ai)
             except Exception as exc:
-                print(f"  [{done}/{total}] el={elevations[ai]:.0f}deg "
+                print(f"  [{done+1}/{total}] el={elevations[ai]:.0f}deg "
                       f"w={winds[wi]} vt={v_targets[vi]:+.1f} -- ERROR: {exc}")
-                continue
-
-            # Align returned arrays onto the shared tension axis
-            ret_t = res["tensions"]
-            ret_c = res["cols"]
-            ret_v = res["v_alongs"]
-            ret_s = res["sats"]
-            ret_o = res["omegas"]
-            ret_tl = res["tilts"]
-            ret_lc = res["lambda_c"]
-            ret_ls = res["lambda_s"]
-            for si, t_s in enumerate(tensions_arr):
-                idx_near = int(np.argmin(np.abs(ret_t - t_s)))
-                if abs(ret_t[idx_near] - t_s) < sample_dn:
-                    cols_arr    [vi, wi, ai, si] = ret_c[idx_near]
-                    v_alongs_arr[vi, wi, ai, si] = ret_v[idx_near]
-                    sats_arr    [vi, wi, ai, si] = ret_s[idx_near]
-                    omegas_arr  [vi, wi, ai, si] = ret_o[idx_near]
-                    tilts_arr   [vi, wi, ai, si] = ret_tl[idx_near]
-                    lambda_c_arr[vi, wi, ai, si] = ret_lc[idx_near]
-                    lambda_s_arr[vi, wi, ai, si] = ret_ls[idx_near]
-
-            elapsed = time.time() - t0
-            rate = done / elapsed
-            eta = (total - done) / rate if rate > 0 else 0
-            print(f"  [{done}/{total}] el={elevations[ai]:.0f}deg "
-                  f"w={winds[wi]:.0f} vt={v_targets[vi]:+.1f}  ETA {eta:.0f}s")
+                done += 1
+    else:
+        with ProcessPoolExecutor(max_workers=n_workers) as pool:
+            future_to_idx = {
+                pool.submit(ramp_column_worker, wargs): idx
+                for idx, wargs in worker_jobs
+            }
+            for future in as_completed(future_to_idx):
+                vi, wi, ai = future_to_idx[future]
+                try:
+                    res = future.result()
+                    _process_result(res, vi, wi, ai)
+                except Exception as exc:
+                    print(f"  [{done+1}/{total}] el={elevations[ai]:.0f}deg "
+                          f"w={winds[wi]} vt={v_targets[vi]:+.1f} -- ERROR: {exc}")
+                    done += 1
 
     print(f"Done in {time.time() - t0:.1f}s.")
 
@@ -271,7 +284,6 @@ def load_grid(path: str) -> dict[str, Any]:
     else:
         out["lambda_c_arr"] = np.full_like(out["cols_arr"], np.nan)
         out["lambda_s_arr"] = np.full_like(out["cols_arr"], np.nan)
-    # Pre-multi-model maps default to Pitt-Peters JIT.
     out["model"] = str(raw["model"][0]) if "model" in raw.files else "pitt_peters"
     return out
 
@@ -663,7 +675,7 @@ if __name__ == "__main__":
                         choices=["col", "rpm", "tilt"],
                         help="Quantity to plot: col (collective), rpm, tilt")
     parser.add_argument("--model",    default=None,
-                        choices=["bem", "pitt_peters", "pitt_peters_jit", "oye"],
+                        choices=["bem", "pitt_peters", "oye"],
                         help="Aero model.  Default: pitt_peters (the grid preset).  "
                              "Use 'oye' for an annulus-local alternative that's "
                              "more stable at descent + edgewise wind operating points.")

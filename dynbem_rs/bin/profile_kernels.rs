@@ -20,6 +20,7 @@ use dynbem_rs::quasi_static_bem::{solve_bem_element, BEMElementGeometry, QuasiSt
 use dynbem_rs::rotor_definition::{
     BladeGeometry, LinearPolarParameters, PitchActuation, RotorDefinition,
 };
+use dynbem_rs::vpm::{advect_rk2, induced_velocities, ParticleField};
 use std::env;
 use std::time::Instant;
 
@@ -160,6 +161,127 @@ fn bench_sweep(iterations: usize) {
     );
 }
 
+/// Deterministic pseudo-random particle cloud (LCG, no rand dependency).
+fn seed_cloud(n: usize) -> ParticleField {
+    let mut state = 0x9E37_79B9u32;
+    let mut rng = || {
+        state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+        (state >> 8) as f32 / (1u32 << 24) as f32 - 0.5
+    };
+    let mut f = ParticleField::with_capacity(n);
+    for _ in 0..n {
+        f.push(
+            [rng() * 6.0, rng() * 6.0, rng() * 6.0],
+            [rng() * 0.1, rng() * 0.1, rng() * 0.1],
+            0.15,
+        );
+    }
+    f
+}
+
+fn bench_vpm() {
+    // One "solver step" = one advect_rk2 (two O(N^2) velocity evaluations).
+    // Report per-step wall time across a range of particle counts, plus the
+    // per-velocity-evaluation cost. Iteration count shrinks as N grows to
+    // keep each measurement ~1s.
+    println!("VPM direct O(N^2), SIMD (wide::f32x8), single-threaded:");
+    println!(
+        "{:>8}  {:>12}  {:>14}  {:>16}",
+        "N", "steps", "us/eval", "ms/advect_step"
+    );
+    for &n in &[500usize, 2_000, 5_000, 10_000, 20_000] {
+        let mut field = seed_cloud(n);
+        // Scale iterations so total work ~ constant.
+        let iters = (2_000_000_000 / (n * n).max(1)).clamp(3, 2000);
+
+        // Time a bare velocity evaluation.
+        let start = Instant::now();
+        for _ in 0..iters {
+            let v = induced_velocities(&field);
+            std::hint::black_box(&v);
+        }
+        let per_eval_us = start.elapsed().as_secs_f64() * 1e6 / iters as f64;
+
+        // Time a full RK2 advect step (two evaluations + position updates).
+        let start = Instant::now();
+        for _ in 0..iters {
+            advect_rk2(&mut field, [8.0, 0.0, -1.0], 1e-4);
+        }
+        let per_step_ms = start.elapsed().as_secs_f64() * 1e3 / iters as f64;
+
+        println!(
+            "{:>8}  {:>12}  {:>14.2}  {:>16.4}",
+            n, iters, per_eval_us, per_step_ms
+        );
+    }
+}
+
+fn bench_compare() {
+    // One call of each BEM-family model (fixed cost, independent of wake
+    // history) against one VPM velocity evaluation at several N. These are
+    // different units of work -- a BEM "call" is a full converged rotor
+    // solution, a VPM "eval" is one wake-convection velocity field -- so read
+    // the table as "cost of one solver step", not as equal fidelity.
+    let n_iter = 20_000;
+    println!("Per-call cost of one solver step (single-threaded):\n");
+
+    let defn = make_rotor_definition(30);
+    let polar = LinearPolar::new(0.0, 5.7, 0.01, 15.0_f64.to_radians());
+    let inputs = make_inputs();
+
+    let bem = QuasiStaticBEM::build(defn.clone(), 72, polar.clone());
+    let bem_state = QuasiStaticRotorState;
+    let t = Instant::now();
+    for _ in 0..n_iter {
+        std::hint::black_box(bem.compute_forces(&inputs, &bem_state));
+    }
+    println!(
+        "  BEM (quasi-static, 30 elem x 72 psi)   {:>10.3} us/call",
+        t.elapsed().as_secs_f64() * 1e6 / n_iter as f64
+    );
+
+    let pp = PittPetersModel::build(defn.clone(), 72, polar.clone());
+    let pp_state = PittPetersRotorState {
+        lambda_0: 0.06,
+        lambda_c: 0.01,
+        lambda_s: -0.008,
+    };
+    let t = Instant::now();
+    for _ in 0..n_iter {
+        std::hint::black_box(pp.compute_forces(&inputs, &pp_state));
+    }
+    println!(
+        "  Pitt-Peters (30 elem x 72 psi)         {:>10.3} us/call",
+        t.elapsed().as_secs_f64() * 1e6 / n_iter as f64
+    );
+
+    let oye = OyeBEMModel::build_with_k(defn.clone(), 72, polar, OYE_K);
+    let oye_state = OyeRotorState::zeros(defn.blade.n_elements);
+    let t = Instant::now();
+    for _ in 0..n_iter {
+        std::hint::black_box(oye.compute_forces(&inputs, &oye_state));
+    }
+    println!(
+        "  Oye (30 elem x 72 psi)                 {:>10.3} us/call",
+        t.elapsed().as_secs_f64() * 1e6 / n_iter as f64
+    );
+
+    println!();
+    for &n in &[500usize, 2_000, 5_000, 10_000] {
+        let field = seed_cloud(n);
+        let iters = (2_000_000_000 / (n * n).max(1)).clamp(3, 2000);
+        let t = Instant::now();
+        for _ in 0..iters {
+            std::hint::black_box(induced_velocities(&field));
+        }
+        println!(
+            "  VPM velocity eval, N = {:>6}          {:>10.3} us/eval",
+            n,
+            t.elapsed().as_secs_f64() * 1e6 / iters as f64
+        );
+    }
+}
+
 fn main() {
     let args: Vec<String> = env::args().collect();
     let bench_name = if args.len() > 1 {
@@ -175,15 +297,20 @@ fn main() {
         "pitt_peters" => bench_pitt_peters(100_000),
         "oye" => bench_oye(50_000),
         "sweep" => bench_sweep(5_000),
+        "vpm" => bench_vpm(),
+        "compare" => bench_compare(),
         "all" => {
             bench_solve_bem_element(100_000);
             bench_pitt_peters(10_000);
             bench_oye(5_000);
             bench_sweep(5_000);
+            bench_vpm();
         }
         _ => {
             eprintln!("Unknown benchmark: {}", bench_name);
-            eprintln!("Available: solve_bem_element, pitt_peters, oye, sweep, all");
+            eprintln!(
+                "Available: solve_bem_element, pitt_peters, oye, sweep, vpm, compare, all"
+            );
             std::process::exit(1);
         }
     }

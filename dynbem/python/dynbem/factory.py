@@ -82,8 +82,11 @@ def create_aero(
     model
       "quasi_static" / "bem"   QuasiStaticBEM (Level 1, no dynamic inflow)
       "pitt_peters"            PittPetersModel (Level 2, Pitt-Peters L-matrix)
-      "pitt_peters_jit"        alias for pitt_peters (Rust is already compiled)
       "oye" / "oye_bem"        OyeBEMModel (Level 2, Oye 2-stage annular inflow)
+      "vpm" / "vpm_rotor" / "free_wake"
+                               VpmRotor (Level 3, forward-flight free-wake VPM;
+                               no single-shot compute_forces -- advance with
+                               step(inputs, state, dt))
     """
     if polar is None:
         polar = build_polar(defn.airfoil)
@@ -93,13 +96,16 @@ def create_aero(
     from . import OyeBEMModel, PittPetersModel, QuasiStaticBEM  # noqa: WPS433
     if model in ("quasi_static", "bem"):
         return QuasiStaticBEM(defn, polar, n_psi_elements)
-    if model in ("pitt_peters", "pitt_peters_jit", "jit", "pitt_peters_numpy"):
+    if model in ("pitt_peters",):
         return PittPetersModel(defn, polar, n_psi_elements)
     if model in ("oye", "oye_bem"):
         return OyeBEMModel(defn, polar, n_psi_elements, 0.6)
+    if model in ("vpm", "vpm_rotor", "free_wake"):
+        from . import VpmRotor  # noqa: WPS433
+        return VpmRotor(defn, polar)
     raise ValueError(
         f"Unknown aero model {model!r}. "
-        "Choose 'quasi_static' (alias 'bem'), 'pitt_peters', or 'oye'."
+        "Choose 'quasi_static' (alias 'bem'), 'pitt_peters', 'oye', or 'vpm'."
     )
 
 

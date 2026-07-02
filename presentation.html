@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>dynbem -- a rotor aero model for the RAWES work</title>
+<style>
+  :root {
+    --bg: #0e1626;
+    --bg2: #15223b;
+    --panel: #182840;
+    --fg: #e8eef7;
+    --muted: #9fb2cc;
+    --accent: #4ea3ff;
+    --accent2: #6fe0c0;
+    --border: #2a3a57;
+    --code-bg: #0b2036;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  #deck { height: 100vh; width: 100vw; position: relative; overflow: hidden; }
+  .slide {
+    position: absolute; inset: 0;
+    display: none;
+    flex-direction: column;
+    justify-content: center;
+    padding: 6vh 9vw 9vh;
+    animation: fade .35s ease;
+    overflow: hidden;
+  }
+  .slide.active { display: flex; }
+  .fit {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    transform-origin: center center;
+    will-change: transform;
+  }
+  @keyframes fade { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+
+  .kicker {
+    text-transform: uppercase;
+    letter-spacing: .18em;
+    font-size: .8rem;
+    color: var(--accent);
+    margin-bottom: .8rem;
+    font-weight: 600;
+  }
+  h1 {
+    font-size: clamp(2rem, 4.6vw, 3.4rem);
+    line-height: 1.1;
+    margin: 0 0 1.2rem;
+    background: linear-gradient(100deg, #fff 10%, var(--accent2) 90%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  h2 {
+    font-size: clamp(1.5rem, 3.2vw, 2.4rem);
+    line-height: 1.15;
+    margin: 0 0 1.4rem;
+    color: #fff;
+  }
+  .lead { font-size: clamp(1rem, 1.7vw, 1.35rem); color: var(--muted); max-width: 60ch; line-height: 1.5; }
+  ul { margin: .4rem 0 0; padding: 0; list-style: none; max-width: 78ch; }
+  li {
+    position: relative;
+    padding: .55rem 0 .55rem 1.6rem;
+    font-size: clamp(.98rem, 1.55vw, 1.25rem);
+    line-height: 1.5;
+    border-bottom: 1px solid rgba(255,255,255,.04);
+  }
+  li::before {
+    content: "";
+    position: absolute; left: 0; top: 1.15rem;
+    width: .55rem; height: .55rem; border-radius: 2px;
+    background: var(--accent);
+    transform: rotate(45deg);
+  }
+  strong { color: #fff; font-weight: 650; }
+  code {
+    font-family: "SF Mono", "Cascadia Code", Consolas, monospace;
+    background: var(--code-bg);
+    color: var(--accent2);
+    padding: .12em .4em;
+    border-radius: 5px;
+    font-size: .9em;
+    border: 1px solid var(--border);
+  }
+  .note {
+    border-left: 3px solid var(--accent2);
+    background: rgba(111,224,192,.07);
+    padding: 1rem 1.3rem;
+    border-radius: 0 8px 8px 0;
+    color: var(--muted);
+    font-size: clamp(.95rem, 1.5vw, 1.18rem);
+    line-height: 1.55;
+    max-width: 70ch;
+  }
+  table {
+    border-collapse: collapse;
+    margin-top: .6rem;
+    width: 100%;
+    max-width: 90ch;
+    font-size: clamp(.85rem, 1.4vw, 1.1rem);
+  }
+  th, td {
+    text-align: left;
+    padding: .7rem 1rem;
+    border-bottom: 1px solid var(--border);
+  }
+  thead th {
+    color: var(--accent);
+    border-bottom: 2px solid var(--accent);
+    font-size: .9em;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+  }
+  tbody td:first-child { color: var(--muted); font-weight: 600; }
+  tbody tr:hover { background: rgba(78,163,255,.06); }
+  .summary { margin-top: 1.4rem; font-size: clamp(.95rem,1.5vw,1.2rem); color: var(--muted); max-width: 80ch; line-height: 1.55; }
+
+  .links a { color: var(--accent); text-decoration: none; border-bottom: 1px solid rgba(78,163,255,.3); }
+  .links a:hover { border-bottom-color: var(--accent); }
+  .ref { margin-top: 1.4rem; color: var(--muted); font-size: 1rem; line-height: 1.5; max-width: 70ch; }
+
+  footer.credit {
+    margin-top: 2rem; color: #6f80a0; font-size: .9rem; font-style: italic; max-width: 70ch; line-height: 1.5;
+  }
+
+  /* chrome */
+  .hud {
+    position: fixed; bottom: 1.2rem; right: 1.6rem;
+    display: flex; align-items: center; gap: 1rem;
+    color: var(--muted); font-size: .85rem; z-index: 10;
+  }
+  .hud button {
+    background: var(--bg2); color: var(--fg);
+    border: 1px solid var(--border); border-radius: 8px;
+    width: 2.2rem; height: 2.2rem; cursor: pointer; font-size: 1.1rem;
+    transition: background .15s;
+  }
+  .hud button:hover { background: var(--accent); color: #06101f; border-color: var(--accent); }
+  .counter { font-variant-numeric: tabular-nums; min-width: 3.5rem; text-align: center; }
+  .progress {
+    position: fixed; top: 0; left: 0; height: 3px;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    transition: width .35s ease; z-index: 10;
+  }
+  .brand {
+    position: fixed; top: 1.1rem; left: 1.8rem;
+    font-size: .82rem; letter-spacing: .12em; text-transform: uppercase;
+    color: #6f80a0; z-index: 10;
+  }
+  .hint { position: fixed; bottom: 1.3rem; left: 1.8rem; color: #56688a; font-size: .8rem; z-index: 10; }
+</style>
+</head>
+<body>
+<div class="progress" id="progress"></div>
+<div class="brand">dynbem &middot; RAWES aero</div>
+
+<div id="deck">
+
+  <!-- Title -->
+  <section class="slide active">
+    <div class="kicker">Airborne Wind Energy &middot; Rotor aerodynamics</div>
+    <h1>dynbem -- a rotor aero model for the RAWES work</h1>
+    <p class="lead">An overview of a blade-element rotor code built to support
+      Christof's airborne wind energy project. I focus on the
+      <strong>quasi-static BEM</strong>, the part I understand best and use most.</p>
+    <div class="note" style="margin-top:2rem">
+      Before I start: I'm a software/engineering developer, not an aerodynamicist.
+      I built this with a lot of AI assistance and by leaning on published rotor papers
+      for the physics and the validation numbers. So read this as "here is what
+      the tool does and where I've checked it," not as me claiming domain expertise.
+      Corrections welcome.
+    </div>
+  </section>
+
+  <!-- Slide 1 -->
+  <section class="slide">
+    <div class="kicker">Slide 1</div>
+    <h2>What this is, and why I built it</h2>
+    <ul>
+      <li>The goal was a practical rotor aero model to support <strong>Christof's RAWES work</strong> -- a tethered rotary kite steered with cyclic pitch.</li>
+      <li>The system-level AWE models I read (e.g. De Schutter 2018) represent the rotor with a <strong>single actuator-disk induction factor</strong> <code>a</code>. That is elegant for optimal control, but I wanted something that resolves the blade a bit more, so we could look at loads and at off-axis (tilted) operation.</li>
+      <li><code>dynbem</code> is the result: a small <strong>blade-element</strong> rotor code, written in Rust with a Python API, quick enough to evaluate many times inside a trim or sweep.</li>
+      <li>I'm not presenting a new method -- it's a careful implementation of textbook/paper methods. The value I'm hoping to offer is a working, checked tool, and an honest account of its limits.</li>
+    </ul>
+  </section>
+
+  <!-- Slide 2 -->
+  <section class="slide">
+    <div class="kicker">Slide 2</div>
+    <h2>The quasi-static BEM</h2>
+    <ul>
+      <li>It's <strong>blade-element momentum theory</strong>: slice the blade along its span, work out the local airflow and forces on each slice, and step around the rotor azimuth so a tilted rotor's advancing/retreating difference shows up.</li>
+      <li><strong>"Quasi-static"</strong> means there's no memory between calls -- each annulus solves its own steady inflow inside the calculation. One call is just operating-point in, forces out. (Same spirit as the single <code>a</code> in the actuator-disk model, solved locally per slice instead of once for the whole disk.)</li>
+      <li>It handles <strong>both</strong> a rotor pushing air (helicopter-like) and a rotor freewheeling on the wind (autorotation / windmill-like), in one code path. For the windmill side I followed Ning's 2014 method.</li>
+      <li>It also includes the standard <strong>tip/hub loss</strong> corrections, real <strong>airfoil data tables</strong>, and cyclic pitch input.</li>
+      <li>There's also a <strong>quasi-static blade-flapping correction</strong> (an equivalent spring-hinge that bleeds off most of the hub moment) and support for <strong>Kaman-style servo-flaps</strong> (a 1/rev feathering solve) -- another feature I haven't seen in mainstream rotor BEM codes. Both are quasi-static approximations with known gaps, so "implemented and plausible" rather than "validated."</li>
+    </ul>
+  </section>
+
+  <!-- Slide 3 -->
+  <section class="slide">
+    <div class="kicker">Slide 3</div>
+    <h2>How the flight phases map onto the model</h2>
+    <p class="lead">You all know the pumping cycle, so just the part that touches the aero model:</p>
+    <ul>
+      <li><strong>Helicopter (thrusting) mode is only takeoff and landing</strong> -- an external motor spins the rotor up and releases it, and the same case handles the final flare. The rotor only actively pushes air there.</li>
+      <li><strong>The working flight is autorotation</strong> (windmill mode); the harvest is the winch reel-out/reel-in delta, not a rotor torque path. Having both modes in one code path means no model switch between the phases.</li>
+      <li><strong>The key reason I think BEM matters here is non-axial inflow.</strong> A steered kite flies with its rotor axis well off the wind, so the disk sees strong in-plane flow and a large advancing/retreating asymmetry. My understanding is that solvers like <strong>OpenFAST (AeroDyn BEMT) only run the windmill/energy-extraction branch in axial flow</strong> -- the azimuth-resolved windmill solve here was specifically extended to work with in-plane wind inside the <code>psi</code>-loop. I'd really like to know if I've mischaracterised that.</li>
+      <li>Because it carries <strong>no state</strong>, the aero call can be used directly in a steady trim solve, and the <strong>cyclic pitch</strong> used to steer maps onto the model's existing pitch inputs.</li>
+    </ul>
+  </section>
+
+  <!-- Slide 4 -->
+  <section class="slide">
+    <div class="kicker">Slide 4</div>
+    <h2>How it relates to the actuator-disk model you may know</h2>
+    <p class="lead">Same basic idea (steady momentum balance, no time history), at a finer resolution. Corrections to this comparison welcome.</p>
+    <table>
+      <thead>
+        <tr><th>Aspect</th><th>Actuator disk (AWE system model)</th><th>This quasi-static BEM</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Induction</td><td>Single number <code>a</code> for the rotor</td><td>Solved per spanwise slice</td></tr>
+        <tr><td>Along the blade</td><td>Not resolved</td><td>Full span + tip/hub loss</td></tr>
+        <tr><td>Around the rotor</td><td>Not resolved (axial)</td><td>Stepped through azimuth</td></tr>
+        <tr><td>Energy extraction</td><td>Momentum only, axial</td><td>Windmill solver + in-plane wind</td></tr>
+        <tr><td>Airfoil</td><td>Linear lift, simple drag</td><td>Measured polar tables, stall</td></tr>
+        <tr><td>Hub moments</td><td>Not modeled</td><td>Computed from the blade forces</td></tr>
+      </tbody>
+    </table>
+    <p class="summary">A <strong>more detailed version of the same closure</strong>, not a different theory --
+      it adds resolution beyond a single <code>a</code>, while staying compatible with how the AWE models are set up.
+      The one place it may go beyond a mainstream BEM code like OpenFAST is the <strong>windmill solve with in-plane wind</strong> -- again, a claim I'd like checked.</p>
+  </section>
+
+  <!-- Slide 5 -->
+  <section class="slide">
+    <div class="kicker">Slide 5</div>
+    <h2>Adding unsteady inflow: Pitt-Peters</h2>
+    <p class="lead">When the rotor state changes quickly (gusts, fast cyclic, manoeuvres), the steady inflow assumption breaks down. Pitt-Peters is the first of two optional <strong>dynamic-inflow</strong> models that relax it.</p>
+    <ul>
+      <li>It carries <strong>three inflow states</strong> -- one uniform plus two cyclic (a fore-aft and a side-to-side tilt of the inflow across the disk) -- and lets them <strong>lag</strong> the loads through first-order ODEs rather than snapping to equilibrium.</li>
+      <li>A small coupling matrix ties thrust and the two hub moments into those inflow states, so it reproduces <strong>wake skew</strong> (the inflow leaning back as the rotor tilts) and the way cyclic inflow <strong>eases the hub moment</strong> a steered rotor would otherwise feel.</li>
+      <li>I followed Peters' own formulation for the matrix and time constants; the signs were the fiddly part and are documented in the repo.</li>
+      <li>Honest caveat: it can get <strong>numerically stiff</strong> at high advance ratio combined with descent -- exactly some of the tilted, autorotating points this application cares about -- which is part of why a second model exists.</li>
+    </ul>
+  </section>
+
+  <!-- Slide 6 -->
+  <section class="slide">
+    <div class="kicker">Slide 6</div>
+    <h2>A steadier alternative: Oye</h2>
+    <p class="lead">Oye is the second dynamic-inflow option, chosen specifically for the regimes where Pitt-Peters becomes stiff.</p>
+    <ul>
+      <li>Instead of disk-wide harmonics, it puts a <strong>two-stage time filter on each annulus</strong> independently: the momentum target feeds an intermediate state, which feeds the inflow the blade actually sees.</li>
+      <li>Because the annuli don't talk to each other, there's <strong>no global feedback loop</strong>, so it stays numerically well-behaved in descent and high-advance-ratio cases that strain Pitt-Peters. This is the same trade-off OpenFAST's DBEMT makes (I used its default filter constant).</li>
+      <li>The cost: it has <strong>no cyclic-inflow harmonics and no wake-skew term</strong>, so it won't reproduce the inflow-driven hub-moment relief that Pitt-Peters does. Cyclic <em>control</em> still works; the cyclic inflow <em>feedback</em> doesn't.</li>
+      <li>Rough rule I'm working with: <strong>Pitt-Peters for richer physics, Oye for stability</strong> -- and quasi-static when I just need steady loads. I'd welcome views on which is the right default here.</li>
+    </ul>
+  </section>
+
+  <!-- Slide 7 -->
+  <section class="slide">
+    <div class="kicker">Slide 7</div>
+    <h2>Where I've checked it, and what I'm unsure about</h2>
+    <ul>
+      <li><strong>Checked against published rotor data</strong>: Caradonna-Tung, NREL Phase VI, Wheatley autorotation, Castles-Gray, and cross-compared with the open codes CCBlade / XROTOR / OpenFAST. I weight these checks heavily because the reference numbers are not mine.</li>
+      <li><strong>Using it</strong>: <code>create_aero(rotor, model="quasi_static")</code>, then <code>compute_forces(inputs, state)</code> returns forces, torque, and hub moments.</li>
+      <li><strong>If unsteady effects matter</strong>, the same geometry can run under the two dynamic-inflow models above (Pitt-Peters, Oye) -- I leaned on the literature for those and would treat them more cautiously.</li>
+      <li><strong>What I'd most like your input on</strong>: whether the quasi-static assumptions hold for a <strong>steadily autorotating, tilted</strong> rotor under a reel-out/reel-in cycle, where the induction model is weakest, and which validation cases I should add for this application.</li>
+    </ul>
+  </section>
+
+  <!-- Library -->
+  <section class="slide">
+    <div class="kicker">The library</div>
+    <h2>Published &amp; open source (MIT)</h2>
+    <ul class="links">
+      <li><strong>Install</strong>: <code>pip install dynbem</code></li>
+      <li><strong>PyPI</strong>: <a href="https://pypi.org/project/dynbem/" target="_blank" rel="noopener">https://pypi.org/project/dynbem/</a></li>
+      <li><strong>Source / issues</strong>: <a href="https://github.com/mcroomp/dynbem" target="_blank" rel="noopener">https://github.com/mcroomp/dynbem</a></li>
+    </ul>
+    <p class="ref"><strong>Reference:</strong> <code>dynbem</code> -- Rust-backed BEM / Pitt-Peters / Oye
+      dynamic-inflow rotor models, v0.4.0. MIT License. https://github.com/mcroomp/dynbem</p>
+    <footer class="credit">Built with AI assistance, on top of published methods, to support
+      Christof's project. Code in dynbem_rs/ (Rust) and dynbem/ (Python);
+      background in README.md and EMPIRICAL_VALIDATION.md.</footer>
+  </section>
+
+</div>
+
+<div class="hud">
+  <button id="prev" aria-label="Previous slide">&#8249;</button>
+  <span class="counter" id="counter">1 / 7</span>
+  <button id="next" aria-label="Next slide">&#8250;</button>
+</div>
+<div class="hint">Arrow keys / Space to navigate &middot; F for fullscreen</div>
+
+<script>
+  const slides = Array.from(document.querySelectorAll('.slide'));
+  const total = slides.length;
+  let idx = 0;
+  const counter = document.getElementById('counter');
+  const progress = document.getElementById('progress');
+
+  // Wrap each slide's content so it can be scaled to fit the viewport.
+  slides.forEach(s => {
+    const fit = document.createElement('div');
+    fit.className = 'fit';
+    while (s.firstChild) fit.appendChild(s.firstChild);
+    s.appendChild(fit);
+  });
+
+  function fitSlide(slide) {
+    const fit = slide.querySelector('.fit');
+    if (!fit) return;
+    fit.style.transform = 'none';
+    const cs = getComputedStyle(slide);
+    const availH = slide.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+    const availW = slide.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+    const h = fit.offsetHeight, w = fit.offsetWidth;
+    if (!h || !w) return;
+    const scale = Math.min(1, availH / h, availW / w);
+    fit.style.transform = 'scale(' + scale + ')';
+  }
+
+  function show(n) {
+    idx = Math.max(0, Math.min(total - 1, n));
+    slides.forEach((s, i) => s.classList.toggle('active', i === idx));
+    counter.textContent = (idx + 1) + ' / ' + total;
+    progress.style.width = ((idx + 1) / total * 100) + '%';
+    if (location.hash !== '#' + (idx + 1)) history.replaceState(null, '', '#' + (idx + 1));
+    requestAnimationFrame(() => fitSlide(slides[idx]));
+  }
+  function next() { show(idx + 1); }
+  function prev() { show(idx - 1); }
+
+  document.getElementById('next').addEventListener('click', next);
+  document.getElementById('prev').addEventListener('click', prev);
+  document.addEventListener('keydown', (e) => {
+    if (['ArrowRight', 'PageDown', ' '].includes(e.key)) { e.preventDefault(); next(); }
+    else if (['ArrowLeft', 'PageUp'].includes(e.key)) { e.preventDefault(); prev(); }
+    else if (e.key === 'Home') show(0);
+    else if (e.key === 'End') show(total - 1);
+    else if (e.key.toLowerCase() === 'f') {
+      if (!document.fullscreenElement) document.documentElement.requestFullscreen();
+      else document.exitFullscreen();
+    }
+  });
+  // swipe (touch)
+  let tx = null;
+  document.addEventListener('touchstart', e => tx = e.changedTouches[0].clientX, {passive:true});
+  document.addEventListener('touchend', e => {
+    if (tx === null) return;
+    const dx = e.changedTouches[0].clientX - tx;
+    if (Math.abs(dx) > 50) dx < 0 ? next() : prev();
+    tx = null;
+  }, {passive:true});
+
+  const start = parseInt(location.hash.replace('#', ''), 10);
+  show(Number.isFinite(start) && start >= 1 ? start - 1 : 0);
+
+  // Re-fit on resize, fullscreen changes, and once fonts have loaded.
+  let rt = null;
+  window.addEventListener('resize', () => {
+    clearTimeout(rt);
+    rt = setTimeout(() => fitSlide(slides[idx]), 80);
+  });
+  document.addEventListener('fullscreenchange', () => requestAnimationFrame(() => fitSlide(slides[idx])));
+  if (document.fonts && document.fonts.ready) {
+    document.fonts.ready.then(() => fitSlide(slides[idx]));
+  }
+  window.addEventListener('load', () => fitSlide(slides[idx]));
+</script>
+</body>
+</html>

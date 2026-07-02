@@ -63,12 +63,12 @@ _CONTROL = dict(
 
 # Parameterise the tests over (model_name, operating_point).
 _MODEL_PARAMS = [
-    pytest.param("pitt_peters_jit", _OP_PP, id="pitt_peters_jit"),
+    pytest.param("pitt_peters", _OP_PP, id="pitt_peters"),
     pytest.param("oye",             _OP_OYE, id="oye"),
 ]
 
 _TRIM_RESID_NM_BY_MODEL = {
-    "pitt_peters_jit": 1.6,
+    "pitt_peters": 1.6,
     "oye": 1.0,
 }
 
