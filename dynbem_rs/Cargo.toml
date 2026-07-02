@@ -37,6 +37,10 @@ serde = { version = "1", features = ["derive"] }
 name = "model_kernels"
 harness = false
 
+[[test]]
+name = "vpm_forward_flight_empirical"
+path = "tests/vpm_forward_flight_empirical.rs"
+
 [[bin]]
 name = "profile_kernels"
 path = "bin/profile_kernels.rs"
