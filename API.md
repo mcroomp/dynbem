@@ -108,7 +108,7 @@ Returned by `compute_forces`.
 | Field | Type | Description |
 |---|---|---|
 | `F_world` | ndarray (3,) | Total rotor force in NED world frame [N]. `F_world[2] < 0` for upward lift |
-| `M_orbital` | ndarray (3,) | Hub moments in NED world frame [N*m]. Roll about X, pitch about Y |
+| `m_hub_world` | ndarray (3,) | Hub moments in NED world frame [N*m]. Roll about X, pitch about Y |
 | `Q_spin` | float | Aerodynamic reaction torque on the shaft [N*m]. Positive opposes rotation. Feed directly to `omega_derivative` |
 | `M_spin` | ndarray (3,) | Full spin moment vector in NED world frame [N*m] |
 

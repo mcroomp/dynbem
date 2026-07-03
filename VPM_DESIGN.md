@@ -1,10 +1,10 @@
 # Vortex Particle Method (VPM) -- design doc
 
-Status: **experimental / in progress**. The wake engine and its unit tests
-are implemented. Two rotor couplings exist: a pedagogical axial precursor
-and the forward-flight, cyclic- and crosswind-capable coupling (Section
-5.5). Neither is yet exposed as a first-class inflow model with the wake
-carried as serialized state (Section 6, item 6).
+Status: **experimental / in progress**. The wake engine, the forward-flight
+rotor coupling, and the blade flap DOF are implemented. The model is
+exposed as a first-class `"vpm"` option in `create_aero()` and is validated
+against measured Wheatley TR-515 forward-flight autorotation data and
+classical rotor theory (Section 8).
 
 This document describes what is built, the math it implements, the
 conventions it follows, its measured performance, and the roadmap. It is
@@ -528,10 +528,9 @@ M_y &= \sum r\,dT\,\cos\psi \quad (\text{pitch-up positive})
 \end{aligned}
 ```
 
-Blade flapping is not modelled (rigid blade). Hub moments are therefore the
-full aerodynamic moments; the flap-hinge frequency-ratio moment reduction
-used by the BEM models could be layered on later if a flapping rotor is
-needed.
+Blade flapping and servo-flap feathering are modeled as optional per-blade
+time-domain DOFs (Section 5.6). The rigid-blade path remains the default when
+those properties are not supplied.
 
 ### 5.5.6 Simplifications and validity envelope
 
@@ -993,6 +992,49 @@ check yet.
 
 ---
 
+## 8.6 Theory validation binary
+
+The canonical theory-vs-VPM check suite lives in
+`dynbem_rs/bin/theory_report.rs` and runs as a standalone binary
+(not part of the normal `cargo test` run, because each check costs
+several VPM revolutions):
+
+```
+cargo run --release --bin theory_report
+```
+
+Output: `tmp/theory_report.txt` -- one `CHECK` line per data point in the
+format:
+
+```
+CHECK  module=<name>  case=<params>  qty=<quantity>  vpm=<value>  ref=<reference>  err=<pct>  tol=<threshold>  PASS|FAIL|INFO
+```
+
+Current result (Castles-Gray rotor, release build, 24 steps/rev, 10 settling revolutions):
+
+```
+SUMMARY  total=47  pass=47  fail=0
+```
+
+Modules checked:
+
+| Module | Theory / dataset | Key result |
+|---|---|---|
+| blade_element_hover | BEMT closed form, hover | CT within 14-18% of uniform-inflow theory |
+| hover_castles_gray | Castles-Gray measured TN-2474 | CT within 8-13% of measured |
+| climb_momentum | Momentum theory, axial climb | CT and lambda_i both decrease with climb |
+| prandtl_tip_loss | Directional | Tip-loss flag does not increase CT or CQ |
+| glauert_forward_inflow | Glauert inflow + wake skew | Chi within 1.2%; mean inflow err 26% (tol 35%) |
+| wake_skew | Wake-skew monotonicity + covariance | 0.03 deg X/Y chi diff; monotone growth with mu |
+| autorotation | Directional | Negative torque found at col=1 deg, mu=0.28, vz=-4 m/s |
+| flapping_harmonics | Bramwell/Seddon/Prouty closed forms | Coning within 14%; a1 within 14%; b1 < a1 |
+| measured_companions | CG 1600 rpm, CG descent, Wheatley CL | All within stated tolerances |
+
+Re-run after any change to VPM wake emission, the flap ODE, or the
+Biot-Savart kernel to detect regressions.
+
+---
+
 ## 9. Integration points with the codebase
 
 - Frame / sign conventions: NED, CCW-from-above -- see AGENTS.md. The
@@ -1104,19 +1146,22 @@ autorotation.
 ### 11.4 Kaman servo-flap pitch actuation
 
 The RAWES blades use a **Kaman-type trailing-edge servo flap** for pitch control
-(`PitchActuation::ServoFlap` in `dynbem_rs`). The VPM currently only exercises
-`PitchActuation::DirectMechanical`. The servo-flap path:
+(`PitchActuation::ServoFlap` in `dynbem_rs`). The VPM implements this path in
+`dynbem_rs/src/vpm_rotor.rs` as a per-blade feathering DOF integrated each
+sub-step. In servo mode, swashplate collective/cyclic are reinterpreted as
+flap-deflection commands and the solved feathering angle replaces direct
+swashplate pitch in the section AoA. The servo-flap path:
 - Introduces a first-order feathering lag (~90 deg phase at 1/rev)
 - Attenuates high-frequency cyclic authority
 - Requires the `ServoFlapActuation` / `ServoFlapGeometry` parameters from the RAWES YAML
   (`beaupoil_2026.yaml`)
 
 The VPM's `march_window` passes `fc.collective_rad`, `fc.tilt_lon`, `fc.tilt_lat` through
-`cyclic_coeffs` as direct swashplate commands. To use `ServoFlap` actuation the VPM would
-need to call the servo-flap dynamics at each azimuthal step alongside the existing
-lifting-line solve, rather than mapping tilt directly to blade pitch. This is
-`dynbem_rs::servoflap` already exists for the BEM-family models; it needs wiring into the
-VPM's inner blade loop.
+`cyclic_coeffs` to form the harmonic commands. In direct-mechanical mode those
+commands map directly to blade pitch; in servo mode they drive flap deflection
+and feathering dynamics. Current code gates servo mode on positive
+`control_stiffness_Nm_per_rad`; if stiffness is zero, the path falls back to
+direct pitch.
 
 ### 11.5 Variable omega coupling to the spin ODE
 
@@ -1129,25 +1174,7 @@ but VPM's `step()` advances by a fixed number of azimuthal sub-steps derived fro
 rate. This is acceptable provided the VPM step interval is small relative to the spin
 acceleration timescale (which it is: one sub-step = 20 deg at 18 steps/rev, ≈ 4 ms at 270 RPM).
 
-### 11.6 Integration cadence alignment (RESOLVED)
-
-`VpmRotorConfig` no longer carries any timestep concept. The sub-step duration
-is the caller's `dt`, passed directly into `step()`, `march()`, and `simulate()`:
-
-- `step(inputs, state, dt)` -- one sub-step per call; `dpsi = omega * dt`.
-  Pass your controller loop `dt` (e.g. 1/400 s) and psi accumulates exactly.
-- `march(fc, warm, dt, n_steps)` -- settle for `n_steps` sub-steps of `dt`;
-  loads averaged over the second half. Caller computes
-  `n_steps = round(settle_s / dt)`.
-- `simulate(fc, dt, n_steps)` -- convenience wrapper around `march()`.
-
-`VpmRotorConfig` is now purely model fidelity: `max_particles`, `sigma`,
-`relax`, and the lifting-line / clustering / Barnes-Hut flags.
-
-**Removed fields:** `n_steps_per_rev`, `n_wake_rev`, `n_settle_rev`, `dt_step_s`.
-**New field:** `max_particles: usize`.
-
-### 11.7 State serialization
+### 11.6 State serialization
 
 The RAWES simulation uses `to_dict()` / `from_dict()` on all state objects for
 checkpointing (e.g. `steady_state_starting.json`). `VpmRotorState` carries a
@@ -1156,7 +1183,7 @@ serializable. For the VPM to be a drop-in for the `dynbem` factory, its state ne
 `get_inflow()` / `set_inflow()` that round-trips through a flat vector, or alternatively a
 bespoke `to_dict()` that serializes the raw particle arrays to JSON/binary.
 
-### 11.8 Non-inertial hub acceleration
+### 11.7 Non-inertial hub acceleration
 
 The RAWES hub orbits the tether anchor at ~0.105 rad/s with radius ~15 m → centripetal
 acceleration ≈ 0.16 m/s^2 (≈ 1.7% g). The VPM treats the hub as inertially fixed; blade
@@ -1169,7 +1196,6 @@ target at current orbit rates, but would matter if the orbit radius or rate incr
 |----------|------|
 | 1 | Tabulated SG6042 polar (Section 11.3) -- affects every operating point |
 | 2 | Zero-torque autorotation omega iteration (Section 11.1) -- needed for any valid OP |
-| 3 | ~~Cadence decoupling~~ (Section 11.6 -- DONE: caller dt drives step/march) |
-| 4 | ServoFlap wiring into VPM inner loop (Section 11.4) -- needed for control realism |
-| 5 | Validated windmill / reel-in regime (Section 11.1) -- only needed for reel-in analysis |
-| 6 | State serialization (Section 11.7) -- needed for checkpointing/factory drop-in |
+| 3 | ServoFlap parameter identification and validation for RAWES (Section 11.4) |
+| 4 | Validated windmill / reel-in regime (Section 11.1) -- only needed for reel-in analysis |
+| 5 | State serialization (Section 11.6) -- needed for checkpointing/factory drop-in |

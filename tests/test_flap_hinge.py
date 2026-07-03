@@ -105,8 +105,8 @@ def test_flap_reduces_hub_moment(model_name):
     res_rigid, _ = model_rigid.compute_forces(inputs, model_rigid.initial_rotor_state())
     res_flap, _ = model_flap.compute_forces(inputs, model_flap.initial_rotor_state())
 
-    mx_rigid = abs(float(res_rigid.M_orbital[0]))
-    mx_flap = abs(float(res_flap.M_orbital[0]))
+    mx_rigid = abs(float(res_rigid.m_hub_world[0]))
+    mx_flap = abs(float(res_flap.m_hub_world[0]))
 
     # Flap should reduce moments significantly
     assert mx_flap < mx_rigid * 0.5, (

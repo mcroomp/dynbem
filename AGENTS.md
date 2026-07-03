@@ -128,7 +128,7 @@ in the hub-axis (−Z hub) direction. With `r_pos = r·r_hat(ψ)` and
 
 i.e. `Mx_hub = Σ r·dT·sin(ψ)`, `My_hub = Σ r·dT·cos(ψ)` (averaged over
 ψ in the model). These are then rotated to world via `R_hub` and
-returned in `AeroResult.M_orbital`.
+returned in `AeroResult.m_hub_world`.
 
 Coefficient form used in Pitt-Peters:
 

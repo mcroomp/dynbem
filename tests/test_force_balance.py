@@ -8,7 +8,7 @@ Coverage (gaps left by test_castles_gray.py, test_cyclic.py, test_pitt_peters.py
 2. **TestHoverForceBalance** — Hover collective sweep against vehicle weight,
    anchored to Castles-Gray Table I Runs 3/4/5 (CT=0.004 @ θ_0.75R≈8.78°,
    1200 rpm). Verifies that F_world cancels gravity to within a few %, that
-   M_orbital is essentially zero in axisymmetric hover, and that M_spin
+   m_hub_world is essentially zero in axisymmetric hover, and that M_spin
    aligns with hub axis with the correct sign.
 
 3. **TestNonHoverForceBalance** — Vehicle translating in +X under gravity,
@@ -149,7 +149,7 @@ def _disk_area(defn: RotorDefinition) -> float:
 # ===========================================================================
 
 class TestHubFrameTransforms:
-    """Verify F_world, M_orbital, M_spin transform with R_hub correctly."""
+    """Verify F_world, m_hub_world, M_spin transform with R_hub correctly."""
 
     def test_level_hub_thrust_along_minus_z(self, cg_pp):
         """R_hub = I, hover: F_world should be purely along -Z."""
@@ -217,14 +217,14 @@ class TestHubFrameTransforms:
                 err_msg=f"M_spin sign/magnitude wrong for {label} hub",
             )
 
-    def test_m_orbital_is_in_plane(self, cg_pp):
+    def test_m_hub_world_is_in_plane(self, cg_pp):
         """In-plane hub moments must be perpendicular to hub axis.
 
-        M_orbital is built from r·dT·[sin ψ, cos ψ, 0] in hub frame; the
+        m_hub_world is built from r·dT·[sin ψ, cos ψ, 0] in hub frame; the
         z-component in hub frame is zero by construction. Rotating to world
-        gives M_orbital · hub_axis_world = 0 exactly.
+        gives m_hub_world · hub_axis_world = 0 exactly.
         """
-        # Use a tilted hub and a cyclic input so M_orbital is non-trivial.
+        # Use a tilted hub and a cyclic input so m_hub_world is non-trivial.
         R = _R_pitch(10.0)
         _, res = _euler_to_steady(
             cg_pp,
@@ -232,9 +232,9 @@ class TestHubFrameTransforms:
             rpm=1200.0,
         )
         hub_axis = R @ np.array([0.0, 0.0, 1.0])
-        m_dot = float(np.dot(res.M_orbital, hub_axis))
+        m_dot = float(np.dot(res.m_hub_world, hub_axis))
         assert abs(m_dot) < 1e-9, (
-            f"M_orbital has out-of-plane component {m_dot:.3e}; "
+            f"m_hub_world has out-of-plane component {m_dot:.3e}; "
             f"should be perpendicular to hub axis."
         )
 
@@ -304,8 +304,8 @@ class TestHoverForceBalance:
         # F_world has no in-plane component (axisymmetric hover).
         assert abs(res.F_world[0]) < 1e-6 * weight_N
         assert abs(res.F_world[1]) < 1e-6 * weight_N
-        # M_orbital essentially zero (axisymmetric hover).
-        assert np.linalg.norm(res.M_orbital) < 1e-3
+        # m_hub_world essentially zero (axisymmetric hover).
+        assert np.linalg.norm(res.m_hub_world) < 1e-3
         # M_spin aligned with +Z hub axis (level rotor) — Q_spin > 0 in
         # powered hover, so M_spin[2] > 0.
         assert res.Q_spin > 0
@@ -461,13 +461,13 @@ class TestSwashplateMapping:
             rpm=1200.0,
         )
         T = -res.F_world[2]
-        assert res.M_orbital[1] < -0.05, (
-            f"M_y = {res.M_orbital[1]:.4e} N·m, expected nose-down (<0)"
+        assert res.m_hub_world[1] < -0.05, (
+            f"M_y = {res.m_hub_world[1]:.4e} N·m, expected nose-down (<0)"
         )
         # Order-of-magnitude check: |M_y| should be on the order of
         # (cyclic angle in rad) * T * R/2 — i.e. a few N·m for 2° on this rotor.
         scale = math.radians(2.0) * T * cg_pp.defn.blade.radius_m
-        assert 0.01 * scale < abs(res.M_orbital[1]) < 1.5 * scale
+        assert 0.01 * scale < abs(res.m_hub_world[1]) < 1.5 * scale
 
     def test_tilt_lat_positive_produces_roll_right_moment(self, cg_pp):
         """tilt_lat > 0 ⇒ M_x_world > 0 (roll right, NED)."""
@@ -476,7 +476,7 @@ class TestSwashplateMapping:
             _make_inputs(collective_deg=8.0, tilt_lat_deg=2.0),
             rpm=1200.0,
         )
-        assert res.M_orbital[0] > 0.05
+        assert res.m_hub_world[0] > 0.05
 
     def test_cyclic_is_linear_for_small_inputs(self, cg_pp):
         """Doubling small cyclic input doubles the resulting moment."""
@@ -489,7 +489,7 @@ class TestSwashplateMapping:
             rpm=1200.0,
         )
         # 5% tolerance — second-order BEM nonlinearity at small cyclic.
-        assert res2.M_orbital[1] == pytest.approx(2.0 * res1.M_orbital[1], rel=0.05)
+        assert res2.m_hub_world[1] == pytest.approx(2.0 * res1.m_hub_world[1], rel=0.05)
 
     def test_swashplate_phase_rotates_response_by_phi(self, cg_defn):
         """A 90° swashplate phase advance should make `tilt_lon` produce a
@@ -517,15 +517,15 @@ class TestSwashplateMapping:
         )
 
         # φ=0 baseline: tilt_lon > 0 ⇒ nose-down (M_y < 0), M_x ≈ 0
-        assert res0.M_orbital[1] < -0.05
-        assert abs(res0.M_orbital[0]) < 0.1 * abs(res0.M_orbital[1])
+        assert res0.m_hub_world[1] < -0.05
+        assert abs(res0.m_hub_world[0]) < 0.1 * abs(res0.m_hub_world[1])
 
         # φ=90° response: moment swings to the roll axis with the sign flip
         # derived above (roll-LEFT).
-        assert res90.M_orbital[0] < -0.05, (
-            f"φ=90°: expected M_x < 0 (roll left), got {res90.M_orbital[0]:.4e}"
+        assert res90.m_hub_world[0] < -0.05, (
+            f"φ=90°: expected M_x < 0 (roll left), got {res90.m_hub_world[0]:.4e}"
         )
-        assert abs(res90.M_orbital[1]) < 0.1 * abs(res90.M_orbital[0])
+        assert abs(res90.m_hub_world[1]) < 0.1 * abs(res90.m_hub_world[0])
 
         # And the magnitudes of pitch-moment-at-φ=0 and roll-moment-at-φ=90°
         # should match (it's the same physical asymmetry, rotated).

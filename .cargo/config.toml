@@ -1,0 +1,7 @@
+[build]
+# Target x86-64-v3: AVX2, FMA, BMI1/BMI2, F16C, LZCNT, MOVBE.
+# Available on Intel Haswell (2013) and AMD Zen (2019) and newer -- any CPU
+# less than ~5 years old on x86-64 will have this level. Do not use
+# target-cpu=native here: that embeds the host's exact CPU name in the binary
+# and makes the artifact non-portable between machines.
+rustflags = ["-C", "target-cpu=x86-64-v3"]

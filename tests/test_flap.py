@@ -131,8 +131,8 @@ def test_servo_command_changes_hub_moment():
     inputs = make_inputs(tilt_lat=0.1, v_wind=3.0)
     res_feat, _ = model_feat.compute_forces(inputs, model_feat.initial_rotor_state())
     res_rigid, _ = model_rigid.compute_forces(inputs, model_rigid.initial_rotor_state())
-    mx_feat = float(res_feat.M_orbital[0])
-    mx_rigid = float(res_rigid.M_orbital[0])
+    mx_feat = float(res_feat.m_hub_world[0])
+    mx_rigid = float(res_rigid.m_hub_world[0])
     assert mx_feat != pytest.approx(mx_rigid, abs=1e-3), (
         f"servo-flap model should differ from rigid: feat={mx_feat:.4f} rigid={mx_rigid:.4f}"
     )
@@ -147,14 +147,14 @@ def test_authority_increases_with_less_damping():
     defn_r = make_minimal_defn(servoflap=False)
     model_r = dynbem.create_aero(defn_r, model="pitt_peters")
     res_r, _ = model_r.compute_forces(inputs, model_r.initial_rotor_state())
-    my_rigid = float(res_r.M_orbital[1])
+    my_rigid = float(res_r.m_hub_world[1])
 
     results = {}
     for damper, label in [(1.0, "lo"), (10.0, "hi")]:
         defn = make_minimal_defn(servoflap=True, damper=damper)
         model = dynbem.create_aero(defn, model="pitt_peters")
         res, _ = model.compute_forces(inputs, model.initial_rotor_state())
-        results[label] = abs(float(res.M_orbital[1]) - my_rigid)
+        results[label] = abs(float(res.m_hub_world[1]) - my_rigid)
 
     assert results["lo"] > results["hi"], (
         f"lo_damper dev={results['lo']:.4f} should > hi_damper dev={results['hi']:.4f}"

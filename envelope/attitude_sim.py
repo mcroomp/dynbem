@@ -277,13 +277,13 @@ def simulate_attitude(
         inputs = RotorInputs(
             collective_rad=col_now,
             tilt_lon=tilt_lon, tilt_lat=tilt_lat,
-            R_hub=R_hub, v_hub_world=vel, wind_world=wind, t=t_now,
+            R_hub=R_hub, v_hub_world=vel, wind_world=wind,
             rho_kg_m3=1.225,
             omega_rad_s=omega_init if fix_omega else omega,
         )
         aero_res, drv = aero.compute_forces(inputs, rotor_state)
 
-        M_eq = R_hub_eq.T @ aero_res.M_orbital
+        M_eq = R_hub_eq.T @ aero_res.m_hub_world
         Mx_eq, My_eq = float(M_eq[0]), float(M_eq[1])
 
         # Attitude integration (Euler — slow modes vs dt)

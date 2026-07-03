@@ -97,32 +97,32 @@ def model(defn, request):
 
 
 def test_zero_cyclic_zero_in_plane_moment(model):
-    """Pure hover with no cyclic: M_orbital ≈ 0 by symmetry."""
+    """Pure hover with no cyclic: m_hub_world ≈ 0 by symmetry."""
     res, _ = model.compute_forces(_make_inputs(0.0, 0.0), _initial_state(model))
     # Thrust must be substantial — sanity that we're in a real operating point.
     assert -res.F_world[2] > 50.0
-    assert np.linalg.norm(res.M_orbital) < 1e-3
+    assert np.linalg.norm(res.m_hub_world) < 1e-3
 
 
 def test_tilt_lon_positive_gives_nose_down_moment(model):
-    """tilt_lon > 0 ⇒ M_orbital_y < 0 (nose-down)."""
+    """tilt_lon > 0 ⇒ m_hub_world[1] < 0 (nose-down)."""
     res, _ = model.compute_forces(
         _make_inputs(tilt_lon=math.radians(2.0), tilt_lat=0.0),
         _initial_state(model),
     )
     # M_y should be clearly negative; the orthogonal M_x should be near zero.
-    assert res.M_orbital[1] < -1.0
-    assert abs(res.M_orbital[0]) < 0.1 * abs(res.M_orbital[1])
+    assert res.m_hub_world[1] < -1.0
+    assert abs(res.m_hub_world[0]) < 0.1 * abs(res.m_hub_world[1])
 
 
 def test_tilt_lat_positive_gives_roll_right_moment(model):
-    """tilt_lat > 0 ⇒ M_orbital_x > 0 (roll right)."""
+    """tilt_lat > 0 ⇒ m_hub_world[0] > 0 (roll right)."""
     res, _ = model.compute_forces(
         _make_inputs(tilt_lon=0.0, tilt_lat=math.radians(2.0)),
         _initial_state(model),
     )
-    assert res.M_orbital[0] > 1.0
-    assert abs(res.M_orbital[1]) < 0.1 * abs(res.M_orbital[0])
+    assert res.m_hub_world[0] > 1.0
+    assert abs(res.m_hub_world[1]) < 0.1 * abs(res.m_hub_world[0])
 
 
 def test_cyclic_sign_symmetry(model):
@@ -135,7 +135,7 @@ def test_cyclic_sign_symmetry(model):
         _make_inputs(tilt_lon=-math.radians(1.5), tilt_lat=0.0),
         _initial_state(model),
     )
-    np.testing.assert_allclose(pos.M_orbital, -neg.M_orbital, atol=1e-6, rtol=1e-3)
+    np.testing.assert_allclose(pos.m_hub_world, -neg.m_hub_world, atol=1e-6, rtol=1e-3)
 
 
 def test_thrust_roughly_invariant_to_small_cyclic(model):

@@ -1,31 +1,36 @@
 # dynbem
 
-**Dynamic blade-element momentum rotor aerodynamics — helicopter and
-wind-turbine modes in one code path.**
+**Rotor aerodynamics library -- from fast BEM inflow models to a
+full vortex-particle free-wake solver, in one code path.**
 
-`dynbem` is a rotor-aerodynamics library built around a multi-element
-blade-element-momentum (BEM) solver coupled to dynamic-inflow models. It is
-designed to be numerically valid across the **full operating envelope** —
+`dynbem` is a rotor-aerodynamics library covering three model tiers, all
+sharing the same API, coordinate conventions, and blade geometry format:
+
+- **Level 1** -- quasi-static BEM (`"bem"`): single-call blade-element
+  momentum, numerically valid from hover through windmill-brake state,
+  autorotation, and forward flight via the Ning windmill Brent solver.
+- **Level 2** -- dynamic-inflow BEM (`"pitt_peters"`, `"oye"`): same BEM
+  kernel, augmented with a dynamic wake-state ODE that captures inflow
+  transients. Pitt-Peters uses the Peters L-matrix with Glauert wake-skew
+  coupling; Oye uses per-annulus filtered momentum inflow (OpenFAST DBEMT
+  formulation).
+- **Level 3** -- free-wake VPM (`"vpm"`): a vortex-particle method that
+  represents the rotor wake explicitly as a time-evolving cloud of
+  regularized vorticity. No wake-geometry assumptions; wake skew, VRS
+  onset, and autorotation torque sign emerge from the physics rather than
+  empirical patches. Cost ~10 ms/step (Barnes-Hut accelerated).
+
+All three tiers are numerically valid across the **full operating envelope** --
 helicopter hover, axial climb, axial descent, vortex-ring state (VRS),
 windmill-brake state (WBS), autorotation, and wind-turbine power extraction
-— without switching equations or sign conventions between regimes.
+-- without switching equations or sign conventions between regimes.
 
 The math core is a pure-Rust crate ([`dynbem_rs/`](dynbem_rs/), no pyo3 /
 numpy / file IO) wrapped by a thin PyO3 + maturin binding crate
 ([`dynbem/`](dynbem/)) which is the publishable Python package.
 
-Two dynamic-inflow models are provided:
-
-- **Pitt-Peters** (three-state global ν₀/ν_s/ν_c) — with the Peters
-  L-matrix, Glauert wake-skew via the off-diagonal coupling, and the
-  Leishman empirical VRS polynomial baked into the uniform-inflow state.
-- **Øye 2-stage annular** — per-annulus filtered momentum inflow (the
-  OpenFAST DBEMT formulation), independent across radii and numerically
-  stable at high advance ratios where Pitt-Peters becomes stiff.
-
-Both models share a tabulated polar interpolator and a common BEM ψ-loop
-kernel ([`dynbem_rs/src/bem_common.rs`](dynbem_rs/src/bem_common.rs)) and
-plug into the same `AeroModel` trait (Rust).
+All models share a tabulated polar interpolator and plug into the same
+`AeroModel` trait (Rust).
 The repo also includes a flight-envelope sweep driver
 (`envelope/compute_map.py`), a cyclic-trim solver
 ([`dynbem_rs/src/trim.rs`](dynbem_rs/src/trim.rs)), and a point-mass +
@@ -38,6 +43,16 @@ TR 515 forward-flight autorotation), see
 
 Coordinates are NED throughout; rotor rotation is CCW-from-above
 (American helicopter convention).
+
+### RAWES applications
+
+`dynbem` is particularly well-suited for **rotor-as-wind-energy-systems
+(RAWES)** -- kites, autogiros, and other free-rotors extracting power from
+wind. The library's coverage of autorotation, windmill-brake state,
+oblique descent, and wake geometry (especially VPM Level 3) makes it
+ideal for modeling the full flight envelope of energy-harvesting rotors.
+See [VPM_DESIGN.md](VPM_DESIGN.md) Section 11 for the roadmap on RAWES
+fidelity improvements.
 
 ## Install
 
@@ -78,7 +93,7 @@ import dynbem
 # Load rotor definition from YAML. Parsing happens in Rust (dynbem_rs)
 # via PyO3 bindings; pure-Rust callers can use RotorDefinition::from_yaml_file(path).
 defn   = dynbem.rotor_definition.load("rotors/castles_gray_6ft/rotor.yaml")
-model  = dynbem.create_aero(defn, model="pitt_peters")  # or "oye", "bem"
+model  = dynbem.create_aero(defn, model="pitt_peters")  # or "oye", "bem", "vpm"
 state  = model.initial_rotor_state()
 
 omega = 125.7   # rad/s -- caller owns mechanical state
@@ -92,7 +107,7 @@ inputs = dynbem.RotorInputs(
     omega_rad_s=omega,                         # rotor speed passed in each call
 )
 result, derivative = model.compute_forces(inputs, state)
-# result.F_world, result.M_orbital, result.M_spin, result.Q_spin
+# result.F_world, result.m_hub_world, result.M_spin, result.Q_spin
 # derivative carries d/dt of the dynamic-inflow states (lambda_0/c/s or W/W_int)
 # Or use built-in state stepping with an explicit inflow integrator:
 # result, state = model.step(inputs, state, dt, integration_method="semi_implicit")
@@ -100,6 +115,13 @@ result, derivative = model.compute_forces(inputs, state)
 # Mechanical ODE lives in the caller:
 #   from dynbem.mechanical import omega_derivative
 #   omega += dt * omega_derivative(result.Q_spin, motor_torque_Nm, I_ode_kgm2)
+
+# Level-3 VPM: time-marching free-wake (no single-shot compute_forces).
+# Create the model the same way; advance with step():
+# vpm = dynbem.create_aero(defn, model="vpm")
+# state = vpm.initial_rotor_state()
+# result, state = vpm.step(inputs, state, dt)   # dt typically T_rev/36-72
+# Average result over several revolutions for steady-state loads.
 ```
 
 For the full API reference — all classes, fields, keyword arguments, and
@@ -113,10 +135,16 @@ run_map.cmd --full --save out\map.npz --plot out\     # full grid
 uv run python -m envelope.compute_map --help
 ```
 
-## Tests
+## Tests and validation
 
 ```
 uv run pytest tests/ -q
+```
+
+**VPM theory validation** (release build required -- VPM is 50-100x slower in debug):
+```
+cargo run --release --bin theory_report
+# writes tmp/theory_report.txt with one CHECK line per data point
 ```
 
 If `uv` is not on `PATH` in your shell, run pytest with the workspace

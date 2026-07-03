@@ -375,8 +375,8 @@ fn sample_flap(rotor: &VpmRotor<LinearPolar>, fc: &FlightCondition, state: &VpmR
 fn fourier_flap(samples: &[(f64, f64)]) -> (f64, f64, f64) {
     let n = samples.len() as f64;
     let a0 = samples.iter().map(|&(_, b)| b).sum::<f64>() / n;
-    let sc: f64 = samples.iter().map(|&(psi, b)| b * psi.cos()).sum::<f64>() * 2.0 / n;
-    let ss: f64 = samples.iter().map(|&(psi, b)| b * psi.sin()).sum::<f64>() * 2.0 / n;
+    let sc: f64 = samples.iter().map(|&(psi, b)| b * psi.cos()).sum::<f64>() / n;
+    let ss: f64 = samples.iter().map(|&(psi, b)| b * psi.sin()).sum::<f64>() / n;
     (a0, -2.0 * sc, -2.0 * ss)
 }
 

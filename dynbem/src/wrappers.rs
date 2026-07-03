@@ -714,7 +714,6 @@ impl PyOyeRotorState {
 #[derive(Clone, Debug)]
 pub struct PyRotorInputs {
     pub inner: core_::aero_io::RotorInputs,
-    pub t: f64,
 }
 
 #[pymethods]
@@ -723,7 +722,7 @@ impl PyRotorInputs {
     #[pyo3(signature = (
         collective_rad, tilt_lon, tilt_lat,
         R_hub, v_hub_world, wind_world,
-        omega_rad_s, t, rho_kg_m3,
+        omega_rad_s, rho_kg_m3,
     ))]
     #[allow(non_snake_case)]
     fn new<'py>(
@@ -734,7 +733,6 @@ impl PyRotorInputs {
         v_hub_world: PyReadonlyArray1<'py, f64>,
         wind_world: PyReadonlyArray1<'py, f64>,
         omega_rad_s: f64,
-        t: f64,
         rho_kg_m3: f64,
     ) -> PyResult<Self> {
         Ok(PyRotorInputs {
@@ -748,7 +746,6 @@ impl PyRotorInputs {
                 rho_kg_m3,
                 omega_rad_s,
             },
-            t,
         })
     }
 
@@ -775,14 +772,6 @@ impl PyRotorInputs {
     #[setter]
     fn set_tilt_lat(&mut self, v: f64) {
         self.inner.tilt_lat = v;
-    }
-    #[getter]
-    fn t(&self) -> f64 {
-        self.t
-    }
-    #[setter]
-    fn set_t(&mut self, v: f64) {
-        self.t = v;
     }
     #[getter]
     fn rho_kg_m3(&self) -> f64 {
@@ -828,8 +817,7 @@ impl PyAeroResult {
         vec3_to_py(py, &self.0.F_world)
     }
     #[getter]
-    #[allow(non_snake_case)]
-    fn M_orbital<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
+    fn m_hub_world<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
         vec3_to_py(py, &self.0.M_hub_world)
     }
     #[getter]
