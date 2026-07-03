@@ -30,29 +30,22 @@ numpy / file IO) wrapped by a thin PyO3 + maturin binding crate
 ([`dynbem/`](dynbem/)) which is the publishable Python package.
 
 All models share a tabulated polar interpolator and plug into the same
-`AeroModel` trait (Rust).
-The repo also includes a flight-envelope sweep driver
-(`envelope/compute_map.py`), a cyclic-trim solver
-([`dynbem_rs/src/trim.rs`](dynbem_rs/src/trim.rs)), and a point-mass +
-cyclic-pitch attitude simulator.
-For empirical validation against published rotor data (Castles-Gray
-TN-2474 vertical descent, Caradonna-Tung TM-81232 hover CT and
-spanwise CL, Harrington TN-2318 full-scale hover, Wheatley & Hood
-TR 515 forward-flight autorotation), see
-[EMPIRICAL_VALIDATION.md](docs/EMPIRICAL_VALIDATION.md).
+`AeroModel` trait (Rust). The repo also includes a flight-envelope sweep
+driver (`envelope/compute_map.py`), a cyclic-trim solver, and a
+point-mass attitude simulator with cyclic-pitch control.
 
 Coordinates are NED throughout; rotor rotation is CCW-from-above
-(American helicopter convention).
+(American helicopter convention). For empirical validation against
+published rotor data see [EMPIRICAL_VALIDATION.md](docs/EMPIRICAL_VALIDATION.md).
 
-### RAWES applications
+## Energy-harvesting and free-rotor applications
 
-`dynbem` is particularly well-suited for **rotor-as-wind-energy-systems
-(RAWES)** -- kites, autogiros, and other free-rotors extracting power from
-wind. The library's coverage of autorotation, windmill-brake state,
-oblique descent, and wake geometry (especially VPM Level 3) makes it
-ideal for modeling the full flight envelope of energy-harvesting rotors.
-See [VPM_DESIGN.md](docs/VPM_DESIGN.md) Section 11 for the roadmap on RAWES
-fidelity improvements.
+The full-envelope coverage -- autorotation, windmill-brake state, oblique
+descent, and vortex-ring state -- combined with VPM Level 3's explicit
+wake geometry makes `dynbem` well suited for kites, autogiros, and other
+free-rotors extracting power from wind. No regime switching or empirical
+patches are needed across the power-extraction to hover-flight transition.
+See [VPM_DESIGN.md](docs/VPM_DESIGN.md) Section 11 for the VPM roadmap.
 
 ## Install
 
@@ -149,11 +142,11 @@ cargo run --release -p validation_rs
 # prints one CHECK line per data point; exits 0 if all pass
 ```
 
-If `uv` is not on `PATH` in your shell, run pytest with the workspace
-interpreter directly:
+If `uv` is not on `PATH`, run pytest with the workspace interpreter directly:
 
 ```
-c:/repos/aero/.venv/Scripts/python.exe -m pytest tests/ -q
+.venv/Scripts/python.exe -m pytest tests/ -q    # Windows
+.venv/bin/python -m pytest tests/ -q            # POSIX
 ```
 
 The `tests/` directory contains unit tests, validation scripts against
@@ -167,34 +160,9 @@ checked against, what the achieved variance is, and the physical
 reasons for any residual bias, see
 [EMPIRICAL_VALIDATION.md](docs/EMPIRICAL_VALIDATION.md).
 
-## Performance baseline (Criterion)
+## Performance
 
-The Rust crate includes a stable Criterion benchmark suite at
-[`dynbem_rs/benches/model_kernels.rs`](dynbem_rs/benches/model_kernels.rs).
-Use this as the baseline before and after any performance refactor.
-
-### Bench groups
-
-- `solve_bem_element`: single-element BEM hot kernel cost
-- `sweep_scalar/prescribed/...`: scalar psi-loop sweep at fixed `(n_psi, n_elements)`
-- `models_compute_forces/{bem,pitt_peters,oye}`: model-level `compute_forces` cost
-
-### Recommended commands
-
-```
-cargo bench -p dynbem_rs --bench model_kernels --no-run
-cargo bench -p dynbem_rs --bench model_kernels -- "sweep_scalar|models_compute_forces" --sample-size 20 --measurement-time 3
-```
-
-For change validation, run the same command before/after your patch and
-compare medians in each benchmark group.
-
-### Quick throughput snapshot
-
-For a quick local sanity check, the Python-facing Rust hot-path harness
-[`dynbem/benchmarks/bench_rust_only.py`](dynbem/benchmarks/bench_rust_only.py)
-reports minimum call time across repeated trials. On a recent local run
-with 36 azimuth stations and 15 radial elements, approximate throughput was:
+Approximate throughput (36 azimuth stations, 15 radial elements):
 
 | Model | Hover | Forward / cyclic |
 |---|---:|---:|
@@ -203,43 +171,16 @@ with 36 azimuth stations and 15 radial elements, approximate throughput was:
 | `oye` | about 200k iter/sec | about 185k-200k iter/sec |
 | `vpm` | ~100 steps/sec | ~100 steps/sec |
 
-VPM throughput is roughly 10 ms/step (Barnes-Hut accelerated, ~800-3000 particles).
-A typical steady-state run is 6-10 revolutions at 48 steps/rev, so about 3-5 seconds.
+VPM is ~10 ms/step (Barnes-Hut accelerated, ~800-3000 particles). A typical
+steady-state run is 6-10 revolutions at 48 steps/rev -- roughly 3-5 seconds.
 
-Treat these as rough scale numbers, not a release guarantee; use Criterion
-before/after comparisons for performance-sensitive changes.
-
-## External profiling harness
-
-A standalone profiling binary is included at
-[`dynbem_rs/bin/profile_kernels.rs`](dynbem_rs/bin/profile_kernels.rs).
-It builds with normal package builds (see `[[bin]]` in
-[`dynbem_rs/Cargo.toml`](dynbem_rs/Cargo.toml)).
-
-```
-cargo build --release -p dynbem_rs
-./target/release/profile_kernels.exe oye
-./target/release/profile_kernels.exe pitt_peters
-./target/release/profile_kernels.exe solve_bem_element
-```
-
-Release profiles in the workspace keep debuginfo enabled so external
-profilers can resolve symbols.
-
-## AI tooling notes
-
-- `CLAUDE.md` is the Claude Code instruction file and remains useful if
-  Claude-based agents are in your workflow.
-- GitHub tooling (Copilot coding agent / GitHub CLI agent workflows)
-  does not use `CLAUDE.md` as its default instruction file.
-- For GitHub-side defaults, use `AGENTS.md` (repo-level coding-agent
-  instructions), and optionally `.github/copilot-instructions.md` for
-  Copilot-specific repository guidance.
-
-Recommendation: keep `CLAUDE.md` if you use Claude tools, but add and
-maintain an `AGENTS.md` so GitHub agent flows pick up the same policy.
-
----
+These are rough scale numbers. For before/after comparisons on
+performance-sensitive changes, use the Criterion suite at
+[`dynbem_rs/benches/model_kernels.rs`](dynbem_rs/benches/model_kernels.rs).
+An external profiling binary is also available at
+[`dynbem_rs/bin/profile_kernels.rs`](dynbem_rs/bin/profile_kernels.rs)
+(built with `cargo build --release -p dynbem_rs`; debuginfo is kept
+enabled in the release profile for symbol resolution).
 
 ## Design documentation
 
@@ -261,6 +202,13 @@ page image.
 - **Buhl_NREL_TP500_36834/** --- NREL TP-500-36834 (2005). Windmill Brake State correction extending Glauert.
 - **Castles_TN2474/** --- NACA TN-2474 (Castles & Gray, 1951). Induced velocity in hover/descent.
 - **Harrington_TN2318/** --- NACA TN-2318 (Harrington, 1951). Hover CT vs CP polars for two full-scale rotors.
+
+## AI tooling notes
+
+- `CLAUDE.md` is the Claude Code instruction file for Claude-based agents.
+- GitHub tooling (Copilot, GitHub CLI agent) uses `AGENTS.md` as its
+  default instruction file instead.
+- Both files carry the same conventions; keep both if you use both tools.
 
 ## License
 
