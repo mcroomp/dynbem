@@ -4,7 +4,7 @@ use crate::report::Report;
 pub fn check_flapping_harmonics(r: &mut Report) {
     r.begin_module(
         "flapping_harmonics",
-        "VPM flap ODE vs Bramwell/Seddon theory; MODEL.md sec 14a",
+        "VPM flap ODE vs Bramwell/Seddon theory; BEM_COMMON.md sec 14a",
     );
     const I_BETA: f64 = 0.030;
     let defn = theory_rotor_flap(10, I_BETA);

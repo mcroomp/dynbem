@@ -4,7 +4,7 @@ use crate::report::Report;
 pub fn check_glauert_forward_inflow(r: &mut Report) {
     r.begin_module(
         "glauert_forward_inflow",
-        "VPM disk inflow and wake skew vs Glauert; MODEL.md sec 10-11",
+        "VPM disk inflow and wake skew vs Glauert; BEM_COMMON.md sec 10-11",
     );
     let defn = theory_rotor(12, 0.0);
     let rotor = make_rotor(&defn);

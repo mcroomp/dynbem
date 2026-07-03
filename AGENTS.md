@@ -16,7 +16,7 @@ there, and this file does not repeat it.
 
 Empirical validation — which papers/tables back each model, the
 achieved variance vs published data, and why any residual bias exists
-— lives in [EMPIRICAL_VALIDATION.md](EMPIRICAL_VALIDATION.md). Read
+— lives in [EMPIRICAL_VALIDATION.md](docs/EMPIRICAL_VALIDATION.md). Read
 that before changing anything in the BEM / Pitt-Peters / Øye signs or
 coefficients.
 
@@ -120,90 +120,19 @@ direct blade-pitch amplitudes with helicopter-standard signs.
 
 ## Hub-frame aero moments
 
-In the ψ-loop, each blade element contributes per-azimuth thrust `dT`
-in the hub-axis (−Z hub) direction. With `r_pos = r·r_hat(ψ)` and
-`F = dT · (−ẑ_hub)`:
+See [PITT_PETERS_DESIGN.md](docs/PITT_PETERS_DESIGN.md) for the full coefficient
+definitions, the cross-product derivation, and the BladeAD sign differences
+(our C_L_hub = -BladeAD C_Mx, our C_M_hub = +BladeAD C_My).
 
-    dM_hub = r_pos × F = r · dT · [sin(ψ), cos(ψ), 0]
+## Pitt-Peters inflow model
 
-i.e. `Mx_hub = Σ r·dT·sin(ψ)`, `My_hub = Σ r·dT·cos(ψ)` (averaged over
-ψ in the model). These are then rotated to world via `R_hub` and
-returned in `AeroResult.m_hub_world`.
+Implementation: `dynbem_rs/src/pitt_peters.rs`.
+See [PITT_PETERS_DESIGN.md](docs/PITT_PETERS_DESIGN.md) for the full design:
+L-matrix sign translation from Peters' Nikolsky lecture, state interpretation,
+mass-flow parameter choice, wind-axis rotation, and VRS notes.
+**Read it before touching any Pitt-Peters signs or coefficients.**
 
-Coefficient form used in Pitt-Peters:
-
-    C_T     = T_total / (ρ·A·(ΩR)²)
-    C_L_hub = Mx_hub  / (ρ·A·(ΩR)²·R)     # rolling moment coefficient
-    C_M_hub = My_hub  / (ρ·A·(ΩR)²·R)     # pitching moment coefficient
-
-These differ in sign from BladeAD: BladeAD uses ψ=0 at the tail and
-`dMy = −r·cos(ψ)·dT`, so when porting formulas from BladeAD:
-
-- our λ_c = − BladeAD λ_c
-- our λ_s = − BladeAD λ_s
-- our C_M_hub = + BladeAD C_My
-- our C_L_hub = − BladeAD C_Mx
-
-Signs of `M_x → roll-right`, `M_y → pitch-up` follow the standard
-NED body-frame right-hand rule (q = ω_y > 0 ⇒ nose pitches up).
-
-## Pitt-Peters inflow ODE — as implemented
-
-**Canonical reference**: David Peters' own Nikolsky Lecture, JAHS 54(1):011001
-(2009), saved at [Research/Peters_Nikolsky_2008/](Research/Peters_Nikolsky_2008/)
-with sign-translation notes. Eqs 7–11 of that paper define the model.
-
-Peters' L matrix (his Eq 10, with X = tan(χ/2), state ordering (ν_0, ν_s, ν_c)):
-
-    [L] = | 1/2          0          −15π·X/64 |
-          | 0            2(1+X²)     0         |
-          | 15π·X/64     0           2(1−X²)   |
-
-with forcing `{C_T, −C_L, −C_M}` and his ψ=0 at the tail.
-
-After translating to our ψ=0-at-+X convention (our λ_c = −ν_c, our λ_s = −ν_s)
-and using `µ_T = √(µ² + λ_total²)` as the mass-flow scaling, the steady-state
-targets are:
-
-    µ_T   = √(µ² + λ_total²)            # mass-flow non-dim
-    χ     = atan2(µ_inplane, |λ_total|) # wake skew angle
-    L_off = (15π/64) · tan(χ/2)
-    L_cc  = 4·cos(χ) / (1 + cos χ)      # = 2(1−X²), Peters Eq 10
-    L_ss  = 4 / (1 + cos χ)             # = 2(1+X²), Peters Eq 10
-
-    λ_0_ss = C_T/(2·µ_T)              +  L_off · C_M_hub / µ_T
-    λ_c_ss = (−L_off · C_T            +  L_cc  · C_M_hub) / µ_T
-    λ_s_ss = (                            L_ss  · C_L_hub) / µ_T
-
-Time constants (Peters Eq 9 apparent mass `M = diag(8/(3π), 16/(45π), 16/(45π))`):
-`τ_0 = 8R/(3π·V_T)`, `τ_cs = 16R/(45π·V_T)`.
-
-The `−L_off · C_T / µ_T` term in `λ_c_ss` is the Pitt-Peters
-cross-coupling — it produces Glauert wake-skew naturally from thrust
-forcing. The closed-form Glauert tilt has been removed; do not re-add
-it (would double-count).
-
-The cross-coupling term `+L_off · C_M_hub / µ_T` in `λ_0_ss` shifts
-uniform inflow in response to cyclic pitching moment — a higher-order
-effect, small in practice but the formulation is symmetric.
-
-VRS region (`v_climb < 0` and `0 < V_descent/V_h < 2`) still overrides
-`λ_0_ss` with the Leishman empirical polynomial — momentum theory
-doesn't apply in a recirculating wake, so the cross-coupling is also
-skipped in that regime.
-
-### Mass-flow parameter: µ_T vs Peters' V
-
-We use `µ_T = √(µ² + λ_total²)` (classical Glauert). Peters uses
-`V = (µ² + (λ+ν)(λ+2ν)) / √(µ² + (λ+ν)²)` (his Eq 8). They agree in
-high-speed forward flight but differ by 2× in hover. Our µ_T reproduces
-classical Glauert hover `λ_0 = √(C_T/2)`; Peters' V gives `√(C_T)/2`
-(factor √2 different — possibly a C_T normalization convention in his
-paper). The L-matrix STRUCTURE matches Peters exactly; only the scalar
-scaling differs. Swapping to Peters' V would need validation against
-hover data — defer until needed.
-
-### Shared BEM infrastructure (`dynbem_rs/src/bem_common.rs`)
+## Shared BEM infrastructure (`dynbem_rs/src/bem_common.rs`)
 
 `QuasiStaticBEM`, `PittPetersModel`, and `OyeBEMModel` (in
 `dynbem_rs/src/quasi_static_bem.rs`, `pitt_peters.rs`, `oye.rs`) all
@@ -239,100 +168,13 @@ a worry about closure/indirection overhead that doesn't apply to monomorphized
 Rust generics — empirical timing (see `dynbem/benchmarks/bench_rust_only.py`)
 confirms zero perf cost from the trait abstraction.
 
-### Wind-axis rotation — APPLIED (rotationally covariant)
+## Oye dynamic inflow model
 
-The L matrix is diagonal-plus-off-diagonal in **wind axes**. The code
-rotates into wind axes before applying the steady-state relations and
-rotates the resulting derivatives back, so the model is rotationally
-covariant for oblique flight (`µ_y ≠ 0`).
-
-Implementation in `dynbem_rs/src/pitt_peters.rs::compute_forces`:
-
-- `β = atan2(v_in_hub_y, −v_in_hub_x)` (`beta_wind`); `β=0` means the
-  in-plane relative wind is along `−X_hub` (pure longitudinal).
-- Aerodynamic forcing is rotated into wind axes:
-  `C_M_wind = cos β·C_M_hub + sin β·C_L_hub`,
-  `C_L_wind = −sin β·C_M_hub + cos β·C_L_hub`.
-- The current cyclic inflow states are rotated the same way
-  (`lam_c_wind`, `lam_s_wind`) so the relaxation `(ss − current)/τ`
-  is evaluated entirely in wind axes.
-- The harmonic derivatives are rotated back to hub-frame state
-  coordinates before integration:
-  `d_lam_c = cos β·d_lam_c_wind − sin β·d_lam_s_wind`,
-  `d_lam_s = sin β·d_lam_c_wind + cos β·d_lam_s_wind`.
-
-**History / why this is safe now.** An earlier version of this rotation
-was reverted because it destabilised the tethered-rotor envelope
-(`envelope.compute_map`) at descent + edgewise wind operating points
-via the nonlinear feedback `λ_c → BEM(lam_local) → C_L_hub → λ_s_ss`.
-The fix that made re-introduction stable is the **semi-implicit
-(implicit) Euler damping applied to ALL inflow states** in
-`envelope/point_mass.py::_step_state_semi_implicit` — each state is
-damped by `(1 + dt/τ)⁻¹` using the per-state time constants from the
-model's `inflow_taus()`. With that damping in place the BEM-loop λ_c
-sensitivity no longer diverges, so the wind-axis rotation is active in
-all regimes.
-
-Covered by the oblique-flow covariance tests in
-`tests/test_pitt_peters.py::TestPittPetersObliqueFlow` (non-axial flow
-generates cyclic harmonics; a 90° flow-direction rotation rotates the
-`(λ_c, λ_s)` vector consistently).
-
-## Øye 2-stage annular dynamic inflow (`dynbem_rs/src/oye.rs`)
-
-`OyeBEMModel` is the **annulus-local** alternative to Pitt-Peters
-implemented for the same project, with a deliberately different
-state structure.
-
-Per radial annulus `i`:
-
-    τ₁ · dW_int[i]/dt + W_int[i] = W_qs[i] + k · τ₁ · dW_qs[i]/dt
-    τ₂(r) · dW[i]/dt + W[i]     = W_int[i]
-
-`W` is what the blade reads in the ψ-loop; `W_int` is the
-intermediate filter stage between the momentum target `W_qs` and `W`.
-`k = 0.6` (empirical, OpenFAST default). Treats `dW_qs/dt = 0`
-across each outer step — DBEMT_Mod=1 equivalent.
-
-`W_qs` per annulus from Glauert momentum (linear form):
-
-    W_qs[i] = dCT/dx[i] / (4·x[i]·µ_T)
-
-with rotor-mean `µ_T = √(µ² + (λ_climb + v_0_mean)²) / Ω_R`. The
-pure axial-momentum form `4·x·λ_r·W = dCT/dx` was tried first and
-was unstable in forward flight — see the comment block above
-`solve_w_qs` in `dynbem_rs/src/oye.rs`.
-
-### Why this exists alongside Pitt-Peters
-
-Pitt-Peters couples C_T, C_M_hub, C_L_hub globally into all three
-inflow harmonics via the L matrix → BEM-driven feedback that's stiff
-at high advance ratios + descent. Øye's per-annulus filters are
-independent → no global feedback → numerically stable in regimes
-that need adaptive time-stepping with Pitt-Peters. This is exactly
-the trade-off OpenFAST's DBEMT made.
-
-### What Øye CAN'T do
-
-- **No cyclic inflow harmonics**: there's no λ_c/λ_s state, so the
-  inflow doesn't develop an asymmetric tilt in response to cyclic
-  pitching/rolling moments. Cyclic *control* still works (hub moments
-  respond correctly to `tilt_lon`/`tilt_lat`), but the cyclic
-  *inflow feedback* that reduces steady-state moment in Pitt-Peters
-  is absent. `tests/test_cyclic.py::test_cyclic_inflow_reduces_hub_moment`
-  doesn't apply.
-- **No wake-skew off-diagonal**: the `-L_off·C_T` term that produces
-  Glauert wake skew from thrust forcing in Pitt-Peters has no
-  analogue here. Wake skew has to come from the BEM ψ-loop's
-  asymmetric loading alone.
-
-### Sign conventions (same as Pitt-Peters)
-
-- `W > 0` for hover / helicopter (induced flow downward through disk)
-- `W > 0` in autorotation too (induction *slows* the upward freestream,
-  but in the same NED-+Z direction it would push in helicopter mode).
-  `λ_total[i] = λ_climb + W[i]` matches Pitt-Peters'
-  `λ_climb + λ_0`.
+Implementation: `dynbem_rs/src/oye.rs`.
+See [OYE_DESIGN.md](docs/OYE_DESIGN.md) for the full design: per-annulus filter
+state interpretation, W_qs momentum target, why the axial form was rejected,
+and what Oye cannot model.
+**Read it before touching any Oye filter parameters or signs.**
 
 ## Kaman servo-flap modeling (Beaupoil rotor)
 
@@ -421,7 +263,7 @@ Tests: `tests/test_flap_hinge.py`.
 ## Windmill solver: non-axial v_t_extra extension
 
 The quasi-static BEM (`dynbem_rs/src/quasi_static_bem.rs`) uses a Ning
-2014 Brent's-method windmill solver (Section 9.1 of MODEL.md) for energy-
+2014 Brent's-method windmill solver (Section 9.1 of docs/BEM_COMMON.md) for energy-
 extracting elements. This solver was originally derived for pure axial
 (wind-turbine) flow. Our extension makes it work inside the azimuth-
 resolved psi-loop with in-plane wind -- something OpenFAST's AeroDyn
@@ -431,7 +273,7 @@ BEMT does not do (it only runs the windmill path in the axial-flow code).
 
 Each blade element at azimuth psi has tangential velocity
 `v_t = Omega*r + v_t_extra(psi)` where `v_t_extra` comes from forward
-flight (Section 6 of MODEL.md). The windmill Brent residual must include
+flight (Section 6 of docs/BEM_COMMON.md). The windmill Brent residual must include
 this term:
 
     g(phi) = sin(phi) * (1+a') * lam_tilde + cos(phi) * (1-a) = 0
@@ -644,10 +486,14 @@ new aero model"); the short version:
   the `extract_tables.py` MD→CSV converter described above.
 - `Research/CaradonnaTung/CLAUDE.md` — Caradonna-Tung page index, CT
   tables, validation notes.
-- `Research/Peters_Nikolsky_2008/CLAUDE.md` — **canonical Pitt-Peters
-  formulation** (L matrix, M matrix, V mass-flow, forcing sign
-  convention) from David Peters' Nikolsky lecture. Read this before
-  touching any Pitt-Peters signs or coefficients.
+- `Research/Peters_Nikolsky_2008/CLAUDE.md` — canonical Pitt-Peters
+  formulation (L matrix, M matrix, V mass-flow, forcing sign convention)
+  from David Peters' Nikolsky lecture.
+- `docs/PITT_PETERS_DESIGN.md` — implementation design: sign translation,
+  state interpretation, mass-flow choice, wind-axis rotation, VRS notes.
+  **Read before touching Pitt-Peters.**
+- `docs/OYE_DESIGN.md` — implementation design: per-annulus states, W_qs
+  momentum target, what Oye cannot model. **Read before touching Oye.**
 - `dynbem/CLAUDE.md` — public `dynbem` Python package (PyO3 glue + Python
   compat shim). Drop-in replacement for the legacy pure-Python dynbem.
 - `dynbem_rs/CLAUDE.md` — pure-Rust math core (no pyo3 / numpy / file IO).

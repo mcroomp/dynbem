@@ -1,6 +1,17 @@
-# Mathematical Model Reference
+# BEM Common Design Reference
 
-This document describes the aerodynamic models implemented in `dynbem_rs/`.
+This document covers shared BEM infrastructure: coordinate system, kinematics,
+the BEM force kernel, QS BEM solver, VRS correction, servo-flap, output assembly,
+blade flapping, the inflow integrator, numerical floors, model comparison, and
+validation summary.
+
+Model-specific design notes live in:
+- [PITT_PETERS_DESIGN.md](PITT_PETERS_DESIGN.md) -- Pitt-Peters 3-state dynamic inflow
+- [OYE_DESIGN.md](OYE_DESIGN.md) -- Oye 2-stage annular dynamic inflow
+- [VPM_DESIGN.md](VPM_DESIGN.md) -- VPM free-wake solver
+
+---
+
 The architecture is a blade-element momentum (BEM) solver with replaceable
 dynamic-inflow sub-models, all sharing a common azimuth-radial sweep kernel.
 
@@ -448,146 +459,25 @@ as the rotor passes through hover.
 
 ---
 
+
 ## 10. Pitt-Peters 3-State Dynamic Inflow
 
-**Description.** A reduced-order dynamic-inflow model that represents the
-wake by just three global states -- a uniform component plus longitudinal
-and lateral harmonics -- relaxing toward a momentum-theory steady state
-through Peters' apparent-mass time constants. The three states are
-coupled to thrust, rolling, and pitching moment through the L-matrix.
-
-**Advantages.** Captures the dynamic-inflow lag and the cyclic
-inflow/hub-moment feedback that quasi-static BEM misses; the $L_\text{off}$
-cross-term reproduces Glauert wake skew naturally; only three states, so
-it is cheap to integrate and is the standard model for rotor flight
-dynamics and trim.
-
-**Disadvantages.** The global L-matrix coupling becomes numerically stiff
-at high advance ratio and in descent + edgewise wind, demanding small or
-adaptive time steps; the radial inflow shape is fixed (uniform + linear),
-so it cannot represent an arbitrary radial distribution; momentum theory
-breaks down in the vortex-ring state, requiring the empirical VRS override.
-
-Reference: Peters, D.A. (2009), *"How Dynamic Inflow Survives in the
-Competitive World of Rotorcraft Aerodynamics"*, JAHS 54(1):011001.
-
-### State
-
-Three non-dimensional inflow harmonics:
-
-$$\boldsymbol{\lambda} = [\lambda_0,\; \lambda_c,\; \lambda_s]^\top$$
-
-where $\lambda_0$ is uniform inflow, $\lambda_c$ is the cosine harmonic
-(longitudinal tilt), $\lambda_s$ is the sine harmonic (lateral tilt).
-Local inflow at element $(i, \psi)$:
-
-$$\lambda_\text{local}(i, \psi) = (\lambda_0 + \lambda_\text{climb}) + x_i(\lambda_c\cos\psi + \lambda_s\sin\psi)$$
-
-### Non-Dimensional Aerodynamic Coefficients
-
-$$\Omega_R = \Omega R, \quad A = \pi R^2$$
-
-$$C_T = \frac{T}{\rho A \Omega_R^2}, \quad C_{L,\text{hub}} = \frac{M_{x,\text{hub}}}{\rho A \Omega_R^2 R}, \quad C_{M,\text{hub}} = \frac{M_{y,\text{hub}}}{\rho A \Omega_R^2 R}$$
-
-### Wake Skew and Mass-Flow
-
-$$\mu_T = \sqrt{\mu^2 + \lambda_\text{total}^2}, \qquad \chi = \arctan\!\frac{\mu_\text{inplane}}{|\lambda_\text{total}|}$$
-
-with $\lambda_\text{total} = \lambda_0 + \lambda_\text{climb}$ (uniform induced
-plus climb inflow) and $\mu_\text{inplane} = v_\text{edge}/\Omega R$ (the
-same edgewise advance ratio as $\mu$ of Section 2).
-
-$$L_\text{off} = \frac{15\pi}{64}\tan\!\frac{\chi}{2}, \quad L_{cc} = \frac{4\cos\chi}{1+\cos\chi}, \quad L_{ss} = \frac{4}{1+\cos\chi}$$
-
-### Steady-State Targets (Peters L-matrix, translated to psi=0-at-+X)
-
-$$\lambda_{0,ss} = \frac{C_T}{2\mu_T} + \frac{L_\text{off}\,C_{M,\text{hub}}}{\mu_T}$$
-
-$$\lambda_{c,ss} = \frac{-L_\text{off}\,C_T + L_{cc}\,C_{M,\text{hub}}}{\mu_T}$$
-
-$$\lambda_{s,ss} = \frac{L_{ss}\,C_{L,\text{hub}}}{\mu_T}$$
-
-The $-L_\text{off} C_T$ cross-term in $\lambda_{c,ss}$ is the Pitt-Peters
-wake-skew coupling — it produces the Glauert lateral inflow tilt naturally
-from thrust forcing (no separate closed-form Glauert tilt).
-
-### ODE (first-order relaxation to steady state)
-
-Peters' apparent mass matrix $\mathbf{M} = \text{diag}(8/3\pi,\;16/45\pi,\;16/45\pi)$
-gives time constants:
-
-$$\tau_0 = \frac{8R}{3\pi V_\text{mf}}, \qquad \tau_{c} = \tau_{s} = \frac{16R}{45\pi V_\text{mf}}$$
-
-The state derivative returned each call:
-
-$$\dot{\lambda}_0 = \frac{\lambda_{0,ss} - \lambda_0}{\tau_0}, \quad
-  \dot{\lambda}_c = \frac{\lambda_{c,ss} - \lambda_c}{\tau_c}, \quad
-  \dot{\lambda}_s = \frac{\lambda_{s,ss} - \lambda_s}{\tau_s}$$
+See [PITT_PETERS_DESIGN.md](PITT_PETERS_DESIGN.md) for state equations, L-matrix,
+ODE, and steady-state targets, plus implementation notes (sign translation,
+mass-flow parameter, wind-axis rotation, VRS notes).
 
 ---
 
 ## 11. Oye 2-Stage Annular Dynamic Inflow
 
-**Description.** A dynamic-inflow model that gives each radial annulus its
-own pair of first-order filter states, relaxing the annulus-local induced
-velocity toward its momentum target through two cascaded time constants.
-The annuli are independent -- there is no global coupling between them.
+See [OYE_DESIGN.md](OYE_DESIGN.md) for per-annulus filter states, W_qs
+momentum target, two-stage ODE, and what Oye cannot model.
 
-**Advantages.** Per-annulus filters mean no global feedback, so it stays
-numerically stable in exactly the high-advance-ratio and descent regimes
-that make Pitt-Peters stiff; it resolves an arbitrary radial inflow
-distribution (not just uniform + linear); the two-stage filter matches
-measured wind-turbine inflow-lag data well (the OpenFAST DBEMT lineage).
+---
 
-**Disadvantages.** No azimuthal harmonic states ($\lambda_c/\lambda_s$),
-so it has no cyclic inflow feedback and no wake-skew off-diagonal term --
-cyclic *control* still works but the inflow does not tilt in response to
-hub moment; state size grows with the radial grid ($2N_r$); like the
-others it needs the empirical VRS override in the vortex-ring state.
-
-References: Oye (1990), Snel & Schepers (1995), OpenFAST AeroDyn Theory
-v3.5 §6.3.4 (DBEMT_Mod=1).
-
-### State
-
-Per radial annulus $i$: two first-order filter states $(W_{\text{int},i},\; W_i)$.
-Total state dimension: $2N_r$.
-
-### Quasi-Steady Momentum Target Per Annulus
-
-Using per-annulus azimuth-averaged thrust $\langle dT_i \rangle$ and
-rotor-mean $\mu_T$:
-
-$$W_{qs,i} = \frac{dC_T/dx|_i}{4\,x_i\,F_i\,\mu_T}$$
-
-where the numerator normalisation is $\rho A \Omega_R^2 \Delta r / R$.
-
-### Two-Stage Filter ODE
-
-$$\tau_1 = \frac{1.1}{1 - 1.3\min(a,\,0.5)}\cdot\frac{R}{V_\text{mf}}$$
-
-$$\tau_2(r) = (0.39 - 0.26\,(r/R)^2)\,\tau_1$$
-
-$$\dot{W}_{\text{int},i} = \frac{W_{qs,i} - W_{\text{int},i}}{\tau_1}$$
-
-$$\dot{W}_i = \frac{W_{\text{int},i} - W_i}{\tau_2(r_i)}$$
-
-Empirical coupling constant $k = 0.6$ (OpenFAST default) was omitted above
-for clarity — in implementation the filter target for $W_\text{int}$ also
-includes a $k\tau_1 \dot{W}_{qs}$ term, which is set to zero across each
-outer time step (DBEMT_Mod=1 approximation):
-
-$$\dot{W}_{\text{int},i} = \frac{W_{qs,i} + k\tau_1\dot{W}_{qs,i} - W_{\text{int},i}}{\tau_1}
-  \approx \frac{W_{qs,i} - W_{\text{int},i}}{\tau_1}$$
-
-Local inflow per annulus:
-
-$$\lambda_\text{local}(i, \psi) = \lambda_\text{climb} + W_i$$
-
-No $\lambda_c/\lambda_s$ harmonic states — inflow is radially distributed
-but azimuthally uniform. This eliminates the global L-matrix feedback that
 makes Pitt-Peters stiff at high advance ratios and in descent + edgewise wind.
-
+For implementation notes (W sign convention, why the axial-momentum form was
+rejected, what Oye cannot model) see [OYE_DESIGN.md](OYE_DESIGN.md).
 ---
 
 ## 12. Vortex-Ring State (VRS) Empirical Correction
@@ -876,8 +766,8 @@ The models are validated on two fronts: against **published experimental
 rotor data** (absolute accuracy and qualitative correctness), and against
 **independent open-source BEM / dynamic-inflow codes** (implementation
 cross-checks). Each dataset has a verifier script under
-[`verification/`](verification/) and a regression test under
-[`tests/`](tests/); the source-paper extractions live under `Research/`.
+[`verification/`](../verification/) and a regression test under
+[`tests/`](../tests/); the source-paper extractions live under `Research/`.
 Full provenance, per-dataset bias analysis, and convention-reconciliation
 notes are in [EMPIRICAL_VALIDATION.md](EMPIRICAL_VALIDATION.md).
 
@@ -892,15 +782,15 @@ solidity.
 
 | Dataset (paper) | Regime | Quantity | BEM error | Test |
 |---|---|---|---|---|
-| Castles-Gray, NACA TN-2474 | Hover (Table I, 11 pts) | $`C_T`$ | +11% mean, 11% RMSE | [test_castles_gray.py](tests/test_castles_gray.py) |
-| Castles-Gray, NACA TN-2474 | Hover (Table I, 11 pts) | $`\Delta C_Q`$ | -1.5% mean, 14% RMSE | [test_castles_gray.py](tests/test_castles_gray.py) |
-| Castles-Gray, NACA TN-2474 | Vertical descent | $`Q`$ sign flip / autorotation crossing | sign correct | [test_castles_gray.py](tests/test_castles_gray.py) |
-| Castles-Gray, NACA TN-2474 | Windmill-brake (Fig 12) | $`\lambda_1(\lambda_2)`$ inflow shape | within 20% | [test_castles_gray.py](tests/test_castles_gray.py) |
-| Caradonna-Tung, NASA TM-81232 | Hover | $`C_T`$ | +30-45% | [test_bem_components.py](tests/test_bem_components.py) |
-| Caradonna-Tung, NASA TM-81232 | Hover | $`C_T`$ ratios | within ~10% | [test_bem_components.py](tests/test_bem_components.py) |
-| Caradonna-Tung, NASA TM-81232 | Hover (151-pt sweep) | spanwise $`C_\ell`$ | median 31% (tip ~10-20%) | [test_caradonna_spanwise.py](tests/test_caradonna_spanwise.py) |
-| Harrington, NACA TN-2318 | Hover (full-scale Re) | $`C_T`$ | +30-45% | [test_bem_components.py](tests/test_bem_components.py) |
-| Wheatley-Hood, NACA TR-515 (PCA-2) | Forward-flight autorotation ($`\mu = 0.13-0.72`$, 286 pts) | $`C_Q`$ residual at autorotation | mean $`C_Q \approx -0.0011`$ (trimmed), all rows < 0 | [test_wheatley_autorotation.py](tests/test_wheatley_autorotation.py) |
+| Castles-Gray, NACA TN-2474 | Hover (Table I, 11 pts) | $`C_T`$ | +11% mean, 11% RMSE | [test_castles_gray.py](../tests/test_castles_gray.py) |
+| Castles-Gray, NACA TN-2474 | Hover (Table I, 11 pts) | $`\Delta C_Q`$ | -1.5% mean, 14% RMSE | [test_castles_gray.py](../tests/test_castles_gray.py) |
+| Castles-Gray, NACA TN-2474 | Vertical descent | $`Q`$ sign flip / autorotation crossing | sign correct | [test_castles_gray.py](../tests/test_castles_gray.py) |
+| Castles-Gray, NACA TN-2474 | Windmill-brake (Fig 12) | $`\lambda_1(\lambda_2)`$ inflow shape | within 20% | [test_castles_gray.py](../tests/test_castles_gray.py) |
+| Caradonna-Tung, NASA TM-81232 | Hover | $`C_T`$ | +30-45% | [test_bem_components.py](../tests/test_bem_components.py) |
+| Caradonna-Tung, NASA TM-81232 | Hover | $`C_T`$ ratios | within ~10% | [test_bem_components.py](../tests/test_bem_components.py) |
+| Caradonna-Tung, NASA TM-81232 | Hover (151-pt sweep) | spanwise $`C_\ell`$ | median 31% (tip ~10-20%) | [test_caradonna_spanwise.py](../tests/test_caradonna_spanwise.py) |
+| Harrington, NACA TN-2318 | Hover (full-scale Re) | $`C_T`$ | +30-45% | [test_bem_components.py](../tests/test_bem_components.py) |
+| Wheatley-Hood, NACA TR-515 (PCA-2) | Forward-flight autorotation ($`\mu = 0.13-0.72`$, 286 pts) | $`C_Q`$ residual at autorotation | mean $`C_Q \approx -0.0011`$ (trimmed), all rows < 0 | [test_wheatley_autorotation.py](../tests/test_wheatley_autorotation.py) |
 
 The Wheatley-Hood PCA-2 set is the only forward-flight autorotation
 benchmark and the most extensive (286 validated operating points). The
@@ -927,16 +817,16 @@ These cross-checks isolate the algorithm from the data: dynbem and the
 reference code are given the same geometry, polar, and operating point,
 so agreement to a few percent confirms the BEM implementation itself.
 The reference codes run in Docker (see the `*_docker/` folders under
-[`verification/`](verification/)) and their outputs are committed as CSVs
+[`verification/`](../verification/)) and their outputs are committed as CSVs
 so the tests stay deterministic.
 
 | Reference code | Rotor / regime | Quantity | Agreement | Test / verifier |
 |---|---|---|---|---|
-| **CCBlade** (NREL/WISDEM) | NREL Phase VI HAWT, 21 pts, $`V = 5-25`$ m/s | $`C_T`$ / $`C_Q`$ | CT max 2.3%, CQ max 2.9% | [test_dynbem_vs_ccblade.py](tests/test_dynbem_vs_ccblade.py) |
-| **CCBlade** (NREL/WISDEM) | Beaupoil RAWES rotor, 25 pts | $`C_T`$ / $`C_Q`$ | CT max 1.8%, CQ max 11% (at autorotation crossing) | [test_dynbem_vs_ccblade.py](tests/test_dynbem_vs_ccblade.py) |
-| **XROTOR** | Caradonna-Tung, pure hover (5/8/12 deg) | thrust | three-way vs paper + XROTOR | [dynbem_qsbem_vs_xrotor_caradonna_tung.py](verification/dynbem_qsbem_vs_xrotor_caradonna_tung.py) |
-| **OpenFAST AeroDyn** (DBEMT_Mod=1) | NREL Phase VI, Oye dynamic inflow | $`C_T`$ / $`C_Q`$ | same-algorithm cross-check | [dynbem_oye_vs_openfast_nrel_phase_vi.py](verification/dynbem_oye_vs_openfast_nrel_phase_vi.py) |
-| **AeroDyn** (polar lookup) | NREL Phase VI, per-element $`(\alpha)`$ | $`C_\ell`$ / $`C_d`$ interpolation | to a few ULPs | [dynbem_polar_vs_aerodyn_nrel_phase_vi.py](verification/dynbem_polar_vs_aerodyn_nrel_phase_vi.py) |
+| **CCBlade** (NREL/WISDEM) | NREL Phase VI HAWT, 21 pts, $`V = 5-25`$ m/s | $`C_T`$ / $`C_Q`$ | CT max 2.3%, CQ max 2.9% | [test_dynbem_vs_ccblade.py](../tests/test_dynbem_vs_ccblade.py) |
+| **CCBlade** (NREL/WISDEM) | Beaupoil RAWES rotor, 25 pts | $`C_T`$ / $`C_Q`$ | CT max 1.8%, CQ max 11% (at autorotation crossing) | [test_dynbem_vs_ccblade.py](../tests/test_dynbem_vs_ccblade.py) |
+| **XROTOR** | Caradonna-Tung, pure hover (5/8/12 deg) | thrust | three-way vs paper + XROTOR | [dynbem_qsbem_vs_xrotor_caradonna_tung.py](../verification/dynbem_qsbem_vs_xrotor_caradonna_tung.py) |
+| **OpenFAST AeroDyn** (DBEMT_Mod=1) | NREL Phase VI, Oye dynamic inflow | $`C_T`$ / $`C_Q`$ | same-algorithm cross-check | [dynbem_oye_vs_openfast_nrel_phase_vi.py](../verification/dynbem_oye_vs_openfast_nrel_phase_vi.py) |
+| **AeroDyn** (polar lookup) | NREL Phase VI, per-element $`(\alpha)`$ | $`C_\ell`$ / $`C_d`$ interpolation | to a few ULPs | [dynbem_polar_vs_aerodyn_nrel_phase_vi.py](../verification/dynbem_polar_vs_aerodyn_nrel_phase_vi.py) |
 
 Notes:
 

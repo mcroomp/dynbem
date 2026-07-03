@@ -10,7 +10,7 @@ This document describes what is built, the math it implements, the
 conventions it follows, its measured performance, and the roadmap. It is
 the design reference for anyone extending the VPM path. For the BEM /
 Pitt-Peters / Oye models and the shared sign/frame conventions, see
-[../AGENTS.md](../AGENTS.md) and [CLAUDE.md](CLAUDE.md).
+[../AGENTS.md](../AGENTS.md) and [CLAUDE.md](../dynbem_rs/CLAUDE.md).
 
 Math is written in GitHub Flavored Markdown LaTeX (`$...$` inline,
 `$$...$$` and ` ```math ` blocks), per the design-document carve-out in
