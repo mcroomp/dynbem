@@ -480,23 +480,32 @@ new aero model"); the short version:
   originally made from); correct the `.md`, regenerate, and verify
   the consistency-check assertions in any related test still pass.
 
-## Subfolder CLAUDE.md files
+## Subfolder README and CLAUDE.md files
 
-- `Research/CLAUDE.md` — extraction conventions for paper sources and
-  the `extract_tables.py` MD→CSV converter described above.
-- `Research/CaradonnaTung/CLAUDE.md` — Caradonna-Tung page index, CT
+Each major directory has a README.md that is the authoritative reference
+for that directory. **When you add, remove, or rename a source file or
+public symbol inside a directory, update that directory's README.md in
+the same commit.** The module maps and layout sections must stay in sync
+with the actual files on disk.
+
+- `dynbem_rs/README.md` -- pure-Rust math core. Module map, hard rules,
+  hot-path conventions, numerical floors, adding-a-new-model recipe.
+  **Read before editing dynbem_rs/.**
+- `dynbem/README.md` -- public `dynbem` Python package (PyO3 glue + Python
+  layer). Layout, YAML loading notes, hard rules, adding-a-new-API recipe.
+  **Read before editing dynbem/.**
+- `Research/CLAUDE.md` -- extraction conventions for paper sources and
+  the `extract_tables.py` MD->CSV converter.
+- `Research/CaradonnaTung/CLAUDE.md` -- Caradonna-Tung page index, CT
   tables, validation notes.
-- `Research/Peters_Nikolsky_2008/CLAUDE.md` — canonical Pitt-Peters
+- `Research/Peters_Nikolsky_2008/CLAUDE.md` -- canonical Pitt-Peters
   formulation (L matrix, M matrix, V mass-flow, forcing sign convention)
   from David Peters' Nikolsky lecture.
-- `docs/PITT_PETERS_DESIGN.md` — implementation design: sign translation,
+- `docs/PITT_PETERS_DESIGN.md` -- implementation design: sign translation,
   state interpretation, mass-flow choice, wind-axis rotation, VRS notes.
   **Read before touching Pitt-Peters.**
-- `docs/OYE_DESIGN.md` — implementation design: per-annulus states, W_qs
+- `docs/OYE_DESIGN.md` -- implementation design: per-annulus states, W_qs
   momentum target, what Oye cannot model. **Read before touching Oye.**
-- `dynbem/CLAUDE.md` — public `dynbem` Python package (PyO3 glue + Python
-  compat shim). Drop-in replacement for the legacy pure-Python dynbem.
-- `dynbem_rs/CLAUDE.md` — pure-Rust math core (no pyo3 / numpy / file IO).
-  Module map, hot-path conventions, numerical floors.
 
-Defer to those when working inside the respective directories.
+Defer to those files when working inside the respective directories.
+

@@ -83,8 +83,8 @@ Rust toolchain (`rustup` stable).
 import numpy as np
 import dynbem
 
-# Load rotor definition from YAML. Parsing happens in Rust (dynbem_rs)
-# via PyO3 bindings; pure-Rust callers can use RotorDefinition::from_yaml_file(path).
+# YAML loading is pure Python (yaml.safe_load); the resulting RotorDefinition
+# holds lean Rust wrappers for the math fields.
 defn   = dynbem.rotor_definition.load("rotors/castles_gray_6ft/rotor.yaml")
 model  = dynbem.create_aero(defn, model="pitt_peters")  # or "oye", "bem", "vpm"
 state  = model.initial_rotor_state()
@@ -96,12 +96,12 @@ inputs = dynbem.RotorInputs(
     R_hub=np.eye(3),
     v_hub_world=np.zeros(3),
     wind_world=np.zeros(3),
-    t=0.0,
     omega_rad_s=omega,                         # rotor speed passed in each call
+    rho_kg_m3=1.225,
 )
 # All models advance with step() -- the same API across all three tiers:
 result, state = model.step(inputs, state, dt, integration_method="semi_implicit")
-# integration_method: "semi_implicit" | "explicit" | "exponential"  (ignored for "bem")
+# integration_method: "semi_implicit" | "explicit" | "exponential"  (ignored for quasi static and VPM)
 # result.F_world, result.m_hub_world, result.M_spin, result.Q_spin
 
 # Mechanical ODE lives in the caller:
@@ -121,14 +121,6 @@ result, state = vpm.step(inputs, state, dt)   # no integration_method needed
 
 For the full API reference — all classes, fields, keyword arguments, and
 return types — see **[API.md](docs/API.md)**.
-
-## Flight envelope sweep
-
-```
-run_map.cmd                                           # quick grid, saves to out\map.npz, plots to out\
-run_map.cmd --full --save out\map.npz --plot out\     # full grid
-uv run python -m envelope.compute_map --help
-```
 
 ## Tests and validation
 

@@ -236,6 +236,100 @@ set sub-step size or as the damping term in a semi-implicit scheme.
 For the quasi-static BEM model `d_state` is always zero and both options
 are equivalent.
 
+## Developer notes
+
+### Hard rules
+
+1. **No `pyo3` / `numpy` imports.** Python-facing helpers belong in
+   [`../dynbem/`](../dynbem/), not here.
+2. **No file IO outside `rotor_definition.rs`.** The YAML fields in
+   `RotorDefinition` are parsed by the Python layer (`dynbem.rotor_definition`
+   via `yaml.safe_load`); the Rust struct is populated by the PyO3 glue.
+   Math modules (`bem_common`, `pitt_peters`, `oye`, `servoflap`, `polar`,
+   `cyclic`, `trim`, `common`) must stay free of `std::fs` / `serde` so
+   they remain embeddable and decoupled from file-format concerns.
+3. **Public API stability matters.** The `dynbem/` glue crate depends on
+   every public field, struct, and function here. Renaming or moving
+   things requires matching edits there. Prefer additive changes.
+4. **Sign conventions are NOT documented in this crate.** They live in
+   [`../AGENTS.md`](../AGENTS.md) and [`../docs/BEM_COMMON.md`](../docs/BEM_COMMON.md).
+   Refer to those; do not duplicate.
+
+### Module map
+
+    src/
+    +-- lib.rs                public module declarations
+    +-- aero_io.rs            Vec3, Mat3, RotorInputs, AeroResult
+    +-- aero_model.rs         AeroModel trait + RotorStateExt trait + IntegrationMethod
+    +-- bem_common.rs         RadialGrid, PolarTable, kinematics(), element_force(),
+    |                         run_psi_loop<K: PsiKernel>, assemble_result(),
+    |                         apply_flap_reduction()
+    +-- common.rs             numerical floors (EPS_*), vrs_lambda1 VRS polynomial
+    +-- cyclic.rs             swashplate -> theta_1c, theta_1s mapping
+    +-- oye.rs                OyeBEMModel (annular 2-stage filter)
+    +-- pitt_peters.rs        PittPetersModel (3-state L-matrix ODE)
+    +-- polar.rs              LinearPolar, TabulatedPolar, Polar trait
+    +-- quasi_static_bem.rs   QuasiStaticBEM + Ning windmill Brent solver
+    +-- rotor_definition.rs   all RotorDefinition types (blade, airfoil, control,
+    |                         servo-flap, flap, inertia)
+    +-- servoflap.rs          quasi-static servo-flap-driven feathering model
+    +-- trim.rs               solve_trim_cyclic<M>, relax_inflow<M> (generic over model)
+    +-- vpm.rs                ParticleField + regularized Biot-Savart engine
+    |                         (private; used only by vpm_rotor)
+    +-- vpm_rotor.rs          VpmRotor free-wake forward-flight coupling
+                              (see docs/VPM_DESIGN.md)
+
+State types (`QuasiStaticRotorState`, `PittPetersRotorState`, `OyeRotorState`,
+`VpmRotorState`) are defined in each model's own module. `RotorStateExt`
+(the serialization trait) is declared in `aero_model.rs`.
+
+### Adding a new aero model
+
+1. Add `src/foo.rs` with the model struct and `impl AeroModel for FooModel`.
+   Implement `AeroModel::step`, `compute_forces`, `initial_state`,
+   `inflow_taus`.
+2. Add `FooRotorState` to `foo.rs` and the `RotorStateExt` impl there.
+   `RotorStateExt` serializes **inflow states only** via
+   `get_inflow()` / `set_inflow(Vec<f64>)`. There are no mechanical
+   fields; `omega_rad_s` is passed through `RotorInputs` on every call.
+3. Add `pub mod foo;` to `lib.rs`.
+4. Add a wrapper newtype in [`../dynbem/src/wrappers.rs`](../dynbem/src/wrappers.rs)
+   (mark `subclass = true` if Python should auto-build the polar) and an
+   `AeroAny` variant in [`../dynbem/src/trim_py.rs`](../dynbem/src/trim_py.rs).
+5. Wire the model name into `create_aero()` in
+   [`../dynbem/python/dynbem/factory.py`](../dynbem/python/dynbem/factory.py).
+
+### Hot-path conventions
+
+- Once-per-call kinematics prelude lives in `bem_common::kinematics`.
+  Result assembly is `bem_common::assemble_result`. Per-element BEM
+  integrand is `bem_common::element_force` (`#[inline(always)]`). All
+  three BEM models call these -- do not duplicate.
+- The psi x r sweep is one generic function `bem_common::run_psi_loop<K: PsiKernel>`.
+  Pitt-Peters and Oye each implement `PsiKernel` for their own `lam_local`
+  formula. Monomorphization + `#[inline(always)]` on the trait methods give
+  the same codegen as a hand-rolled loop with no runtime dispatch.
+- Plain `for` loops over `&[f64]`, no SIMD intrinsics. LLVM autovectorizes
+  the if-converted bodies.
+- `Vec3`/`Mat3` are `Copy` newtypes around plain f64 arrays. Operators
+  lower to the same scalar FMA chains as hand-rolled index arithmetic.
+
+### Numerical floors
+
+All in `common.rs`:
+
+| Constant | Value | Purpose |
+|---|---|---|
+| `EPS_DENOM` | 1e-9 | generic division / ratio safety |
+| `EPS_OMEGA_R` | 1e-6 | rotor-not-spinning threshold |
+| `MIN_LOSS_FACTOR` | 1e-4 | Prandtl tip+hub loss floor |
+| `MASS_FLOW_HOVER_FLOOR_FRAC` | 1e-2 | mass-flow floor at hover / zero thrust |
+| `VRS_DESCENT_THRESHOLD` | 1e-3 | VRS detection guard against hover chattering |
+| `MU_T_FLOOR` | 0.05 | Pitt-Peters L-matrix denominator floor |
+
+Tuned to keep hover / climb / descent / VRS / autorotation all stable in one
+code path. Do not change without running the full suite (`uv run pytest tests/ -q`).
+
 ## License
 
 MIT
