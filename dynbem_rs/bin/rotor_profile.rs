@@ -175,6 +175,7 @@ fn profile_vpm(
         bh_min_particles: 200,
         flap_dynamics: false,
         use_rayon: true,
+        use_scalar_nan_check: false,
     };
     let rotor = VpmRotor::new(&defn, polar, ControlGains::default(), config);
     let fc = test_flight_condition();

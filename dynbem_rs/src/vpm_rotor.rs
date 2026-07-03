@@ -31,8 +31,9 @@ use crate::rotor_definition::{
     FlapProperties, PitchActuation, RotorDefinition, ServoFlapActuation,
 };
 use crate::vpm::{
-    advect_rk2, advect_rk2_bh, advect_rk2_seq, advect_rk2_bh_seq,
+    advect_rk2, advect_rk2_bh, advect_rk2_seq, advect_rk2_bh_seq, advect_rk2_nan_check,
     induced_at_points, induced_at_points_bh, induced_at_points_seq, induced_at_points_bh_seq,
+    induced_at_points_nan_check,
     ParticleField,
 };
 use std::f64::consts::PI;
@@ -78,6 +79,11 @@ pub struct VpmRotorConfig {
     /// Use Rayon parallelism for wake induction and convection. When false,
     /// uses sequential implementations for debugging or single-threaded execution.
     pub use_rayon: bool,
+    /// Debug: route every wake induction call through the scalar f64 reference
+    /// path that asserts each per-pair contribution is finite. Panics with
+    /// source/target indices and values at the first NaN. Very slow -- O(N^2)
+    /// non-vectorized. Default false.
+    pub use_scalar_nan_check: bool,
 }
 
 impl Default for VpmRotorConfig {
@@ -94,6 +100,7 @@ impl Default for VpmRotorConfig {
             bh_min_particles: 2048,
             flap_dynamics: true,
             use_rayon: true,
+            use_scalar_nan_check: false,
         }
     }
 }
@@ -113,6 +120,7 @@ impl VpmRotorConfig {
             bh_min_particles: 2048,
             flap_dynamics: true,
             use_rayon: true,
+            use_scalar_nan_check: false,
         }
     }
 }
@@ -171,8 +179,15 @@ pub struct VpmRotor<P: Polar> {
     /// `Some` enables per-blade flap dynamics when `config.flap_dynamics`.
     flap: Option<FlapProperties>,
     /// Optional servo-flap feathering actuation (Kaman path). `Some` enables
-    /// the per-blade feathering DOF when the control stiffness is positive.
+    /// the per-blade feathering DOF (feathering + damper architecture).
     feather: Option<ServoFlapActuation>,
+    /// Blade section lift-curve slope [1/rad], from the rotor's airfoil.
+    /// Used to size the aerodynamic feathering spring k_aero from ac_offset.
+    cl_alpha: f64,
+    /// Spanwise integral Sum(chord[i] * r_mid[i]^2 * dr[i]) [m^4], precomputed
+    /// for the aerodynamic feathering spring: k_aero = 0.5*rho*omega^2*
+    /// cl_alpha*ac_offset * feather_span_integral.
+    feather_span_integral: f64,
     ctrl: ControlGains,
     config: VpmRotorConfig,
 }
@@ -280,6 +295,12 @@ impl<P: Polar> VpmRotor<P> {
             })
             .collect();
 
+        // Spanwise integral for the aerodynamic feathering spring (see the
+        // `feather_span_integral` field).
+        let feather_span_integral: f64 = (0..n)
+            .map(|i| chord[i] * r_mid[i] * r_mid[i] * dr[i])
+            .sum();
+
         Self {
             polar,
             n_blades: blade.n_blades,
@@ -296,6 +317,8 @@ impl<P: Polar> VpmRotor<P> {
                 PitchActuation::ServoFlap(act) => Some(act.clone()),
                 PitchActuation::DirectMechanical => None,
             },
+            cl_alpha: defn.airfoil.CL_alpha_per_rad,
+            feather_span_integral,
             ctrl,
             config,
         }
@@ -412,21 +435,19 @@ impl<P: Polar> VpmRotor<P> {
             _ => vec![0.0f64; nb],
         };
 
-        // Per-blade feathering DOF (Kaman servo-flap path). Active when the
-        // rotor carries a ServoFlapActuation with a positive control stiffness
-        // (the pushrod/linkage restoring moment -- feathering has no
-        // centrifugal stiffening, so without it the DOF is ill-posed). In
-        // servo mode the swashplate collective/cyclic are reinterpreted as
+        // Per-blade feathering DOF (Kaman servo-flap path). Active whenever the
+        // rotor carries a ServoFlapActuation (feathering + damper architecture).
+        // In servo mode the swashplate collective/cyclic are reinterpreted as
         // flap deflection commands delta_f, which produce the pitching moment
         // M_servo that drives feathering; the feathering angle theta_f then
         // REPLACES the direct swashplate-to-pitch path. The ODE integrated is
-        //   I_theta*theta'' + C_theta*theta' + k_ctrl*theta = M_servo
-        // with the mechanical damper C_theta the only dissipation (axis at the
-        // AC => no aero pitch damping) -- integrated semi-implicitly below.
-        let servo_active = match &self.feather {
-            Some(act) => act.control_stiffness_Nm_per_rad > 0.0,
-            None => false,
-        };
+        //   I_theta*theta'' + C_theta*theta' + k_aero*theta = M_servo
+        // with the mechanical damper C_theta the only dissipation and k_aero
+        // the aerodynamic spring from the AC offset -- integrated
+        // semi-implicitly below.
+        // Servo-flap mode is active whenever the rotor carries a
+        // ServoFlapActuation; there is no stiffness gate.
+        let servo_active = self.feather.is_some();
         // Swashplate commands reinterpreted as flap deflection harmonics.
         let (delta_f0, delta_f1c, delta_f1s) = (fc.collective_rad, theta_1c, theta_1s);
         let (flap_r_in, flap_r_out, flap_cm_delta) = match &self.feather {
@@ -461,6 +482,37 @@ impl<P: Polar> VpmRotor<P> {
 
         // Scratch reused each step.
         let mut u_rel = vec![vec![[0.0f64; 3]; n]; nb]; // per-station relative wind
+
+        if cfg.use_scalar_nan_check {
+            eprintln!("march_window: n={} nb={} omega={} dt={} dpsi={} total_steps={} wake_len={} warm={}",
+                n, nb, omega, dt, dpsi, total_steps, wake.len(), warm.is_some());
+            eprintln!("  gamma_prev[0][..3]={:?}", &gamma_prev[0][..3.min(n)]);
+            eprintln!("  theta_1c={} theta_1s={} servo_active={}", theta_1c, theta_1s, servo_active);
+            assert!(omega.is_finite() && omega > 0.0, "march_window: bad omega={}", omega);
+            assert!(dt.is_finite() && dt > 0.0, "march_window: bad dt={}", dt);
+            assert!(dpsi.is_finite() && dpsi > 0.0, "march_window: bad dpsi={}", dpsi);
+            assert!(n > 0, "march_window: n_elements=0");
+            for i in 0..n {
+                assert!(self.r_mid[i].is_finite() && self.r_mid[i] > 0.0,
+                    "march_window: r_mid[{}]={}", i, self.r_mid[i]);
+                assert!(self.chord[i].is_finite() && self.chord[i] > 0.0,
+                    "march_window: chord[{}]={}", i, self.chord[i]);
+                assert!(self.dr[i].is_finite() && self.dr[i] > 0.0,
+                    "march_window: dr[{}]={}", i, self.dr[i]);
+                assert!(self.sigma_mid[i].is_finite() && self.sigma_mid[i] > 0.0,
+                    "march_window: sigma_mid[{}]={}", i, self.sigma_mid[i]);
+            }
+            // Check wake particle strengths -- huge strengths cause huge u_far.
+            for p in 0..wake.len() {
+                let amag = ((wake.ax[p] as f64).powi(2) + (wake.ay[p] as f64).powi(2) + (wake.az[p] as f64).powi(2)).sqrt();
+                assert!(amag.is_finite() && amag < 1e6,
+                    "march_window: wake particle {} has |a|={} a=[{},{},{}]",
+                    p, amag, wake.ax[p], wake.ay[p], wake.az[p]);
+                assert!(wake.px[p].is_finite() && wake.py[p].is_finite() && wake.pz[p].is_finite(),
+                    "march_window: wake particle {} has NaN pos=[{},{},{}]",
+                    p, wake.px[p], wake.py[p], wake.pz[p]);
+            }
+        }
 
         for step in 0..total_steps {
             let psi0 = psi_offset + step as f64 * dpsi;
@@ -519,7 +571,9 @@ impl<P: Polar> VpmRotor<P> {
                     (xs, ys, zs)
                 };
                 let use_bh = cfg.barnes_hut && wake.len() >= cfg.bh_min_particles;
-                let ind = if use_bh {
+                let ind = if cfg.use_scalar_nan_check {
+                    induced_at_points_nan_check(&wake, &tx, &ty, &tz)
+                } else if use_bh {
                     if cfg.use_rayon {
                         induced_at_points_bh(&wake, &tx, &ty, &tz, cfg.bh_theta)
                     } else {
@@ -533,6 +587,23 @@ impl<P: Polar> VpmRotor<P> {
                 let u_far: Vec<[f64; 3]> = (0..n)
                     .map(|i| [ind[i][0] as f64, ind[i][1] as f64, ind[i][2] as f64])
                     .collect();
+                if cfg.use_scalar_nan_check {
+                    let r_tip = *self.r_edge.last().unwrap();
+                    let u_max = 500.0 * omega * r_tip; // 500x tip speed is absurd
+                    for i in 0..n {
+                        for k in 0..3 {
+                            assert!(u_far[i][k].is_finite() && u_far[i][k].abs() < u_max,
+                                "u_far LARGE: step={} b={} i={} k={} u_far={:.3} (limit {:.1}) wake_len={}",
+                                step, b, i, k, u_far[i][k], u_max, wake.len());
+                        }
+                    }
+                    // Also eprintln the worst-case magnitude for tracing.
+                    let u_far_max: f64 = u_far.iter().flat_map(|v| v.iter().map(|x| x.abs())).fold(0.0, f64::max);
+                    if u_far_max > omega * r_tip * 5.0 {
+                        eprintln!("  u_far warn: step={} b={} u_far_max={:.2} (5x tip_speed={:.1})",
+                            step, b, u_far_max, omega * r_tip * 5.0);
+                    }
+                }
 
                 // Background (far-field only) relative wind, used to fix the
                 // near-wake trailing-leg geometry for this step.
@@ -637,13 +708,40 @@ impl<P: Polar> VpmRotor<P> {
                 // to one relaxed Kutta-Joukowski pass (the original scheme).
                 let max_iter = if cfg.nonlinear_lifting_line { 30 } else { 1 };
                 let mut gam = gamma_prev[b].clone();
-                for _ in 0..max_iter {
+                if cfg.use_scalar_nan_check {
+                    for i in 0..n {
+                        assert!(gam[i].is_finite(), "kj nan: step={} b={} gamma_prev[{}]={}", step, b, i, gam[i]);
+                        assert!(self.r_mid[i].is_finite() && self.r_mid[i] > 0.0,
+                            "kj nan: step={} b={} r_mid[{}]={}", step, b, i, self.r_mid[i]);
+                        assert!(self.chord[i].is_finite() && self.chord[i] > 0.0,
+                            "kj nan: step={} b={} chord[{}]={}", step, b, i, self.chord[i]);
+                        assert!(self.dr[i].is_finite() && self.dr[i] > 0.0,
+                            "kj nan: step={} b={} dr[{}]={}", step, b, i, self.dr[i]);
+                        assert!(self.sigma_mid[i].is_finite() && self.sigma_mid[i] > 0.0,
+                            "kj nan: step={} b={} sigma_mid[{}]={}", step, b, i, self.sigma_mid[i]);
+                        assert!(self.sigma_edge[i].is_finite() && self.sigma_edge[i] > 0.0,
+                            "kj nan: step={} b={} sigma_edge[{}]={}", step, b, i, self.sigma_edge[i]);
+                    }
+                    assert!(self.sigma_edge[n].is_finite() && self.sigma_edge[n] > 0.0,
+                        "kj nan: step={} b={} sigma_edge[n={}]={}", step, b, n, self.sigma_edge[n]);
+                }
+                for iter in 0..max_iter {
                     let mut converged = true;
                     for i in 0..n {
                         let (_urel, _phi, u_mag, cl, _cd) = section(&gam, i);
                         let c = self.chord[i];
                         let g_new = 0.5 * u_mag * c * cl;
                         let g_relaxed = gam[i] + cfg.relax * (g_new - gam[i]);
+                        if cfg.use_scalar_nan_check {
+                            assert!(u_mag.is_finite() && u_mag < 1e8,
+                                "kj nan: step={} b={} iter={} i={} u_mag={} u_far={:?} gam={:?}",
+                                step, b, iter, i, u_mag, u_far[i], &gam);
+                            assert!(cl.is_finite(),
+                                "kj nan: step={} b={} iter={} i={} cl={} u_mag={}", step, b, iter, i, cl, u_mag);
+                            assert!(g_relaxed.is_finite() && g_relaxed.abs() < 1e8,
+                                "kj nan: step={} b={} iter={} i={} g_new={} g_relaxed={} u_mag={} cl={} c={}",
+                                step, b, iter, i, g_new, g_relaxed, u_mag, cl, c);
+                        }
                         if (g_relaxed - gam[i]).abs() > 1e-6 * (g_relaxed.abs() + 1e-6) {
                             converged = false;
                         }
@@ -657,6 +755,15 @@ impl<P: Polar> VpmRotor<P> {
                 // Final pass: loads at the converged circulation.
                 for i in 0..n {
                     let (urel, phi, u_mag, cl, cd) = section(&gam, i);
+                    if cfg.use_scalar_nan_check {
+                        for k in 0..3 {
+                            assert!(urel[k].is_finite() && urel[k].abs() < 1e8,
+                                "final nan: step={} b={} i={} urel[{}]={} u_mag={} cl={} gam[i]={} r_mid={} th={:?} u_far={:?}",
+                                step, b, i, k, urel[k], u_mag, cl, gam[i], self.r_mid[i], th, u_far[i]);
+                        }
+                        assert!(gam[i].is_finite() && gam[i].abs() < 1e8,
+                            "final nan: step={} b={} i={} gam[i]={}", step, b, i, gam[i]);
+                    }
                     u_rel[b][i] = urel;
                     let r = self.r_mid[i];
                     let c = self.chord[i];
@@ -673,11 +780,19 @@ impl<P: Polar> VpmRotor<P> {
                     // (d_thrust, up) at arm r. Positive -> flaps blade up.
                     m_flap[b] += r * d_thrust;
                     // Servo-flap pitching moment about the feathering axis over
-                    // the flap span: dM = q_dyn * c * C_M_delta * delta_f * dr,
-                    // using the true local dynamic pressure (VPM sees the real
-                    // flow, not the Omega*r approximation the BEM solve uses).
-                    if servo_active && r >= flap_r_in && r <= flap_r_out {
-                        m_servo[b] += q_dyn * c * flap_cm_delta * delta_f_b * self.dr[i];
+                    // the flap span: dM = q_dyn * c * C_M_delta * delta_f * dr.
+                    // Also add the blade zero-lift AC moment over the whole span:
+                    // dM = q_dyn * c * blade_Cm_AC * dr (DC only, all stations).
+                    // Together these give the physical DC balance: feathering
+                    // trims at the collective where flap + blade moments cancel.
+                    if servo_active {
+                        let act = self.feather.as_ref().unwrap();
+                        if r >= flap_r_in && r <= flap_r_out {
+                            m_servo[b] += q_dyn * c * flap_cm_delta * delta_f_b * self.dr[i];
+                        }
+                        if act.blade_Cm_AC.abs() > 1e-12 {
+                            m_servo[b] += q_dyn * c * act.blade_Cm_AC * self.dr[i];
+                        }
                     }
 
                     gamma[b][i] = gam[i];
@@ -690,6 +805,18 @@ impl<P: Polar> VpmRotor<P> {
                 let rh = r_hat(psi_b);
                 // Out-of-plane flap displacement of this blade (z = -r*beta).
                 let beta_b = beta[b];
+
+                if cfg.use_scalar_nan_check {
+                    assert!(psi_b.is_finite(), "shed nan: step={} b={} psi_b={}", step, b, psi_b);
+                    assert!(rh[0].is_finite() && rh[1].is_finite(), "shed nan: step={} b={} rh={:?}", step, b, rh);
+                    assert!(beta_b.is_finite(), "shed nan: step={} b={} beta_b={}", step, b, beta_b);
+                    for i in 0..n {
+                        assert!(gamma[b][i].is_finite(), "shed nan: step={} b={} gamma[{}]={}", step, b, i, gamma[b][i]);
+                        for k in 0..3 {
+                            assert!(u_rel[b][i][k].is_finite(), "shed nan: step={} b={} u_rel[{}][{}]={}", step, b, i, k, u_rel[b][i][k]);
+                        }
+                    }
+                }
 
                 // Trailed vorticity: edge j strength = Gamma_{j-1} - Gamma_j,
                 // Gamma outside the blade = 0. Segment aligned with the local
@@ -715,6 +842,11 @@ impl<P: Polar> VpmRotor<P> {
                     };
                     let seg = [ur[0] * dt, ur[1] * dt, ur[2] * dt];
                     let r_edge = self.r_edge[j];
+                    if cfg.use_scalar_nan_check {
+                        assert!(r_edge.is_finite(), "shed trail nan: step={} b={} j={} r_edge={}", step, b, j, r_edge);
+                        assert!(seg[0].is_finite() && seg[1].is_finite() && seg[2].is_finite(),
+                            "shed trail nan: step={} b={} j={} ur={:?} seg={:?}", step, b, j, ur, seg);
+                    }
                     let pos = [
                         (r_edge * rh[0]) as f32,
                         (r_edge * rh[1]) as f32,
@@ -725,6 +857,16 @@ impl<P: Polar> VpmRotor<P> {
                         (g_trail * seg[1]) as f32,
                         (g_trail * seg[2]) as f32,
                     ];
+                    if cfg.use_scalar_nan_check {
+                        assert!(pos[0].is_finite() && pos[1].is_finite() && pos[2].is_finite(),
+                            "shed trail nan: step={} b={} j={} pos={:?} r_edge={} rh={:?} beta_b={}", step, b, j, pos, r_edge, rh, beta_b);
+                        assert!(a[0].is_finite() && a[1].is_finite() && a[2].is_finite(),
+                            "shed trail nan: step={} b={} j={} a={:?} g_trail={} seg={:?}", step, b, j, a, g_trail, seg);
+                        let amag = ((a[0] as f64).powi(2) + (a[1] as f64).powi(2) + (a[2] as f64).powi(2)).sqrt();
+                        assert!(amag < 1e4,
+                            "shed trail LARGE: step={} b={} j={} |a|={} a={:?} g_trail={} seg={:?} u_rel_b0={:?}",
+                            step, b, j, amag, a, g_trail, seg, &u_rel[b][..3.min(n)]);
+                    }
                     wake.push(pos, a, self.sigma_edge[j]);
                 }
 
@@ -744,6 +886,16 @@ impl<P: Polar> VpmRotor<P> {
                         (mag * rh[1]) as f32,
                         (mag * rh[2]) as f32,
                     ];
+                    if cfg.use_scalar_nan_check {
+                        assert!(pos[0].is_finite() && pos[1].is_finite() && pos[2].is_finite(),
+                            "shed span nan: step={} b={} i={} pos={:?} r={} rh={:?} beta_b={}", step, b, i, pos, r, rh, beta_b);
+                        assert!(a[0].is_finite() && a[1].is_finite() && a[2].is_finite(),
+                            "shed span nan: step={} b={} i={} a={:?} mag={} d_gamma={} dr={}", step, b, i, a, mag, d_gamma, self.dr[i]);
+                        let amag = ((a[0] as f64).powi(2) + (a[1] as f64).powi(2) + (a[2] as f64).powi(2)).sqrt();
+                        assert!(amag < 1e4,
+                            "shed span LARGE: step={} b={} i={} |a|={} a={:?} mag={} d_gamma={} gamma={:?}",
+                            step, b, i, amag, a, mag, d_gamma, &gamma[b]);
+                    }
                     wake.push(pos, a, self.sigma_mid[i]);
                 }
             }
@@ -776,21 +928,30 @@ impl<P: Polar> VpmRotor<P> {
             }
 
             // ---- integrate the feathering DOF one sub-step ----------------
-            // I_theta*theta'' + C_theta*theta' + k_ctrl*theta = M_servo
+            // I_theta*theta'' + C_theta*theta' + k_aero*theta = M_servo
             // The mechanical damper C_theta is the ONLY dissipation (Kaman axis
-            // at the AC => no aero pitch damping), so it is integrated
-            // semi-implicitly (implicit on the damping term) for unconditional
-            // stability regardless of how stiff the damper is:
-            //   theta_dot <- (theta_dot + dt*(M_servo - k*theta)/I) / (1 + dt*C/I)
+            // at the AC => no aero pitch damping). k_aero is the aerodynamic
+            // restoring spring from the AC offset (physical & measurable): a
+            // pitch-up makes more lift at the AC, a distance ac_offset aft of
+            // the feathering axis, giving a nose-down restoring torque. With
+            // ac_offset=0 (axis at AC) there is no spring and the damper alone
+            // sets the ~90 deg cyclic phase lag; DC trim then comes from the
+            // blade camber moment (blade_Cm_AC, folded into M_servo above).
+            // Integrated semi-implicitly (implicit damping) for unconditional
+            // stability regardless of damper strength:
+            //   theta_dot <- (theta_dot + dt*(M_servo - k_aero*theta)/I)/(1+dt*C/I)
             //   theta     <- theta + dt*theta_dot
             if servo_active {
                 let act = self.feather.as_ref().expect("servo_active implies Some");
                 let i_th = act.I_theta_kgm2.max(1e-12);
                 let c_th = act.damper_Nms_per_rad;
-                let k_ctrl = act.control_stiffness_Nm_per_rad;
+                // Aerodynamic feathering spring from the AC offset [N*m/rad]:
+                //   k_aero = 0.5*rho*omega^2*cl_alpha*ac_offset*Int(c r^2 dr)
+                let k_aero = 0.5 * fc.rho * omega * omega * self.cl_alpha
+                    * act.ac_offset_m * self.feather_span_integral;
                 let damp_fac = 1.0 / (1.0 + dt * c_th / i_th);
                 for b in 0..nb {
-                    let rhs = (m_servo[b] - k_ctrl * theta_f[b]) / i_th;
+                    let rhs = (m_servo[b] - k_aero * theta_f[b]) / i_th;
                     theta_f_dot[b] = (theta_f_dot[b] + dt * rhs) * damp_fac;
                     theta_f[b] += dt * theta_f_dot[b];
                 }
@@ -798,7 +959,9 @@ impl<P: Polar> VpmRotor<P> {
 
             // ---- convect and truncate the free wake -----------------------
             let freestream = [fc.v_hub[0] as f32, fc.v_hub[1] as f32, fc.v_hub[2] as f32];
-            if cfg.barnes_hut && wake.len() >= cfg.bh_min_particles {
+            if cfg.use_scalar_nan_check {
+                advect_rk2_nan_check(&mut wake, freestream, dt as f32);
+            } else if cfg.barnes_hut && wake.len() >= cfg.bh_min_particles {
                 if cfg.use_rayon {
                     advect_rk2_bh(&mut wake, freestream, dt as f32, cfg.bh_theta);
                 } else {
@@ -808,6 +971,12 @@ impl<P: Polar> VpmRotor<P> {
                 advect_rk2(&mut wake, freestream, dt as f32);
             } else {
                 advect_rk2_seq(&mut wake, freestream, dt as f32);
+            }
+            if cfg.use_scalar_nan_check {
+                for p in 0..wake.len() {
+                    assert!(wake.px[p].is_finite() && wake.py[p].is_finite() && wake.pz[p].is_finite(),
+                        "advect nan: step={} particle={} pos=[{},{},{}]", step, p, wake.px[p], wake.py[p], wake.pz[p]);
+                }
             }
             if wake.len() > max_particles {
                 let excess = wake.len() - max_particles;
@@ -873,7 +1042,7 @@ pub struct VpmRotorState {
     pub beta_dot: Option<Vec<f64>>,
     /// Per-blade feathering angle (rad) about the pitch axis, driven by the
     /// servo-flap moment. `None` when the feathering DOF is inactive
-    /// (direct-mechanical pitch or zero control stiffness).
+    /// (direct-mechanical pitch; no servo-flap actuation).
     pub theta_f: Option<Vec<f64>>,
     /// Per-blade feathering rate (rad/s). `None` when inactive.
     pub theta_f_dot: Option<Vec<f64>>,

@@ -112,38 +112,69 @@ pub struct ControlProperties {
 
 /// Blade feathering (pitch-bearing) DOF driven by a trailing-edge servo-flap.
 ///
-/// The servo-flap exerts a pitching moment about the feathering axis.  Because
-/// there is no centrifugal spring (the feathering axis is parallel to the span),
-/// the blade feathers freely, damped only by the mechanical damper at the pitch
-/// bearing.  The servo-flap moment drives the feathering angle theta(psi).
-/// In this (servo-flap) actuation mode both collective and cyclic are
-/// interpreted as flap commands and the feathering response REPLACES the direct
-/// swashplate pitch path across the full span (see `servoflap.rs`).
+/// This models the **feathering + damper** servo-flap architecture: the blade
+/// rides a pitch bearing and feathers freely as a rigid body, restrained only
+/// by (a) the mechanical damper at the bearing and (b) the aerodynamic spring
+/// from any AC offset. The servo-flap exerts a pitching moment about the
+/// feathering axis that drives the feathering angle theta(psi). In this mode
+/// both collective and cyclic are interpreted as flap commands and the
+/// feathering response REPLACES the direct swashplate pitch path across the
+/// full span (see `servoflap.rs`).
 ///
-/// EOM (psi-domain, 1/rev harmonic balance, no aerodynamic spring):
-///   I_theta * theta'' + C_theta * theta' = M_servo(psi)
+/// (The alternative **torsional-twist** architecture -- where a rigid-pitch
+/// blade is elastically twisted against its spar stiffness GJ -- is NOT modelled
+/// yet. That type would carry a structural torsional stiffness instead of the
+/// bearing damper. Left as future work.)
 ///
-/// For the Kaman design the feathering axis is placed at the aerodynamic centre
-/// so the aerodynamic restoring moment is zero; set ac_offset_m=0 for this.
+/// EOM (time domain, per blade):
+///   I_theta * theta'' + C_theta * theta' + k_aero * theta = M_servo + M_camber
+///
+/// with the aerodynamic spring and camber trim moment both physical &
+/// measurable (see the field docs). All are ASCII-safe scalar constants.
+///
+/// Sign conventions (project frame: psi=0 at +X, CCW from above; nose-down =
+/// negative pitching moment, consistent with C_M_delta_per_rad):
+/// - `ac_offset_m > 0`: AC aft of the feathering axis -> stable (restoring)
+///   aerodynamic spring k_aero > 0. `ac_offset_m < 0` is divergent.
+/// - `blade_Cm_AC < 0`: cambered-airfoil nose-down zero-lift moment (typical).
+/// - `C_M_delta_per_rad < 0`: positive (downward) flap deflection -> nose-down
+///   blade pitching moment.
 #[allow(non_snake_case)]
 #[derive(Clone, Debug)]
 pub struct ServoFlapActuation {
     /// Blade pitch moment of inertia about the feathering axis [kg*m^2].
+    /// Measurable: bifilar / swing test on the blade about its pitch axis.
     pub I_theta_kgm2: f64,
     /// Rotary damper coefficient at the pitch bearing [N*m*s/rad].
+    /// Measurable: pitch-bearing drag test. This is the ONLY dissipation
+    /// (Kaman axis at the AC => no aero pitch damping), and in the
+    /// damper-dominated limit (C >> I_theta*omega) it sets the ~90 deg cyclic
+    /// phase lag between flap command and feathering response.
     pub damper_Nms_per_rad: f64,
-    /// Distance from feathering axis to aerodynamic centre [m], positive
-    /// when AC is forward of the feathering axis (divergent if negative).
-    /// 0.0 = feathering axis exactly at AC (Kaman ideal).
+    /// Distance from the feathering axis to the aerodynamic centre (~25% chord)
+    /// [m]. Positive when the AC is AFT of the feathering axis, which gives a
+    /// stable (restoring) aerodynamic spring; negative is divergent. 0.0 =
+    /// feathering axis exactly at the AC (Kaman ideal: no aero spring).
+    /// Measurable: ruler on the blade section (pitch-axis to quarter-chord), or
+    /// a calibrated-moment RPM sweep (the aero spring scales with Omega^2).
+    ///
+    /// When the blade pitches up it makes more lift; because that lift acts at
+    /// the AC a distance `ac_offset_m` aft of the pitch axis, it creates a
+    /// nose-down restoring torque proportional to the pitch change -- an
+    /// aerodynamic spring -- while `blade_Cm_AC` adds the airfoil's constant
+    /// built-in twisting moment that offsets where this spring settles.
     pub ac_offset_m: f64,
-    /// Control-system torsional stiffness about the feathering axis [N*m/rad]
-    /// -- the pushrod / swashplate linkage holding blade pitch. Feathering has
-    /// no centrifugal stiffening, so this (plus any AC-offset aero spring) is
-    /// the restoring moment that makes the DOF well-posed for both collective
-    /// and cyclic. 0.0 = free feathering (singular in DC without an aero
-    /// spring). Consumed by the time-domain VPM feathering DOF; the
-    /// quasi-static BEM feathering solve ignores it.
-    pub control_stiffness_Nm_per_rad: f64,
+    /// Zero-lift pitching moment coefficient of the blade section about the
+    /// aerodynamic centre [-]. Same sign convention as C_M_delta_per_rad
+    /// (negative = nose-down). Symmetric airfoil = 0.0; positively-cambered
+    /// section is typically -0.05 to -0.15.
+    ///
+    /// Provides the physical DC trim: in steady flight the blade feathers to
+    /// the pitch where the flap moment, aero spring, and this camber moment
+    /// balance. Measurable: run the rotor with the flap undeflected and let the
+    /// free blade settle; the settled pitch gives blade_Cm_AC via the aero
+    /// spring relation. 0.0 = symmetric or unknown.
+    pub blade_Cm_AC: f64,
     /// Servo-flap geometry that drives the feathering DOF.
     pub flap: ServoFlapGeometry,
 }

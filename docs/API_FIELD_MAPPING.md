@@ -153,8 +153,8 @@ RotorInputs(collective_rad, tilt_lon, tilt_lat, R_hub,
 |------------|-----------------|--------|------|-------|
 | `I_theta_kgm2` | `.I_theta_kgm2` | Y | f64 | Pitch inertia [kg⋅m²] |
 | `damper_Nms_per_rad` | `.damper_Nms_per_rad` | Y | f64 | Damping [N⋅m⋅s/rad] |
-| `ac_offset_m` | `.ac_offset_m` | Y | f64 | AC distance from feathering axis [m] |
-| `control_stiffness_Nm_per_rad` | `.control_stiffness_Nm_per_rad` | Y | f64 | Pushrod stiffness [N⋅m/rad] |
+| `ac_offset_m` | `.ac_offset_m` | Y | f64 | AC distance aft of feathering axis [m] (aero spring) |
+| `blade_Cm_AC` | `.blade_Cm_AC` | Y | f64 | Blade zero-lift pitching moment coeff [-] (DC trim) |
 | `flap` | `.flap` | Y | ServoFlapGeometry | Nested struct |
 
 **PyClass Name:** `_dynbem.ServoFlapActuation`

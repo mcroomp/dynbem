@@ -237,9 +237,19 @@ pub fn solve_feathering(
     let p_sq = 1.0 + k_aero / (i_theta * omega * omega);
 
     // Servo-flap moment harmonics (raw physical mapping, no pre-rotation).
-    let (m_f0, m_f1c, m_f1s) = servo_flap_moments(
+    let (mut m_f0, m_f1c, m_f1s) = servo_flap_moments(
         &act.flap, theta_0, theta_1c, theta_1s, rho, omega, mu, r_tip, chord,
     );
+
+    // Blade zero-lift pitching moment (DC only, whole blade, same normalisation
+    // as the flap term). Acts to balance the flap moment at the trim collective:
+    //   C_M_delta * delta_f_trim + blade_Cm_AC = 0
+    // With blade_Cm_AC set, the DC balance gives a finite trim theta_f without
+    // needing an artificial spring.
+    if act.blade_Cm_AC.abs() > 1e-12 {
+        let r3_full = r_tip.powi(3) / 3.0;
+        m_f0 += 0.5 * rho * omega * omega * act.blade_Cm_AC * chord * r3_full;
+    }
 
     // DC response. In true static balance, k_aero * theta_0 = M_f0.
     // For AC-on-axis setups (k_aero ~= 0), static balance is singular; use a
@@ -290,7 +300,7 @@ mod tests {
             I_theta_kgm2: 0.05,
             damper_Nms_per_rad: c_theta,
             ac_offset_m: ac_offset,
-            control_stiffness_Nm_per_rad: 0.0,
+            blade_Cm_AC: 0.0,
             flap: ServoFlapGeometry {
                 C_M_delta_per_rad: -1.5,
                 r_inner_m: 1.2,

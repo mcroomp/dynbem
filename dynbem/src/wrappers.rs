@@ -400,20 +400,20 @@ pub struct PyServoFlapActuation(pub core_::rotor_definition::ServoFlapActuation)
 #[pymethods]
 impl PyServoFlapActuation {
     #[new]
-    #[pyo3(signature = (I_theta_kgm2, damper_Nms_per_rad, flap, ac_offset_m=0.0, control_stiffness_Nm_per_rad=0.0))]
+    #[pyo3(signature = (I_theta_kgm2, damper_Nms_per_rad, flap, ac_offset_m=0.0, blade_Cm_AC=0.0))]
     #[allow(non_snake_case)]
     fn new(
         I_theta_kgm2: f64,
         damper_Nms_per_rad: f64,
         flap: PyServoFlapGeometry,
         ac_offset_m: f64,
-        control_stiffness_Nm_per_rad: f64,
+        blade_Cm_AC: f64,
     ) -> Self {
         PyServoFlapActuation(core_::rotor_definition::ServoFlapActuation {
             I_theta_kgm2,
             damper_Nms_per_rad,
             ac_offset_m,
-            control_stiffness_Nm_per_rad,
+            blade_Cm_AC,
             flap: flap.0,
         })
     }
@@ -434,8 +434,8 @@ impl PyServoFlapActuation {
     }
     #[getter]
     #[allow(non_snake_case)]
-    fn control_stiffness_Nm_per_rad(&self) -> f64 {
-        self.0.control_stiffness_Nm_per_rad
+    fn blade_Cm_AC(&self) -> f64 {
+        self.0.blade_Cm_AC
     }
     #[getter]
     fn flap(&self) -> PyServoFlapGeometry {
@@ -1324,6 +1324,7 @@ fn build_vpm_config(
         bh_min_particles,
         flap_dynamics: true,
         use_rayon: true,
+        use_scalar_nan_check: false,
     }
 }
 

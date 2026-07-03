@@ -4,17 +4,21 @@
 //   1. Zero swashplate command -> zero feathering on all blades.
 //   2. Collective command drives feathering to a bounded, settled angle.
 //   3. Cyclic command raises hub moment relative to no-command baseline.
+//
+// The bounded/settled DC feathering in check 2 requires a restoring spring.
+// This is the aerodynamic spring from a nonzero ac_offset (AC aft of the
+// feathering axis) -- a physical, measurable restoring moment.
 
 use crate::helpers::*;
 use crate::report::Report;
 use dynbem_rs::rotor_definition::{PitchActuation, ServoFlapActuation, ServoFlapGeometry};
 
-fn servo_actuation(k_ctrl: f64) -> ServoFlapActuation {
+fn servo_actuation(ac_offset_m: f64) -> ServoFlapActuation {
     ServoFlapActuation {
         I_theta_kgm2: 0.02,
         damper_Nms_per_rad: 0.5,
-        ac_offset_m: 0.0,
-        control_stiffness_Nm_per_rad: k_ctrl,
+        ac_offset_m,
+        blade_Cm_AC: 0.0,
         flap: ServoFlapGeometry {
             C_M_delta_per_rad: -1.0,
             r_inner_m: R_ROOT,
@@ -30,7 +34,7 @@ pub fn check_servo_flap(r: &mut Report) {
     );
 
     let mut defn = theory_rotor(10, 2.0);
-    defn.pitch_actuation = PitchActuation::ServoFlap(servo_actuation(150.0));
+    defn.pitch_actuation = PitchActuation::ServoFlap(servo_actuation(0.10));
     let rotor = make_fast_rotor(&defn);
     let dt = 1.0 / (OMEGA * 2.0 / std::f64::consts::PI);
 

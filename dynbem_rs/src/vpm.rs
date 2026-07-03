@@ -372,6 +372,115 @@ pub fn induced_velocities_ref(field: &ParticleField) -> Vec<[f64; 3]> {
     out
 }
 
+/// Scalar f64 reference implementation of [`induced_at_points`] with NaN
+/// assertions. Evaluates each target against all sources pair-by-pair in f64
+/// and panics if any output is non-finite, printing which target index and
+/// which source index (if detectable) caused the issue.
+///
+/// Intended for debugging only -- O(N^2) and non-vectorized. Enable via
+/// `VpmRotorConfig::use_scalar_nan_check`.
+pub fn induced_at_points_nan_check(
+    field: &ParticleField,
+    tx: &[f32],
+    ty: &[f32],
+    tz: &[f32],
+) -> Vec<[f32; 3]> {
+    let n = field.len();
+    let m = tx.len();
+    let mut out = vec![[0.0f32; 3]; m];
+    if n == 0 || m == 0 {
+        return out;
+    }
+
+    // Sanity-check the source field first.
+    for s in 0..n {
+        let sigma = field.sigma[s] as f64;
+        assert!(
+            sigma > 0.0 && sigma.is_finite(),
+            "nan_check: source particle {} has bad sigma={}",
+            s,
+            sigma
+        );
+        let pos = [field.px[s] as f64, field.py[s] as f64, field.pz[s] as f64];
+        let str_ = [field.ax[s] as f64, field.ay[s] as f64, field.az[s] as f64];
+        for k in 0..3 {
+            assert!(
+                pos[k].is_finite(),
+                "nan_check: source particle {} pos[{}]={} is non-finite",
+                s,
+                k,
+                pos[k]
+            );
+            assert!(
+                str_[k].is_finite(),
+                "nan_check: source particle {} strength[{}]={} is non-finite",
+                s,
+                k,
+                str_[k]
+            );
+        }
+    }
+
+    for j in 0..m {
+        let xj = tx[j] as f64;
+        let yj = ty[j] as f64;
+        let zj = tz[j] as f64;
+        let mut ux = 0.0f64;
+        let mut uy = 0.0f64;
+        let mut uz = 0.0f64;
+        for s in 0..n {
+            let dx = xj - field.px[s] as f64;
+            let dy = yj - field.py[s] as f64;
+            let dz = zj - field.pz[s] as f64;
+            let sax = field.ax[s] as f64;
+            let say = field.ay[s] as f64;
+            let saz = field.az[s] as f64;
+            let sigma = field.sigma[s] as f64;
+
+            let r2 = dx * dx + dy * dy + dz * dz;
+            let sigma2 = sigma * sigma;
+            let sigma3 = sigma2 * sigma;
+            let rho2 = r2 / sigma2;
+            let base = rho2 + 1.0;
+            let denom = base * base * base.sqrt();
+            let k = (rho2 + 2.5) / (sigma3 * denom);
+
+            let dux = k * (say * dz - saz * dy);
+            let duy = k * (saz * dx - sax * dz);
+            let duz = k * (sax * dy - say * dx);
+
+            assert!(
+                dux.is_finite() && duy.is_finite() && duz.is_finite(),
+                "nan_check: NaN at target j={} from source s={}: \
+                 pos_j=[{},{},{}] pos_s=[{},{},{}] alpha_s=[{},{},{}] sigma={} \
+                 r2={} rho2={} denom={} k={} du=[{},{},{}]",
+                j,
+                s,
+                xj, yj, zj,
+                field.px[s], field.py[s], field.pz[s],
+                sax, say, saz,
+                sigma,
+                r2, rho2, denom, k,
+                dux, duy, duz
+            );
+
+            ux += dux;
+            uy += duy;
+            uz += duz;
+        }
+        let vx = (ux * INV_4PI_F64) as f32;
+        let vy = (uy * INV_4PI_F64) as f32;
+        let vz = (uz * INV_4PI_F64) as f32;
+        assert!(
+            vx.is_finite() && vy.is_finite() && vz.is_finite(),
+            "nan_check: accumulated NaN at target j={}: v=[{},{},{}]",
+            j, vx, vy, vz
+        );
+        out[j] = [vx, vy, vz];
+    }
+    out
+}
+
 /// Shared RK2 midpoint free-wake step. `eval` supplies the induced velocity at
 /// every particle (direct or Barnes-Hut); the integration is otherwise
 /// identical. Monomorphized per call site, so the closure inlines away.
@@ -420,6 +529,15 @@ pub fn advect_rk2(field: &mut ParticleField, freestream: [f32; 3], dt: f32) {
 /// induced-velocity evaluator for single-threaded execution.
 pub fn advect_rk2_seq(field: &mut ParticleField, freestream: [f32; 3], dt: f32) {
     advect_rk2_with(field, freestream, dt, induced_velocities_seq);
+}
+
+/// Debug variant of `advect_rk2` that routes through the scalar NaN-asserting
+/// induced-velocity path. Panics at the first non-finite contribution with
+/// source/target indices and values. Very slow -- O(N^2) non-vectorized.
+pub fn advect_rk2_nan_check(field: &mut ParticleField, freestream: [f32; 3], dt: f32) {
+    advect_rk2_with(field, freestream, dt, |f| {
+        induced_at_points_nan_check(f, &f.px, &f.py, &f.pz)
+    });
 }
 
 // ---------------------------------------------------------------------------

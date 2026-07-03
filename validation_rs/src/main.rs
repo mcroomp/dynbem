@@ -8,21 +8,32 @@
 // Build and run (RELEASE is mandatory -- VPM is ~50-100x slower in debug):
 //   cargo run --release -p validation_rs
 
-use validation_rs::run_theory_validation;
+use validation_rs::{run_theory_validation, run_theory_validation_filtered};
 use std::time::Instant;
 
 fn main() {
     let t0 = Instant::now();
+
+    // Optional filter: first positional argument is a substring of the module
+    // name to run. Pass no argument to run all checks.
+    //   cargo run --release -p validation_rs -- cyclic_phase_servo
+    let filter: Option<String> = std::env::args().nth(1);
 
     println!("THEORY_REPORT  dynbem_rs  run_start=unix_seconds_{}  (RELEASE mode required)",
              std::time::SystemTime::now()
                  .duration_since(std::time::UNIX_EPOCH)
                  .unwrap()
                  .as_secs());
+    if let Some(ref f) = filter {
+        println!("Filter: running only checks matching '{f}'");
+    }
     println!("Each CHECK line: module case qty vpm ref err tol PASS|FAIL|INFO");
     println!("Modules run sequentially; VPM is the ONLY model under test.");
 
-    let report = run_theory_validation();
+    let report = match filter.as_deref() {
+        Some(f) => run_theory_validation_filtered(f),
+        None    => run_theory_validation(),
+    };
 
     let elapsed = t0.elapsed();
     let (total, pass, fail) = report.summary();

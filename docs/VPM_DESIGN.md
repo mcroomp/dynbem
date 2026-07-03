@@ -594,20 +594,28 @@ feathering rotation driven by a trailing-edge servo-flap. In servo mode the
 swashplate collective/cyclic are reinterpreted as flap deflection commands
 $\delta_f$; the flap's pitching moment $M_\text{servo}$ drives feathering,
 and $\theta_f$ **replaces** the direct swashplate-to-pitch path in the
-section angle of attack. Feathering has no centrifugal stiffening (spanwise
-axis) and, with the Kaman axis at the aerodynamic centre, no aerodynamic
-pitch damping -- so the mechanical bearing damper $C_\theta$ is the only
-dissipation and the pushrod/linkage control stiffness $k_\text{ctrl}$ is the
-restoring moment:
+section angle of attack. This is the **feathering + damper** architecture:
+the blade rides a pitch bearing and feathers freely, restrained by the
+mechanical bearing damper $C_\theta$ (the only dissipation) and the
+**aerodynamic spring** $k_\text{aero}$ from any AC offset:
 
-$$I_\theta\,\ddot\theta_f + C_\theta\,\dot\theta_f + k_\text{ctrl}\,\theta_f
-= M_\text{servo},$$
+$$I_\theta\,\ddot\theta_f + C_\theta\,\dot\theta_f + k_\text{aero}\,\theta_f
+= M_\text{servo} + M_\text{camber},$$
 
 integrated semi-implicitly (implicit on the damper) for unconditional
-stability regardless of damper stiffness. $M_\text{servo}$ is accumulated
-over the flap span from the true local dynamic pressure. With
-$k_\text{ctrl} = 0$ the DC response is singular, so the VPM falls back to the
-direct-pitch path.
+stability regardless of damper strength. The aerodynamic spring is
+
+$$k_\text{aero} = \tfrac{1}{2}\rho\,\omega^2 C_{L\alpha}\,\cdot ac\_offset
+\cdot \int c\,r^2\,dr,$$
+
+a nose-down restoring torque from the extra lift acting at the AC a distance
+`ac_offset` aft of the feathering axis. $M_\text{servo}$ is accumulated over
+the flap span from the true local dynamic pressure, and $M_\text{camber}$
+(from `blade_Cm_AC`) sets the DC trim. With `ac_offset = 0` (Kaman ideal, axis
+at AC) the damper alone sets the cyclic phase lag and DC trim comes from
+$M_\text{camber}$. There is no artificial control-stiffness spring -- all
+constants are physical and measurable. (The alternative torsional-twist
+servo-flap architecture is not modelled yet.)
 
 Both DOFs share the per-blade state vector and compose (a flapping,
 feathering blade tilts its wake *and* changes its pitch). The flap harmonics
@@ -1159,9 +1167,20 @@ swashplate pitch in the section AoA. The servo-flap path:
 The VPM's `march_window` passes `fc.collective_rad`, `fc.tilt_lon`, `fc.tilt_lat` through
 `cyclic_coeffs` to form the harmonic commands. In direct-mechanical mode those
 commands map directly to blade pitch; in servo mode they drive flap deflection
-and feathering dynamics. Current code gates servo mode on positive
-`control_stiffness_Nm_per_rad`; if stiffness is zero, the path falls back to
-direct pitch.
+and feathering dynamics. Servo mode is active whenever the rotor carries a
+`ServoFlapActuation` (`pitch_actuation: servoflap`). The feathering ODE is
+
+    I_theta * theta'' + C_theta * theta' + k_aero * theta = M_servo
+
+where `C_theta` is the bearing damper (the only dissipation) and `k_aero` is the
+**aerodynamic spring** from the AC offset,
+`k_aero = 0.5*rho*omega^2*cl_alpha*ac_offset*Int(c r^2 dr)` (a pitch-up makes more
+lift at the AC, a distance `ac_offset` aft of the feathering axis, giving a
+nose-down restoring torque). With `ac_offset = 0` (axis at AC, Kaman ideal) the
+damper alone sets the ~90 deg cyclic phase lag and DC trim comes from the blade
+camber moment `blade_Cm_AC`. There is no artificial control-stiffness spring; all
+constants are physical and measurable. (The alternative torsional-twist servo-flap
+architecture -- elastic blade twist against spar stiffness -- is not modelled yet.)
 
 ### 11.5 Variable omega coupling to the spin ODE
 

@@ -189,24 +189,81 @@ Blade pitch actuation is modelled by the `PitchActuation` enum (in
 Servo-flap forcing is active through the servo-flap actuation path:
 
 - Geometry / parameters: `ServoFlapActuation` (mechanical: inertia,
-  damper, AC offset) holding a `ServoFlapGeometry` (flap C_M_delta and
-  span limits) in `dynbem_rs/src/rotor_definition.rs`
-- Dynamics + solve: `dynbem_rs/src/servoflap.rs`
+  damper, AC offset, blade camber moment) holding a `ServoFlapGeometry`
+  (flap C_M_delta and span limits) in
+  `dynbem_rs/src/rotor_definition.rs`
+- Dynamics + solve: `dynbem_rs/src/servoflap.rs` (quasi-static BEM
+  harmonic solve) and the time-domain feathering ODE in
+  `dynbem_rs/src/vpm_rotor.rs`
 - Call sites: `dynbem_rs/src/pitt_peters.rs`, `dynbem_rs/src/oye.rs`,
-  `dynbem_rs/src/quasi_static_bem.rs`
+  `dynbem_rs/src/quasi_static_bem.rs`, `dynbem_rs/src/vpm_rotor.rs`
+
+### Architecture: feathering + damper (the one we model)
+
+There are two servo-flap architectures in the literature. We model the
+**feathering + damper** type: the blade rides a pitch bearing and
+feathers freely as a rigid body, restrained by (a) the bearing damper
+and (b) the aerodynamic spring from any AC offset. The **torsional-twist**
+type (a rigid-pitch blade elastically twisted against its spar stiffness
+GJ) is **not modelled yet** -- if added, it carries a structural
+torsional stiffness instead of the bearing damper.
+
+The feathering EOM (per blade, time domain in the VPM):
+
+    I_theta * theta'' + C_theta * theta' + k_aero * theta = M_servo + M_camber
+
+- `C_theta` (bearing damper) is the ONLY dissipation. In the
+  damper-dominated limit (`C_theta >> I_theta*omega`) it sets the ~90 deg
+  cyclic phase lag between flap command and feathering response. The lag
+  is NOT from a spring resonance.
+- `k_aero` is the aerodynamic spring from the AC offset:
+  `k_aero = 0.5*rho*omega^2*cl_alpha*ac_offset*Int(c r^2 dr)`.
+- `M_camber` from `blade_Cm_AC` sets the DC trim.
+
+**All `ServoFlapActuation` constants are physical and measurable. There
+is NO artificial `control_stiffness` / numerical spring** (it was removed
+-- do not reintroduce it; use `ac_offset_m` and/or `blade_Cm_AC` for DC
+anchoring).
+
+### Servo-flap sign conventions (load-bearing)
+
+Project frame: psi=0 at +X, CCW from above (see rotor-rotation section).
+Nose-down pitching moment is **negative**, consistent throughout.
+
+- `C_M_delta_per_rad < 0`: positive (downward) flap deflection produces a
+  nose-down blade pitching moment about the feathering axis.
+- `ac_offset_m > 0`: AC is **aft** of the feathering axis -> stable
+  (restoring) aerodynamic spring, `k_aero > 0`. `ac_offset_m < 0` is
+  divergent (do not use unless deliberately modelling divergence).
+  `ac_offset_m = 0` is the Kaman ideal (axis at AC, no aero spring).
+- `blade_Cm_AC < 0`: cambered-airfoil nose-down zero-lift moment (typical);
+  0.0 for a symmetric section.
+- Feathering `theta_f` replaces blade pitch directly in servo mode, so its
+  sign follows the blade-pitch sign convention (positive = nose-up,
+  increasing local AoA).
+
+If you change any of these signs, re-derive `k_aero`, the `M_camber` term
+in `servoflap.rs` / `vpm_rotor.rs`, and re-run `cyclic_phase_servo` and
+`servo_flap` in `validation_rs` (both encode the expected axis directions:
+direct-mechanical pitching My dominates; servo-flap rolling Mx dominates).
 
 Model scope (current):
 
-- Quasi-static 1/rev harmonic feathering solve
-- Mechanical pitch-bearing damping
-- Optional aerodynamic spring from AC offset
+- Quasi-static 1/rev harmonic feathering solve (BEM) + time-domain
+  feathering ODE (VPM)
+- Mechanical pitch-bearing damping (sets the cyclic phase lag)
+- Aerodynamic spring from AC offset (`ac_offset_m`)
+- Blade camber DC-trim moment (`blade_Cm_AC`)
 - Servo-flap aerodynamic pitching-moment forcing
 - Servo mode path split: in `PitchActuation::ServoFlap`, both collective
   and cyclic are interpreted as flap commands and direct
-  swashplate-to-blade pitch is disabled
+  swashplate-to-blade pitch is disabled. Servo mode is gated purely on
+  the presence of a `ServoFlapActuation` (not on any stiffness value).
 
 Known limitations:
 
+- Torsional-twist servo-flap architecture not implemented (only
+  feathering + damper)
 - No direct sectional `dCL/d_delta * delta_f` lift increment yet
 - No servo actuator lag model yet
 - DC flap path uses quasi-static approximation; for AC-on-axis configurations

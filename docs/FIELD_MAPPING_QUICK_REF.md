@@ -75,7 +75,7 @@ omega_nr_rad_s       : f64 [rad/s]    -> .omega_nr_rad_s
 I_theta_kgm2         : f64 [kg⋅m²]    -> .I_theta_kgm2
 damper_Nms_per_rad   : f64 [N⋅m⋅s/rad] -> .damper_Nms_per_rad
 ac_offset_m          : f64 [m]        -> .ac_offset_m
-control_stiffness_Nm_per_rad : f64    -> .control_stiffness_Nm_per_rad
+blade_Cm_AC          : f64 [-]        -> .blade_Cm_AC
 flap                 : ServoFlapGeometry -> .flap
 ```
 
@@ -197,7 +197,7 @@ FlapProperties(I_blade_flap_kgm2, omega_nr_rad_s=0.0)
 # Servo-flap
 ServoFlapActuation(
     I_theta_kgm2, damper_Nms_per_rad, flap,
-    ac_offset_m=0.0, control_stiffness_Nm_per_rad=0.0
+    ac_offset_m=0.0, blade_Cm_AC=0.0
 )
 
 # Rotor definition

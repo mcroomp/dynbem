@@ -54,7 +54,7 @@ Comprehensive single-reference table of all Rust struct fields and their Python 
 | **ServoFlapActuation** | I_theta_kgm2 | .I_theta_kgm2 | f64 | ✓ | r/o |
 | | damper_Nms_per_rad | .damper_Nms_per_rad | f64 | ✓ | r/o |
 | | ac_offset_m | .ac_offset_m | f64 | ✓ | r/o |
-| | control_stiffness_Nm_per_rad | .control_stiffness_Nm_per_rad | f64 | ✓ | r/o |
+| | blade_Cm_AC | .blade_Cm_AC | f64 | ✓ | r/o |
 | | flap | .flap | ServoFlapGeometry | ✓ | r/o; nested |
 | **FlapProperties** | I_blade_flap_kgm2 | .I_blade_flap_kgm2 | f64 | ✓ | r/o |
 | | omega_nr_rad_s | .omega_nr_rad_s | f64 | ✓ | r/o |

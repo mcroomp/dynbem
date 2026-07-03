@@ -123,23 +123,39 @@ class ServoFlapGeometry:
 
 
 class ServoFlapActuation:
-    """Servo-flap pitch actuation: a passive blade feathering DOF.
+    """Servo-flap pitch actuation: feathering + damper architecture.
 
-    A trailing-edge servo-flap exerts a pitching moment about the feathering
-    axis.  The blade feathers freely, damped by the bearing damper.  Both
-    collective and cyclic are interpreted as flap commands and the resulting
-    delta_theta(psi) REPLACES the direct swashplate pitch path in the psi-loop.
+    This models the feathering + damper servo-flap type: the blade rides a pitch
+    bearing and feathers freely as a rigid body, restrained by the bearing damper
+    and the aerodynamic spring from any AC offset. A trailing-edge servo-flap
+    exerts a pitching moment about the feathering axis. Both collective and cyclic
+    are interpreted as flap commands and the resulting delta_theta(psi) REPLACES
+    the direct swashplate pitch path in the psi-loop.
 
-    Fields:
+    (The alternative torsional-twist architecture -- a rigid-pitch blade
+    elastically twisted against its spar stiffness -- is not modelled yet.)
+
+    All fields are measurable physical constants:
       I_theta_kgm2        -- pitch moment of inertia about feathering axis [kg*m^2]
+                            (bifilar / swing test)
       damper_Nms_per_rad  -- bearing rotary damper coefficient [N*m*s/rad]
+                            (bearing drag test). The only dissipation; in the
+                            damper-dominated limit it sets the ~90 deg cyclic lag.
       flap                -- ServoFlapGeometry (required)
-      ac_offset_m         -- AC distance forward of feathering axis [m] (0 = Kaman ideal)
-      control_stiffness_Nm_per_rad -- pushrod/linkage torsional stiffness about
-                            the feathering axis [N*m/rad]. Restoring moment that
-                            makes the feathering DOF well-posed (feathering has no
-                            centrifugal stiffening). Consumed by the time-domain
-                            VPM feathering DOF; the BEM feathering solve ignores it.
+      ac_offset_m         -- distance from feathering axis to AC (~25% chord) [m],
+                            positive = AC aft of axis (stable aero spring), 0 =
+                            axis at AC (Kaman ideal, no spring). Ruler on the
+                            section, or a calibrated-moment RPM sweep.
+      blade_Cm_AC         -- blade section zero-lift pitching moment coefficient [-]
+                            about the AC (negative for cambered airfoils). Sets the
+                            physical DC trim. Measurable: run flap-undeflected and
+                            read the settled pitch. 0.0 = symmetric or unknown.
+
+    When the blade pitches up it makes more lift; because that lift acts at the
+    AC a distance ac_offset_m aft of the pitch axis, it creates a nose-down
+    restoring torque proportional to the pitch change (an aerodynamic spring),
+    while blade_Cm_AC adds the airfoil's constant built-in twisting moment that
+    offsets where this spring settles.
     """
 
     def __init__(
@@ -148,13 +164,13 @@ class ServoFlapActuation:
         damper_Nms_per_rad,
         flap,
         ac_offset_m=0.0,
-        control_stiffness_Nm_per_rad=0.0,
+        blade_Cm_AC=0.0,
     ):
         self.I_theta_kgm2 = I_theta_kgm2
         self.damper_Nms_per_rad = damper_Nms_per_rad
         self.flap = flap
         self.ac_offset_m = ac_offset_m
-        self.control_stiffness_Nm_per_rad = control_stiffness_Nm_per_rad
+        self.blade_Cm_AC = blade_Cm_AC
 
     def _to_rust(self):
         return _RustServoFlapActuation(
@@ -162,7 +178,7 @@ class ServoFlapActuation:
             damper_Nms_per_rad=float(self.damper_Nms_per_rad),
             flap=self.flap._to_rust(),
             ac_offset_m=float(self.ac_offset_m),
-            control_stiffness_Nm_per_rad=float(self.control_stiffness_Nm_per_rad),
+            blade_Cm_AC=float(self.blade_Cm_AC),
         )
 
 
@@ -574,9 +590,7 @@ def _build_from_dict(doc: Dict[str, Any], base_dir: Optional[str]) -> RotorDefin
                 damper_Nms_per_rad=float(sf_raw.get("damper_Nms_per_rad") or 0.0),
                 flap=flap,
                 ac_offset_m=float(sf_raw.get("ac_offset_m") or 0.0),
-                control_stiffness_Nm_per_rad=float(
-                    sf_raw.get("control_stiffness_Nm_per_rad") or 0.0
-                ),
+                blade_Cm_AC=float(sf_raw.get("blade_Cm_AC") or 0.0),
             )
 
     # Blade flapping properties (quasi-static hub moment reduction).
