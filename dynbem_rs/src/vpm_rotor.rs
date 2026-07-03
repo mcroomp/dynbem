@@ -1,9 +1,9 @@
 // Forward-flight free-wake VPM rotor coupling.
 //
-// Extends the axial coupling (see examples/vpm_vs_bem_axial.rs) to cyclic
-// pitch and crosswind / edgewise flow, following standard unsteady
-// lifting-line free-wake practice (Leishman, "Principles of Helicopter
-// Aerodynamics"; Bagai & Leishman 1995). See VPM_DESIGN.md.
+// Extends the axial coupling to cyclic pitch and crosswind / edgewise flow,
+// following standard unsteady lifting-line free-wake practice (Leishman,
+// "Principles of Helicopter Aerodynamics"; Bagai & Leishman 1995). 
+// See VPM_DESIGN.md and validation_rs for comprehensive theory validation tests.
 //
 // What this adds over the axial coupling:
 //   * Per-blade loading and induced-velocity probing (no azimuthal-symmetry
@@ -31,7 +31,9 @@ use crate::rotor_definition::{
     FlapProperties, PitchActuation, RotorDefinition, ServoFlapActuation,
 };
 use crate::vpm::{
-    advect_rk2, advect_rk2_bh, induced_at_points, induced_at_points_bh, ParticleField,
+    advect_rk2, advect_rk2_bh, advect_rk2_seq, advect_rk2_bh_seq,
+    induced_at_points, induced_at_points_bh, induced_at_points_seq, induced_at_points_bh_seq,
+    ParticleField,
 };
 use std::f64::consts::PI;
 
@@ -73,6 +75,9 @@ pub struct VpmRotorConfig {
     /// definition supplies `FlapProperties`. When false (or no FlapProperties)
     /// blades are rigid in flap and the wake stays in the disk plane.
     pub flap_dynamics: bool,
+    /// Use Rayon parallelism for wake induction and convection. When false,
+    /// uses sequential implementations for debugging or single-threaded execution.
+    pub use_rayon: bool,
 }
 
 impl Default for VpmRotorConfig {
@@ -88,6 +93,7 @@ impl Default for VpmRotorConfig {
             bh_theta: 0.5,
             bh_min_particles: 2048,
             flap_dynamics: true,
+            use_rayon: true,
         }
     }
 }
@@ -106,6 +112,7 @@ impl VpmRotorConfig {
             bh_theta: 0.5,
             bh_min_particles: 2048,
             flap_dynamics: true,
+            use_rayon: true,
         }
     }
 }
@@ -513,9 +520,15 @@ impl<P: Polar> VpmRotor<P> {
                 };
                 let use_bh = cfg.barnes_hut && wake.len() >= cfg.bh_min_particles;
                 let ind = if use_bh {
-                    induced_at_points_bh(&wake, &tx, &ty, &tz, cfg.bh_theta)
-                } else {
+                    if cfg.use_rayon {
+                        induced_at_points_bh(&wake, &tx, &ty, &tz, cfg.bh_theta)
+                    } else {
+                        induced_at_points_bh_seq(&wake, &tx, &ty, &tz, cfg.bh_theta)
+                    }
+                } else if cfg.use_rayon {
                     induced_at_points(&wake, &tx, &ty, &tz)
+                } else {
+                    induced_at_points_seq(&wake, &tx, &ty, &tz)
                 };
                 let u_far: Vec<[f64; 3]> = (0..n)
                     .map(|i| [ind[i][0] as f64, ind[i][1] as f64, ind[i][2] as f64])
@@ -786,9 +799,15 @@ impl<P: Polar> VpmRotor<P> {
             // ---- convect and truncate the free wake -----------------------
             let freestream = [fc.v_hub[0] as f32, fc.v_hub[1] as f32, fc.v_hub[2] as f32];
             if cfg.barnes_hut && wake.len() >= cfg.bh_min_particles {
-                advect_rk2_bh(&mut wake, freestream, dt as f32, cfg.bh_theta);
-            } else {
+                if cfg.use_rayon {
+                    advect_rk2_bh(&mut wake, freestream, dt as f32, cfg.bh_theta);
+                } else {
+                    advect_rk2_bh_seq(&mut wake, freestream, dt as f32, cfg.bh_theta);
+                }
+            } else if cfg.use_rayon {
                 advect_rk2(&mut wake, freestream, dt as f32);
+            } else {
+                advect_rk2_seq(&mut wake, freestream, dt as f32);
             }
             if wake.len() > max_particles {
                 let excess = wake.len() - max_particles;
@@ -978,339 +997,19 @@ fn wake_centroid(f: &ParticleField) -> [f64; 3] {
     ]
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::aero_io::{Mat3, RotorInputs, Vec3};
-    use crate::aero_model::AeroModel;
-    use crate::polar::LinearPolar;
-    use crate::quasi_static_bem::{QuasiStaticBEM, QuasiStaticRotorState};
-    use crate::rotor_definition::{
-        BladeGeometry, FlapProperties, LinearPolarParameters, PitchActuation, RotorDefinition,
-        ServoFlapActuation, ServoFlapGeometry,
-    };
+// ============================================================================
+// Public API for validation / analysis
+// ============================================================================
 
-    const OMEGA: f64 = 120.0;
-    const RHO: f64 = 1.225;
-
-    fn test_rotor(n_elements: usize) -> RotorDefinition {
-        RotorDefinition {
-            blade: BladeGeometry {
-                n_blades: 2,
-                radius_m: 1.0,
-                root_cutout_m: 0.2,
-                chord_m: 0.06,
-                twist_deg: 2.0,
-                n_elements,
-                tip_loss: true,
-                r_stations_m: Vec::new(),
-                chord_stations_m: Vec::new(),
-                twist_stations_deg: Vec::new(),
-            },
-            airfoil: LinearPolarParameters {
-                CL0: 0.0,
-                CL_alpha_per_rad: 5.7,
-                CD0: 0.01,
-                alpha_stall_deg: 15.0,
-            },
-            control: None,
-            pitch_actuation: PitchActuation::DirectMechanical,
-            flap: None,
-            name: "vpm_rotor_test".to_string(),
-            description: String::new(),
-        }
-    }
-
-    fn polar() -> LinearPolar {
-        LinearPolar::new(0.0, 5.7, 0.01, 15.0_f64.to_radians())
-    }
-
-    fn rotor(n_elements: usize) -> VpmRotor<LinearPolar> {
-        VpmRotor::new(
-            &test_rotor(n_elements),
-            polar(),
-            ControlGains::default(),
-            VpmRotorConfig::fast_test(),
-        )
-    }
-
-    fn hover(collective_deg: f64) -> FlightCondition {
-        FlightCondition {
-            collective_rad: collective_deg.to_radians(),
-            tilt_lon: 0.0,
-            tilt_lat: 0.0,
-            v_hub: [0.0, 0.0, 0.0],
-            omega_rad_s: OMEGA,
-            rho: RHO,
-        }
-    }
-
-    /// Freely-hinged (nu_beta = 1) central flap: I_beta chosen so hover coning
-    /// is a few degrees at OMEGA. omega_NR = 0 -> articulated rotor.
-    fn flap_props() -> FlapProperties {
-        FlapProperties {
-            I_blade_flap_kgm2: 0.1,
-            omega_nr_rad_s: 0.0,
-        }
-    }
-
-    fn rotor_with_flap(n_elements: usize) -> VpmRotor<LinearPolar> {
-        let mut defn = test_rotor(n_elements);
-        defn.flap = Some(flap_props());
-        VpmRotor::new(
-            &defn,
-            polar(),
-            ControlGains::default(),
-            VpmRotorConfig::fast_test(),
-        )
-    }
-
-    /// With flap dynamics on, the blade cones up (beta > 0) to a steady angle
-    /// where the aero flap moment balances the centrifugal stiffness. All
-    /// blades reach the same coning in hover (axisymmetric).
-    #[test]
-    fn flap_cones_in_hover() {
-        let vpm = rotor_with_flap(10);
-        let (_res, state) = vpm.march(&hover(8.0), None, 1.0 / 400.0, 500);
-        let beta = state.beta.expect("flap active -> beta present");
-        for &b in &beta {
-            assert!(b > 0.0, "blade should cone up (beta>0), got {} rad", b);
-            assert!(b < 0.35, "coning implausibly large: {} rad", b);
-        }
-        let hi = beta.iter().cloned().fold(f64::MIN, f64::max);
-        let lo = beta.iter().cloned().fold(f64::MAX, f64::min);
-        assert!(
-            hi - lo < 0.02,
-            "hover coning should be ~equal per blade, spread {} rad",
-            hi - lo
-        );
-    }
-
-    /// A freely-hinged rotor relieves hub moment: under longitudinal cyclic the
-    /// blades flap (90 deg lagged) instead of transmitting the full aerodynamic
-    /// moment to the hub, so |M_hub| is smaller than the rigid-blade case.
-    #[test]
-    fn flap_relieves_hub_moment() {
-        let dt = 1.0 / 400.0;
-        let n = 500;
-        let mut fc = hover(8.0);
-        fc.tilt_lon = 4.0_f64.to_radians();
-
-        let rigid = rotor(10).simulate(&fc, dt, n); // test_rotor has flap: None
-        let flex = rotor_with_flap(10).simulate(&fc, dt, n);
-
-        let m_rigid = rigid.my_hub.hypot(rigid.mx_hub);
-        let m_flex = flex.my_hub.hypot(flex.mx_hub);
-        assert!(
-            m_flex < m_rigid,
-            "flapping should reduce hub moment: rigid {:.3} vs flex {:.3} N*m",
-            m_rigid,
-            m_flex
-        );
-    }
-
-    /// Servo-flap actuation with a positive control stiffness so the feathering
-    /// DOF is well-posed. Flap on the outer span [0.5, 0.9] m.
-    fn servo_props(k_ctrl: f64) -> ServoFlapActuation {
-        ServoFlapActuation {
-            I_theta_kgm2: 0.02,
-            damper_Nms_per_rad: 0.5,
-            ac_offset_m: 0.0,
-            control_stiffness_Nm_per_rad: k_ctrl,
-            flap: ServoFlapGeometry {
-                C_M_delta_per_rad: -1.0,
-                r_inner_m: 0.5,
-                r_outer_m: 0.9,
-            },
-        }
-    }
-
-    fn rotor_with_servoflap(n_elements: usize, k_ctrl: f64) -> VpmRotor<LinearPolar> {
-        let mut defn = test_rotor(n_elements);
-        defn.pitch_actuation = PitchActuation::ServoFlap(servo_props(k_ctrl));
-        VpmRotor::new(
-            &defn,
-            polar(),
-            ControlGains::default(),
-            VpmRotorConfig::fast_test(),
-        )
-    }
-
-    /// With no swashplate command the servo-flap deflection is zero, so the
-    /// feathering moment is zero and the blade stays at zero feathering.
-    #[test]
-    fn feather_zero_command_stays_zero() {
-        let vpm = rotor_with_servoflap(8, 150.0);
-        let fc = FlightCondition {
-            collective_rad: 0.0,
-            tilt_lon: 0.0,
-            tilt_lat: 0.0,
-            v_hub: [0.0, 0.0, 0.0],
-            omega_rad_s: OMEGA,
-            rho: RHO,
-        };
-        let (_res, state) = vpm.march(&fc, None, 1.0 / 400.0, 300);
-        let theta_f = state.theta_f.expect("servo active -> theta_f present");
-        for &t in &theta_f {
-            assert!(t.abs() < 1e-6, "zero command -> zero feathering, got {} rad", t);
-        }
-    }
-
-    /// A collective servo-flap command drives the feathering DOF to a steady,
-    /// bounded, non-zero angle (theta_f settles: theta_f_dot -> 0). This is the
-    /// well-posed control-stiffness response (option B).
-    #[test]
-    fn feather_responds_to_collective_and_settles() {
-        let vpm = rotor_with_servoflap(10, 150.0);
-        let fc = hover(8.0); // collective reinterpreted as flap command
-        let (_res, state) = vpm.march(&fc, None, 1.0 / 400.0, 600);
-        let theta_f = state.theta_f.expect("servo active -> theta_f present");
-        let theta_f_dot = state.theta_f_dot.expect("servo active -> present");
-        for (&t, &td) in theta_f.iter().zip(&theta_f_dot) {
-            assert!(
-                t.abs() > 1e-3,
-                "collective command should drive feathering, got {} rad",
-                t
-            );
-            assert!(t.abs() < 0.7, "feathering implausibly large: {} rad", t);
-            // Settled: DC command -> steady angle -> near-zero rate.
-            assert!(
-                td.abs() < 2.0,
-                "feathering should settle (theta_dot ~ 0), got {} rad/s",
-                td
-            );
-        }
-    }
-
-    /// A cyclic servo-flap command produces 1/rev feathering, which tilts the
-    /// disk loading and generates a hub moment that is absent with zero command.
-    #[test]
-    fn feather_cyclic_produces_hub_moment() {
-        let dt = 1.0 / 400.0;
-        let n = 500;
-        let vpm = rotor_with_servoflap(10, 150.0);
-
-        let mut fc = hover(8.0);
-        fc.tilt_lon = 4.0_f64.to_radians();
-        let with_cyclic = vpm.simulate(&fc, dt, n);
-
-        let no_cyclic = vpm.simulate(&hover(8.0), dt, n);
-
-        let m_cyc = with_cyclic.my_hub.hypot(with_cyclic.mx_hub);
-        let m_none = no_cyclic.my_hub.hypot(no_cyclic.mx_hub);
-        assert!(
-            m_cyc > m_none,
-            "cyclic feathering should raise hub moment: {:.3} vs {:.3} N*m",
-            m_cyc,
-            m_none
-        );
-    }
-
-    /// With no cyclic and no crosswind the forward-flight model reduces to
-    /// axial flow and should reproduce a hover thrust in the same ballpark as
-    /// the quasi-static BEM (the shed term vanishes at steady state, so this
-    /// exercises the per-blade loop and trailed wake). Hub moments should be
-    /// ~ 0 by axisymmetry.
-    #[test]
-    fn axial_reduction_matches_bem_hover() {
-        let vpm = rotor(12);
-        let res = vpm.simulate(&hover(8.0), 1.0 / 400.0, 534);
-
-        // BEM anchor.
-        let bem = QuasiStaticBEM::build(test_rotor(30), 72, polar());
-        let inputs = RotorInputs {
-            collective_rad: 8.0_f64.to_radians(),
-            tilt_lon: 0.0,
-            tilt_lat: 0.0,
-            R_hub: Mat3::eye(),
-            v_hub_world: Vec3::zero(),
-            wind_world: Vec3::zero(),
-            rho_kg_m3: RHO,
-            omega_rad_s: OMEGA,
-        };
-        let (bem_res, _) = bem.compute_forces(&inputs, &QuasiStaticRotorState);
-        let t_bem = -bem_res.F_world[2];
-
-        assert!(res.thrust > 0.0, "thrust should be positive, got {}", res.thrust);
-        let rel = (res.thrust - t_bem).abs() / t_bem;
-        assert!(
-            rel < 0.30,
-            "VPM hover thrust {:.1} N vs BEM {:.1} N ({:.0}% off)",
-            res.thrust,
-            t_bem,
-            rel * 100.0
-        );
-        // Axisymmetric -> hub moments small relative to thrust*R.
-        let scale = res.thrust * 1.0;
-        assert!(
-            res.mx_hub.abs() < 0.10 * scale && res.my_hub.abs() < 0.10 * scale,
-            "hub moments should be ~0 in hover: Mx={:.3} My={:.3}",
-            res.mx_hub,
-            res.my_hub
-        );
-    }
-
-    /// Thrust increases with collective pitch.
-    #[test]
-    fn collective_increases_thrust() {
-        let vpm = rotor(10);
-        let lo = vpm.simulate(&hover(5.0), 1.0 / 400.0, 400).thrust;
-        let hi = vpm.simulate(&hover(9.0), 1.0 / 400.0, 400).thrust;
-        assert!(hi > lo, "thrust should rise with collective: {} -> {}", lo, hi);
-    }
-
-    /// Longitudinal cyclic tilt_lon > 0 (forward stick) produces a nose-down
-    /// pitching moment: My_hub < 0 (AGENTS.md convention).
-    #[test]
-    fn longitudinal_cyclic_gives_nose_down_moment() {
-        let vpm = rotor(8);
-        let base = vpm.simulate(&hover(8.0), 1.0 / 400.0, 400);
-        let mut fc = hover(8.0);
-        fc.tilt_lon = 3.0_f64.to_radians();
-        let tilted = vpm.simulate(&fc, 1.0 / 400.0, 400);
-        assert!(
-            tilted.my_hub < base.my_hub && tilted.my_hub < 0.0,
-            "tilt_lon>0 should give nose-down My<0: base {:.3} -> {:.3}",
-            base.my_hub,
-            tilted.my_hub
-        );
-    }
-
-    /// Lateral cyclic tilt_lat > 0 produces a roll-right moment: Mx_hub > 0.
-    #[test]
-    fn lateral_cyclic_gives_roll_right_moment() {
-        let vpm = rotor(8);
-        let base = vpm.simulate(&hover(8.0), 1.0 / 400.0, 400);
-        let mut fc = hover(8.0);
-        fc.tilt_lat = 3.0_f64.to_radians();
-        let tilted = vpm.simulate(&fc, 1.0 / 400.0, 400);
-        assert!(
-            tilted.mx_hub > base.mx_hub && tilted.mx_hub > 0.0,
-            "tilt_lat>0 should give roll-right Mx>0: base {:.3} -> {:.3}",
-            base.mx_hub,
-            tilted.mx_hub
-        );
-    }
-
-    /// A crosswind (edgewise in-plane flow) keeps the solution bounded, keeps
-    /// thrust positive, develops a hub moment, and skews the wake downstream.
-    #[test]
-    fn crosswind_stays_bounded_and_skews_wake() {
-        let vpm = rotor(10);
-        let mut fc = hover(8.0);
-        fc.v_hub = [8.0, 0.0, 0.0]; // 8 m/s edgewise along +X
-        let res = vpm.simulate(&fc, 1.0 / 400.0, 400);
-
-        assert!(res.thrust.is_finite() && res.thrust > 0.0, "thrust {}", res.thrust);
-        assert!(res.torque.is_finite(), "torque {}", res.torque);
-        // Asymmetric loading -> nonzero hub moment.
-        let moment = (res.mx_hub.powi(2) + res.my_hub.powi(2)).sqrt();
-        assert!(moment > 1e-3, "crosswind should induce a hub moment, got {}", moment);
-        // Wake convects downstream (+X) with the freestream.
-        assert!(
-            res.wake_centroid[0] > 0.05,
-            "wake should skew downstream (+X), centroid_x = {}",
-            res.wake_centroid[0]
-        );
-    }
+/// Compute induced velocities at arbitrary points in space from a wake
+/// particle field. Used for analysis and validation (e.g., disk inflow sampling).
+pub fn induced_velocities_at_points(
+    wake: &ParticleField,
+    tx: &[f32],
+    ty: &[f32],
+    tz: &[f32],
+) -> Vec<[f32; 3]> {
+    induced_at_points(wake, tx, ty, tz)
 }
+
+

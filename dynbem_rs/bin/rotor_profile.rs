@@ -174,6 +174,7 @@ fn profile_vpm(
         bh_theta: 0.5,
         bh_min_particles: 200,
         flap_dynamics: false,
+        use_rayon: true,
     };
     let rotor = VpmRotor::new(&defn, polar, ControlGains::default(), config);
     let fc = test_flight_condition();

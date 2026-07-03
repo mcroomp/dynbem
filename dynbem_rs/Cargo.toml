@@ -16,42 +16,19 @@ exclude = ["CLAUDE.md"]
 name = "dynbem_rs"
 path = "src/lib.rs"
 
-[features]
-default = ["parallel"]
-parallel = ["dep:rayon"]
-
 [dependencies]
 aligned = "0.4"
 aligned-vec = "0.6"
 bytemuck = "1"
 wide = "0.7"
-rayon = { version = "1", optional = true }
+rayon = "1"
 
 [dev-dependencies]
 criterion = { version = "0.5", default-features = false, features = ["cargo_bench_support"] }
-csv = "1.3"
-rstest = "0.18"
-serde = { version = "1", features = ["derive"] }
 
 [[bench]]
 name = "model_kernels"
 harness = false
-
-[[test]]
-name = "vpm_forward_flight_empirical"
-path = "tests/vpm_forward_flight_empirical.rs"
-
-[[bin]]
-name = "theory_report"
-path = "bin/theory_report.rs"
-
-[[bin]]
-name = "profile_kernels"
-path = "bin/profile_kernels.rs"
-
-[[bin]]
-name = "bh_profile"
-path = "bin/bh_profile.rs"
 
 [[bin]]
 name = "rotor_profile"

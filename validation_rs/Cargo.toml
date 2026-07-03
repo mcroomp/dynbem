@@ -1,0 +1,14 @@
+[package]
+name = "validation_rs"
+version = "0.5.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+dynbem_rs = { path = "../dynbem_rs" }
+csv = "1"
+serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+csv = "1"
+serde = { version = "1", features = ["derive"] }

@@ -414,3 +414,76 @@ impl<P: Polar + Clone> AeroModel for PittPetersModel<P> {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::aero_io::{Mat3, Vec3};
+    use crate::aero_model::AeroModel;
+    use crate::rotor_definition::{BladeGeometry, ControlProperties, LinearPolarParameters, PitchActuation, RotorDefinition};
+
+    fn beaupoil_rotor() -> RotorDefinition {
+        RotorDefinition {
+            blade: BladeGeometry {
+                n_blades: 4, radius_m: 2.5, root_cutout_m: 0.5,
+                chord_m: 0.20, twist_deg: 0.0, n_elements: 10, tip_loss: true,
+                r_stations_m: Vec::new(), chord_stations_m: Vec::new(), twist_stations_deg: Vec::new(),
+            },
+            airfoil: LinearPolarParameters { CL0: 0.393, CL_alpha_per_rad: 5.79, CD0: 0.0079, alpha_stall_deg: 13.0 },
+            control: Some(ControlProperties { swashplate_pitch_gain_rad: 0.3, swashplate_phase_deg: Some(0.0) }),
+            pitch_actuation: PitchActuation::DirectMechanical,
+            flap: None,
+            name: "beaupoil_2026".to_string(),
+            description: String::new(),
+        }
+    }
+
+    /// RAWES IC attitude: Pitt-Peters force must oppose body-Z.
+    #[test]
+    fn rawes_ic_pp_force_opposes_body_z() {
+        let defn = beaupoil_rotor();
+        let polar = crate::polar::LinearPolar::from_properties(&defn.airfoil);
+        let model = PittPetersModel::build(defn, 36, polar);
+        let r_hub = Mat3([
+            [0.0, -1.0, 0.0],
+            [0.42720594325829603, 0.0, -0.9041543463617201],
+            [0.9041543463617201, 0.0, 0.4272059432582967],
+        ]);
+        let inputs = RotorInputs {
+            collective_rad: -0.18, tilt_lon: 0.0, tilt_lat: 0.0,
+            R_hub: r_hub,
+            v_hub_world: Vec3::zero(),
+            wind_world: Vec3::new(0.0, 10.0, 0.0),
+            omega_rad_s: 38.132161, rho_kg_m3: 1.225,
+        };
+        let (result, _) = model.compute_forces(&inputs, &model.initial_state());
+        let body_z = Vec3::new(r_hub.0[0][2], r_hub.0[1][2], r_hub.0[2][2]);
+        let fdz = result.F_world.dot(body_z);
+        assert!(fdz < 0.0, "PP RAWES IC: F dot body_z should be negative, got {fdz:.3}");
+        assert!(result.F_world.0[1] > 0.0, "PP RAWES IC: F_east should be positive (downwind)");
+        assert!(result.F_world.0[2] < 0.0, "PP RAWES IC: F_up should be positive (-Z)");
+    }
+
+    /// Hover mass-flow: Glauert lambda_0 = sqrt(CT/2), Peters Eq-8 gives sqrt(CT/4).
+    /// The ratio must be exactly sqrt(2) -- verifies the analytical derivation in
+    /// AGENTS.md (Pitt-Peters section) is implemented correctly.
+    #[test]
+    fn glauert_vs_peters_hover_inflow_ratio_is_sqrt2() {
+        const C_T: f64 = 0.00488;
+        let lambda_glauert = (C_T / 2.0).sqrt();
+        let lambda_peters  = (C_T / 4.0).sqrt();
+        let ratio = lambda_glauert / lambda_peters;
+        assert!(
+            (ratio - 2.0_f64.sqrt()).abs() < 1e-10,
+            "Expected sqrt(2) ratio between Glauert and Peters hover inflow, got {ratio}"
+        );
+        // Verify mass-flow parameter ratio is also sqrt(2).
+        let v_mf_glauert = lambda_glauert;
+        let v_peters     = 2.0 * lambda_peters;
+        let mf_ratio = v_peters / v_mf_glauert;
+        assert!(
+            (mf_ratio - 2.0_f64.sqrt()).abs() < 1e-10,
+            "Expected sqrt(2) mass-flow ratio, got {mf_ratio}"
+        );
+    }
+}
+

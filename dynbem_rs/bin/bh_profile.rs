@@ -26,8 +26,8 @@
 // Defaults: N = 8000 particles, theta = 0.5, run for 10 seconds of wall clock.
 
 #[cfg(feature = "parallel")]
-use dynbem_rs::vpm::{induced_velocities_bh_seq, induced_velocities_seq};
-use dynbem_rs::vpm::{induced_velocities, induced_velocities_bh, ParticleField};
+use dynbem_rs::vpm_rotor::{induced_velocities_bh_seq, induced_velocities_seq};
+use dynbem_rs::vpm_rotor::{induced_velocities, induced_velocities_bh, ParticleField};
 use std::env;
 use std::time::{Duration, Instant};
 

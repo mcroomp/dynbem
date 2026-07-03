@@ -1323,6 +1323,7 @@ fn build_vpm_config(
         bh_theta,
         bh_min_particles,
         flap_dynamics: true,
+        use_rayon: true,
     }
 }
 

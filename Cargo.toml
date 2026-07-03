@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["dynbem", "dynbem_rs"]
+members = ["dynbem", "dynbem_rs", "validation_rs"]
 
 # Fields below are inherited by member crates via `field.workspace = true`.
 [workspace.package]

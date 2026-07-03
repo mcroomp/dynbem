@@ -20,7 +20,7 @@ use dynbem_rs::quasi_static_bem::{solve_bem_element, BEMElementGeometry, QuasiSt
 use dynbem_rs::rotor_definition::{
     BladeGeometry, LinearPolarParameters, PitchActuation, RotorDefinition,
 };
-use dynbem_rs::vpm::{advect_rk2, induced_velocities, ParticleField};
+use dynbem_rs::vpm_rotor::{advect_rk2, induced_velocities, ParticleField};
 use std::env;
 use std::time::Instant;
 

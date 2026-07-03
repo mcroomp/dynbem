@@ -18,8 +18,7 @@ use dynbem_rs::polar::LinearPolar;
 use dynbem_rs::rotor_definition::{
     BladeGeometry, FlapProperties, LinearPolarParameters, PitchActuation, RotorDefinition,
 };
-use dynbem_rs::vpm::induced_at_points;
-use dynbem_rs::vpm_rotor::{FlightCondition, VpmRotor, VpmRotorConfig, VpmRotorResult, VpmRotorState};
+use dynbem_rs::vpm_rotor::{FlightCondition, VpmRotor, VpmRotorConfig, VpmRotorResult, VpmRotorState, induced_at_points};
 use std::f64::consts::PI;
 use std::io::Write;
 use std::path::PathBuf;

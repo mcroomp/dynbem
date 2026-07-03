@@ -75,7 +75,6 @@
 use aligned_vec::AVec;
 use bytemuck::cast_slice;
 use wide::f32x8;
-#[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
 /// 1 / (4 pi), the Biot-Savart prefactor.
@@ -283,12 +282,6 @@ pub fn induced_at_points(field: &ParticleField, tx: &[f32], ty: &[f32], tz: &[f3
     let src = Chunks::from_avecs(&px, &py, &pz, &ax, &ay, &az, &sg);
     let n_chunks = n_pad / 8;
 
-    #[cfg(not(feature = "parallel"))]
-    for j in 0..m {
-        out[j] = eval_target(tx[j], ty[j], tz[j], &src, n_chunks);
-    }
-
-    #[cfg(feature = "parallel")]
     out.par_iter_mut().enumerate().for_each(|(j, o)| {
         *o = eval_target(tx[j], ty[j], tz[j], &src, n_chunks);
     });
@@ -296,10 +289,9 @@ pub fn induced_at_points(field: &ParticleField, tx: &[f32], ty: &[f32], tz: &[f3
     out
 }
 
-/// Sequential version of [`induced_at_points`] -- always single-threaded
-/// regardless of the `parallel` feature. Useful for benchmarking or when
-/// the caller manages its own parallelism at a higher level.
-#[cfg(feature = "parallel")]
+/// Sequential version of [`induced_at_points`] -- always single-threaded.
+/// Useful for benchmarking or when the caller manages its own parallelism
+/// at a higher level.
 pub fn induced_at_points_seq(
     field: &ParticleField,
     tx: &[f32],
@@ -335,7 +327,6 @@ pub fn induced_at_points_seq(
 }
 
 /// Sequential self-evaluation variant (wake on itself). Always single-threaded.
-#[cfg(feature = "parallel")]
 pub fn induced_velocities_seq(field: &ParticleField) -> Vec<[f32; 3]> {
     induced_at_points_seq(field, &field.px, &field.py, &field.pz)
 }
@@ -423,6 +414,12 @@ fn advect_rk2_with(
 /// stretching and diffusion are not modelled yet).
 pub fn advect_rk2(field: &mut ParticleField, freestream: [f32; 3], dt: f32) {
     advect_rk2_with(field, freestream, dt, induced_velocities);
+}
+
+/// Sequential (non-parallelized) variant of `advect_rk2`. Uses the sequential
+/// induced-velocity evaluator for single-threaded execution.
+pub fn advect_rk2_seq(field: &mut ParticleField, freestream: [f32; 3], dt: f32) {
+    advect_rk2_with(field, freestream, dt, induced_velocities_seq);
 }
 
 // ---------------------------------------------------------------------------
@@ -1057,34 +1054,23 @@ pub fn induced_at_points_bh(
 
     let mut out = vec![[0.0f32; 3]; m];
 
-    #[cfg(not(feature = "parallel"))]
-    {
-        let mut far = Scratch::with_capacity(cap);
-        for j in 0..m {
-            out[j] = tree.evaluate(tx[j], ty[j], tz[j], theta2, &mut far);
-        }
-    }
-
-    #[cfg(feature = "parallel")]
-    {
-        // Parallel: each Rayon task handles one target; per-thread Scratch
-        // eliminates cross-thread mutable state.  FlatTree is read-only (Sync).
-        // Using par_chunks_mut(CHUNK) gives each thread CHUNK targets per
-        // task -- enough work to amortize Rayon dispatch overhead, while
-        // staying cache-friendly (each thread's Scratch stays warm between
-        // consecutive targets in the same chunk).
-        const CHUNK: usize = 64;
-        out.par_chunks_mut(CHUNK)
-            .zip(tx.par_chunks(CHUNK))
-            .zip(ty.par_chunks(CHUNK))
-            .zip(tz.par_chunks(CHUNK))
-            .for_each(|(((oc, tc_x), tc_y), tc_z)| {
-                let mut far = Scratch::with_capacity(cap);
-                for k in 0..tc_x.len() {
-                    oc[k] = tree.evaluate(tc_x[k], tc_y[k], tc_z[k], theta2, &mut far);
-                }
-            });
-    }
+    // Parallel: each Rayon task handles one target; per-thread Scratch
+    // eliminates cross-thread mutable state.  FlatTree is read-only (Sync).
+    // Using par_chunks_mut(CHUNK) gives each thread CHUNK targets per
+    // task -- enough work to amortize Rayon dispatch overhead, while
+    // staying cache-friendly (each thread's Scratch stays warm between
+    // consecutive targets in the same chunk).
+    const CHUNK: usize = 64;
+    out.par_chunks_mut(CHUNK)
+        .zip(tx.par_chunks(CHUNK))
+        .zip(ty.par_chunks(CHUNK))
+        .zip(tz.par_chunks(CHUNK))
+        .for_each(|(((oc, tc_x), tc_y), tc_z)| {
+            let mut far = Scratch::with_capacity(cap);
+            for k in 0..tc_x.len() {
+                oc[k] = tree.evaluate(tc_x[k], tc_y[k], tc_z[k], theta2, &mut far);
+            }
+        });
 
     out
 }
@@ -1097,7 +1083,6 @@ pub fn induced_velocities_bh(field: &ParticleField, theta: f32) -> Vec<[f32; 3]>
 /// Sequential (single-threaded) BH velocity evaluation, for benchmarking
 /// the parallel speedup of the BH path.  Bypasses the Rayon dispatch in
 /// `induced_at_points_bh` and runs the per-target tree walk on one thread.
-#[cfg(feature = "parallel")]
 pub fn induced_velocities_bh_seq(field: &ParticleField, theta: f32) -> Vec<[f32; 3]> {
     let n = field.len();
     if n == 0 {
@@ -1114,11 +1099,44 @@ pub fn induced_velocities_bh_seq(field: &ParticleField, theta: f32) -> Vec<[f32;
     out
 }
 
+/// Compute Barnes-Hut induced velocities at arbitrary points (sequential).
+/// This is the single-threaded variant of `induced_at_points_bh`.
+pub fn induced_at_points_bh_seq(
+    field: &ParticleField,
+    tx: &[f32],
+    ty: &[f32],
+    tz: &[f32],
+    theta: f32,
+) -> Vec<[f32; 3]> {
+    let n = field.len();
+    let m = tx.len();
+    if n == 0 || m == 0 {
+        return vec![[0.0f32; 3]; m];
+    }
+    let tree = FlatTree::build(field);
+    let theta2 = theta * theta;
+    let cap = tree.nodes.len();
+
+    let mut out = vec![[0.0f32; 3]; m];
+    let mut far = Scratch::with_capacity(cap);
+    for j in 0..m {
+        out[j] = tree.evaluate(tx[j], ty[j], tz[j], theta2, &mut far);
+    }
+
+    out
+}
+
 /// Barnes-Hut version of [`advect_rk2`]. Identical midpoint integration, but
 /// both velocity evaluations use the tree (rebuilt each stage, since the
 /// particles move).
 pub fn advect_rk2_bh(field: &mut ParticleField, freestream: [f32; 3], dt: f32, theta: f32) {
     advect_rk2_with(field, freestream, dt, |f| induced_velocities_bh(f, theta));
+}
+
+/// Sequential (non-parallelized) variant of `advect_rk2_bh`. Uses the
+/// sequential Barnes-Hut evaluator for single-threaded execution.
+pub fn advect_rk2_bh_seq(field: &mut ParticleField, freestream: [f32; 3], dt: f32, theta: f32) {
+    advect_rk2_with(field, freestream, dt, |f| induced_velocities_bh_seq(f, theta));
 }
 
 #[cfg(test)]
