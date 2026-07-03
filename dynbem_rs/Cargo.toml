@@ -41,9 +41,9 @@ harness = false
 name = "vpm_forward_flight_empirical"
 path = "tests/vpm_forward_flight_empirical.rs"
 
-[[test]]
-name = "theory"
-path = "tests/theory/main.rs"
+[[bin]]
+name = "theory_report"
+path = "bin/theory_report.rs"
 
 [[bin]]
 name = "profile_kernels"
@@ -52,3 +52,7 @@ path = "bin/profile_kernels.rs"
 [[bin]]
 name = "bh_profile"
 path = "bin/bh_profile.rs"
+
+[[bin]]
+name = "rotor_profile"
+path = "bin/rotor_profile.rs"
