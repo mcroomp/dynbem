@@ -441,14 +441,30 @@ This rule has bitten before — see [memory feedback-no-silent-reverts].
   - **GFM math traps to avoid in design docs.**
     - `\operatorname{...}` is not supported by GitHub's math renderer.
       Use `\mathrm{...}` instead (e.g. `\mathrm{atan2}`).
-    - Multiple `_` subscripts in a single inline `$...$` span confuse
-      GitHub's Markdown parser, which eats the underscores as italic
-      markers before the math renderer runs. Any inline expression with
-      two or more `_` subscripts (e.g.
-      `$\mathbf{u}_\text{ind} = \mathbf{u}_\text{far}$`) should be
-      promoted to a display block (`$$...$$` or ` ```math `).
-      A single subscript in inline math is fine; the problem only
-      triggers when there are two or more `_` in the same `$...$` span.
+    - **Underscores leak out of inline `$...$` math and pair as
+      emphasis.** GitHub runs its CommonMark emphasis pass *before* the
+      math renderer, and it counts EVERY `_` in a paragraph -- including
+      the ones inside inline `$...$` subscripts. When the paragraph's
+      total count of such underscores is even, they pair up as `<em>`
+      delimiters and corrupt the render (the math turns into literal
+      garbage like `\mathbf{u}*\text{near}` or a collapsed
+      `Γi←Γi+relax...`). This is NOT limited to two subscripts in one
+      span: two *separate* spans each with a single subscript (e.g.
+      `$\Gamma_\text{tip}$ ... $\Gamma_\text{root}$`), or one subscripted
+      span plus a stray literal `_`, is enough. Mixing literal
+      `*emphasis*` into the same paragraph makes it worse.
+      Rules of thumb:
+        1. In running prose, refer to a subscripted symbol with an
+           **inline code span** (`` `u_near` ``, `` `Gamma_tip` ``,
+           `` `M_servo` ``), NOT inline `$...$` math. Inline code is
+           immune to the emphasis pass and is ASCII-friendly.
+        2. Put real equations in a **display block** (`$$...$$` or
+           ` ```math `), which is parsed in isolation so its underscores
+           never leak. Never leave a multi-term subscripted equation in
+           an inline `$...$` span in prose.
+        3. Inline `$...$` math is safe only when the span (and ideally
+           the whole paragraph) contains ZERO underscores -- e.g.
+           `$\alpha$`, `$\Gamma$`, `$O(N^2)$`.
     - `\text{...}` and `\mathrm{...}` are both supported. Prefer
       `\text{...}` for word-labels inside equations and `\mathrm{...}`
       for function names (atan2, sin, etc.).

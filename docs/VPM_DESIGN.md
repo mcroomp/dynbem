@@ -301,8 +301,8 @@ blade):
 \end{aligned}
 ```
 
-The tip edge carries $\Gamma_\text{tip}$ (the tip vortex, strongest); the
-root edge carries $-\Gamma_\text{root}$.
+The tip edge carries `Gamma_tip` (the tip vortex, strongest); the
+root edge carries `-Gamma_root`.
 
 ### 5.3 Convergence and truncation
 
@@ -399,11 +399,13 @@ U_t &= -\,\mathbf{U}_\text{rel}\cdot\hat{\mathbf{t}}
 \end{aligned}
 ```
 
-Because $\mathbf{u}_\text{near}$ depends on $\Gamma$ and $\Gamma$ depends on
-$\alpha$ (hence on $\mathbf{u}_\text{near}$), the last two lines are a coupled
+Because `u_near` depends on $\Gamma$ and $\Gamma$ depends on
+$\alpha$ (hence on `u_near`), the last two lines are a coupled
 fixed point. It is solved by relaxed iteration, seeded from the previous
 step's circulation:
-$\Gamma_i \leftarrow \Gamma_i + \text{relax}\,(\tfrac12 U c\,C_l - \Gamma_i)$,
+
+$$\Gamma_i \leftarrow \Gamma_i + \text{relax}\,\left(\tfrac12 U c\,C_l - \Gamma_i\right),$$
+
 repeated until $\Gamma$ stops changing (a few tens of iterations at most).
 The far field is not re-probed inside the loop, so each iteration is only
 the small near-field matrix-vector product plus a polar lookup -- negligible
@@ -411,9 +413,9 @@ against the $O(N^2)$ particle evaluation.
 
 Lift comes from the **polar**, so (unlike a thin-airfoil vortex-lattice) the
 bound vortex carries no self term; only the *trailing* wake enters
-$\mathbf{u}_\text{near}$. This is the classical viscous lifting-line, in the
+`u_near`. This is the classical viscous lifting-line, in the
 Bagai-Leishman free-wake / FLOWVPM tradition. Setting
-`nonlinear_lifting_line = false` drops $\mathbf{u}_\text{near}$ and reduces
+`nonlinear_lifting_line = false` drops `u_near` and reduces
 the solve to a single relaxed Kutta-Joukowski pass (the original pointwise
 scheme), retained as a baseline.
 
@@ -461,8 +463,8 @@ aligned with the local relative wind, length $|\mathbf{U}_\text{rel}|\,dt$:
 \end{aligned}
 ```
 
-The tip edge carries $\Gamma_\text{tip}$ (the tip vortex), the root edge
-$-\Gamma_\text{root}$.
+The tip edge carries `Gamma_tip` (the tip vortex), the root edge
+`-Gamma_root`.
 
 **Shed** (spanwise, from $\partial\Gamma/\partial t$). Kelvin's theorem
 applied to a material contour enclosing the blade section and its near wake
@@ -486,7 +488,7 @@ no prescribed skew angle.
 
 **Near-field influence and the one-step handoff.** The same trailed segments
 $\mathbf{s}_j$ are what the implicit solve of Section 5.5.2 uses for the
-near field $\mathbf{u}_\text{near}$: each edge $j$ carries a straight vortex
+near field `u_near`: each edge $j$ carries a straight vortex
 filament from $r_\text{edge}(j)\,\hat{\mathbf{r}}$ along $\mathbf{s}_j$ with
 circulation $\Gamma_{j-1} - \Gamma_j$, and its regularized Biot-Savart
 velocity at the station control points gives the influence coefficients
@@ -563,7 +565,7 @@ Because the forward-flight coupling is time-marched per blade, blade
 structural DOFs can be integrated in lockstep with the wake instead of being
 reduced to a static factor (as the BEM path does for flap). Each blade
 carries up to four extra states -- flap ($\beta$, $\dot\beta$) and feather
-($\theta_f$, $\dot\theta_f$) -- advanced once per sub-step. Both are off
+($\theta_f$, $\dot\theta_f$) -- advanced once per step. Both are off
 unless the rotor supplies the matching properties, and the rigid path is
 unchanged when they are.
 
@@ -592,12 +594,12 @@ frequency (0 = freely hinged, $\nu_\beta = 1$).
 **Feather DOF** (`PitchActuation::ServoFlap`, Kaman path). A passive
 feathering rotation driven by a trailing-edge servo-flap. In servo mode the
 swashplate collective/cyclic are reinterpreted as flap deflection commands
-$\delta_f$; the flap's pitching moment $M_\text{servo}$ drives feathering,
-and $\theta_f$ **replaces** the direct swashplate-to-pitch path in the
+`delta_f`; the flap's pitching moment `M_servo` drives feathering,
+and `theta_f` **replaces** the direct swashplate-to-pitch path in the
 section angle of attack. This is the **feathering + damper** architecture:
 the blade rides a pitch bearing and feathers freely, restrained by the
-mechanical bearing damper $C_\theta$ (the only dissipation) and the
-**aerodynamic spring** $k_\text{aero}$ from any AC offset:
+mechanical bearing damper `C_theta` (the only dissipation) and the
+**aerodynamic spring** `k_aero` from any AC offset:
 
 $$I_\theta\,\ddot\theta_f + C_\theta\,\dot\theta_f + k_\text{aero}\,\theta_f
 = M_\text{servo} + M_\text{camber},$$
@@ -609,11 +611,11 @@ $$k_\text{aero} = \tfrac{1}{2}\rho\,\omega^2 C_{L\alpha}\,\cdot ac\_offset
 \cdot \int c\,r^2\,dr,$$
 
 a nose-down restoring torque from the extra lift acting at the AC a distance
-`ac_offset` aft of the feathering axis. $M_\text{servo}$ is accumulated over
-the flap span from the true local dynamic pressure, and $M_\text{camber}$
+`ac_offset` aft of the feathering axis. `M_servo` is accumulated over
+the flap span from the true local dynamic pressure, and `M_camber`
 (from `blade_Cm_AC`) sets the DC trim. With `ac_offset = 0` (Kaman ideal, axis
 at AC) the damper alone sets the cyclic phase lag and DC trim comes from
-$M_\text{camber}$. There is no artificial control-stiffness spring -- all
+`M_camber`. There is no artificial control-stiffness spring -- all
 constants are physical and measurable. (The alternative torsional-twist
 servo-flap architecture is not modelled yet.)
 
@@ -703,7 +705,7 @@ advances the free wake by one azimuth increment (an O(N^2) Biot-Savart probe
 
 BEM-family rows are release-mode measurements of a single `compute_forces()` call
 at a non-axial flight condition (forward 12 m/s + 5 m/s edgewise + descent 2 m/s).
-VPM rows are steady-state single sub-step costs (one azimuthal increment) after the
+VPM rows are steady-state single-step costs (one azimuthal increment) after the
 wake has settled to capacity. Direct seq is a single-threaded velocity evaluation;
 Barnes-Hut uses the same vectorized kernel but with O(N log N) tree traversal.
 Both benefit from Rayon parallel evaluation (Sections 4.1, 7.1), yielding roughly
@@ -716,7 +718,7 @@ of algebraic inflow relations per (element, azimuth). The quasi-static BEM is
 root-finder (Brent) on the momentum / blade-element balance, and non-axial
 wind makes it worse, not better: the swept azimuth exposes more sections to
 the turbulent-wake / reversed-flow branches where the solver has to iterate.
-The VPM is ~400–700x beyond BEM per sub-step; per converged operating point
+The VPM is ~400–700x beyond BEM per step; per converged operating point
 it is orders of magnitude larger still (see "Per operating point" discussion
 below). The VPM is not an inflow model but a wake-fidelity
 tool that resolves the actual wake geometry, paying the O(N^2) particle cost
@@ -1156,7 +1158,7 @@ autorotation.
 The RAWES blades use a **Kaman-type trailing-edge servo flap** for pitch control
 (`PitchActuation::ServoFlap` in `dynbem_rs`). The VPM implements this path in
 `dynbem_rs/src/vpm_rotor.rs` as a per-blade feathering DOF integrated each
-sub-step. In servo mode, swashplate collective/cyclic are reinterpreted as
+step. In servo mode, swashplate collective/cyclic are reinterpreted as
 flap-deflection commands and the solved feathering angle replaces direct
 swashplate pitch in the section AoA. The servo-flap path:
 - Introduces a first-order feathering lag (~90 deg phase at 1/rev)
@@ -1187,11 +1189,12 @@ architecture -- elastic blade twist against spar stiffness -- is not modelled ye
 RAWES omega evolves in time as a state variable (`omega_spin` ODE in `dynamics.py`). The VPM
 `FlightCondition.omega_rad_s` is a fixed parameter per call. For proper coupling the caller
 must update `omega_rad_s` each step from the physics ODE. The `AeroModel::step` interface in
-`dynbem_rs` already supports this (it rebuilds `FlightCondition` from `RotorInputs` each call),
-but VPM's `step()` advances by a fixed number of azimuthal sub-steps derived from the
-**current** omega, so a large omega change mid-simulation will alter the real-time advancement
-rate. This is acceptable provided the VPM step interval is small relative to the spin
-acceleration timescale (which it is: one sub-step = 20 deg at 18 steps/rev, ≈ 4 ms at 270 RPM).
+`dynbem_rs` already supports this (it rebuilds `FlightCondition` from `RotorInputs` each call).
+VPM's `step()` advances the wake by exactly one step of duration `dt` per call (the caller
+supplies `dt` and drives the loop), so `dpsi = omega * dt` tracks the current omega directly.
+A large omega change mid-simulation simply changes the azimuth swept per call; this is
+acceptable provided `dt` is small relative to the spin acceleration timescale (which it is:
+at `dt = 1/400 s` and 270 RPM, `dpsi` = ~4 deg per call).
 
 ### 11.6 State serialization
 
