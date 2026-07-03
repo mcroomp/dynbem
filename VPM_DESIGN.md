@@ -688,56 +688,45 @@ advances the free wake by one azimuth increment (an O(N^2) Biot-Savart probe
 
 | Model | cost / step | vs Oye |
 |---|---:|---:|
-| Oye (annular 2-stage filter) | 0.153 ms | 1x |
-| Pitt-Peters (3-state L-matrix) | 0.165 ms | ~1.1x |
-| Quasi-static BEM | 19.9 ms | ~130x |
-| VPM free-wake, direct seq (run-avg march, N up to ~7,900) | ~0.47 s | ~3.1 x 10^3 |
-| VPM free-wake, direct par (run-avg march, N up to ~7,900) | ~0.15 s | ~1.0 x 10^3 |
-| VPM free-wake, Barnes-Hut theta=0.5 (full-cloud step, N~7,900) | ~0.04 s | ~260x |
+| Oye (annular 2-stage filter) | 0.105 ms | 1x |
+| Pitt-Peters (3-state L-matrix) | 0.107 ms | ~1.0x |
+| Quasi-static BEM | 10.95 ms | ~104x |
+| VPM free-wake, direct seq (steady-state, N~7,300) | 71.0 ms | ~676x |
+| VPM free-wake, Barnes-Hut theta=0.5 (steady-state, N~11,600) | 40.8 ms | ~388x |
 
-BEM-family rows are release-mode single-core (per-call min). The direct VPM
-seq row is a `simulate(fc, dt, n_steps)` at the default resolution
-(max_particles=4800, 20 stations) marching 168 steps single-core:
-79.7 s (min of 3), ~0.47 s/step. The direct par row scales that by the
-~3x Rayon speedup at N≈8,000 (Table 7.0): ~25 s total, ~0.15 s/step. The
-average understates the steady-state step because the wake grows from empty
-to the ~7,900-particle cap over the first ~4 revs.
+BEM-family rows are release-mode measurements of a single `compute_forces()` call
+at a non-axial flight condition (forward 12 m/s + 5 m/s edgewise + descent 2 m/s).
+VPM rows are steady-state single sub-step costs (one azimuthal increment) after the
+wake has settled to capacity. Direct seq is a single-threaded velocity evaluation;
+Barnes-Hut uses the same vectorized kernel but with O(N log N) tree traversal.
+Both benefit from Rayon parallel evaluation (Sections 4.1, 7.1), yielding roughly
+1.5–3.3× speedup depending on core count; these table entries show the
+single-threaded baseline.
 
-The Barnes-Hut row is the expensive end-of-march step at N≈8,000. Each
-velocity eval costs ~19.5 ms (seq, Section 7.1); RK2 = two evals plus
-advection overhead → ~0.04 s. The BH path benefits from Rayon at ~1.6x
-(Section 7.1), giving a par step ~0.025 s. The tree engages only above
-`bh_min_particles` and is off by default, so the direct par row is the
-normal operating figure; a tree-enabled march would stay near ~0.04 s/step
-for full-cloud steps.
-
-Oye and Pitt-Peters are within ~10% of each other; both evaluate a fixed set
+Oye and Pitt-Peters are within ~1% of each other; both evaluate a fixed set
 of algebraic inflow relations per (element, azimuth). The quasi-static BEM is
-~130x slower because each (element, azimuth) station runs an iterative
+~100x slower because each (element, azimuth) station runs an iterative
 root-finder (Brent) on the momentum / blade-element balance, and non-axial
 wind makes it worse, not better: the swept azimuth exposes more sections to
-the turbulent-wake / reversed-flow branches where the solver has to iterate,
-so the per-call cost rises above its axial figure rather than falling. The
-VPM is ~3 orders of magnitude beyond even the BEM per step (and ~5 orders per
-converged operating point): it is not an inflow model but a wake-fidelity
+the turbulent-wake / reversed-flow branches where the solver has to iterate.
+The VPM is ~400–700x beyond BEM per sub-step; per converged operating point
+it is orders of magnitude larger still (see "Per operating point" discussion
+below). The VPM is not an inflow model but a wake-fidelity
 tool that resolves the actual wake geometry, paying the O(N^2) particle cost
 at every one of the ~170 marched steps.
 
 **Per operating point** the gap is larger still: the BEM-family models are
 already converged after one step, while the VPM needs the full ~170-step
 march to reach a periodic wake -- Pitt-Peters ~0.17 ms vs the VPM (direct
-par) at ~25 s, roughly 1.5 x 10^5 x. The direct seq figure (79.7 s,
-~5 x 10^5 x) is the single-core baseline; Rayon parallel is now the default
-and cuts that by ~3x at operating N, with the Barnes-Hut tree (Section 7.1)
-changing the N scaling itself -- ~20x at N=8,000 vs seq direct (seq BH
-19.5 ms vs seq direct 387 ms), widening with N.
+par) at ~25 s, roughly 1.5 x 10^5 x. With the Barnes-Hut tree (Section 7.1)
+changing the N scaling, steady-state steps at N≈7,000–11,000 show ~1.7–2.0x
+speedup over direct (71 ms direct vs 41 ms BH, Figure 7 table above).
 
 Simulation guidance (bench rotor, omega=120, one rev = 52 ms): a
-Tier-A config (~1,200 particles, 24 steps/rev, 3 revs) costs ~2–3 ms/step
-with Rayon parallel (3.3x under the single-core ~7 ms), comfortably
-faster than real time on 4+ cores. A Tier-B config (~4,300 particles,
-36 steps/rev, 4 revs) is ~35–40 ms/step with parallel, a near-real-time
-offline setting.
+Tier-A config (~1,200 particles, 24 steps/rev, 3 revs) costs ~5–10 ms/step
+with Rayon parallel on 4 cores, acceptable for offline steady-point analysis.
+A Tier-B config (~4,300 particles, 36 steps/rev, 4 revs) is ~40–50 ms/step
+with parallel, suitable for detailed transient studies on high-core systems.
 
 ### 7.1 Barnes-Hut tree evaluator (O(N log N))
 
