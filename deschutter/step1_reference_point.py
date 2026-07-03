@@ -41,7 +41,6 @@ def run_reference_point() -> dict[str, float]:
         R_hub=np.eye(3),
         v_hub_world=np.zeros(3),
         wind_world=np.array([0.0, 0.0, -u_wind]),
-        t=0.0,
         rho_kg_m3=RHO,
         omega_rad_s=omega,
     )

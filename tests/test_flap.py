@@ -63,8 +63,7 @@ def make_inputs(omega=25.0, collective=0.1, tilt_lon=0.0, tilt_lat=0.0, v_wind=0
         omega_rad_s=omega, collective_rad=collective,
         tilt_lon=tilt_lon, tilt_lat=tilt_lat, rho_kg_m3=1.225,
         v_hub_world=np.zeros(3), wind_world=np.array([v_wind, 0.0, 0.0]),
-        R_hub=np.eye(3), t=0.0,
-    )
+        R_hub=np.eye(3),)
 
 
 def thrust_N(result):
@@ -192,8 +191,8 @@ def test_phase_lag_lateral_command():
     assert math.isfinite(thrust_N(res_feat))
     assert math.isfinite(thrust_N(res_rigid))
 
-    my_feat = float(res_feat.M_orbital[1])
-    my_rigid = float(res_rigid.M_orbital[1])
+    my_feat = float(res_feat.m_hub_world[1])
+    my_rigid = float(res_rigid.m_hub_world[1])
     assert my_feat != pytest.approx(my_rigid, abs=1e-6)
 
 
@@ -210,8 +209,8 @@ def test_servo_mode_disables_direct_cyclic_pitch_path():
     res0, _ = model.compute_forces(make_inputs(tilt_lat=0.0, v_wind=3.0), state)
     res1, _ = model.compute_forces(make_inputs(tilt_lat=0.1, v_wind=3.0), state)
 
-    mx0 = float(res0.M_orbital[0])
-    mx1 = float(res1.M_orbital[0])
+    mx0 = float(res0.m_hub_world[0])
+    mx1 = float(res1.m_hub_world[0])
     assert mx1 == pytest.approx(mx0, abs=1e-6), (
         f"cyclic effect should be near zero when flap moment gain is zero: {mx0:.6f} vs {mx1:.6f}"
     )

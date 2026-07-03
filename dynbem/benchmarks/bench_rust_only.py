@@ -48,7 +48,6 @@ def _inputs(op, omega=125.0):
         R_hub=R_HUB, v_hub_world=np.array(vhub, dtype=float),
         wind_world=np.array(wind, dtype=float),
         omega_rad_s=omega,
-        t=0.0,
         rho_kg_m3=1.225,
     )
 

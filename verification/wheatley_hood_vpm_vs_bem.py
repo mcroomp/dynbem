@@ -104,7 +104,6 @@ def _inputs(pitch_deg: float, mu: float, alpha_deg: float,
         wind_world=np.array([V, 0.0, 0.0]),
         rho_kg_m3=RHO,
         omega_rad_s=omega,
-        t=0.0,
     )
 
 

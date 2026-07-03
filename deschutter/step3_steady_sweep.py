@@ -47,7 +47,6 @@ def run_point(model, u_wind_ms: float, omega_rpm: float, collective_deg: float) 
         R_hub=np.eye(3),
         v_hub_world=np.zeros(3),
         wind_world=np.array([0.0, 0.0, -u_wind_ms]),
-        t=0.0,
         rho_kg_m3=RHO,
         omega_rad_s=omega,
     )

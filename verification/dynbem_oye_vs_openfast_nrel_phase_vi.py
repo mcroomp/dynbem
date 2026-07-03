@@ -113,7 +113,6 @@ def main() -> int:
             R_hub=np.eye(3),
             v_hub_world=np.zeros(3),
             wind_world=np.array([0.0, 0.0, -U_wind]),
-            t=0.0,
             rho_kg_m3=1.225,
             omega_rad_s=omega,
         )

@@ -62,7 +62,6 @@ def _euler_to_steady(model, theta_deg: float, rpm: float, v_climb_ms: float,
         tilt_lon=0.0, tilt_lat=0.0, R_hub=np.eye(3),
         v_hub_world=np.zeros(3),
         wind_world=np.array([0.0, 0.0, v_climb_ms]),
-        t=0.0,
         rho_kg_m3=_RHO,
         omega_rad_s=omega,
     )
@@ -87,7 +86,6 @@ def _bem_ct(model: BEMModel, theta_deg: float, rpm: float, v_climb_ms: float) ->
         tilt_lon=0.0, tilt_lat=0.0, R_hub=np.eye(3),
         v_hub_world=np.zeros(3),
         wind_world=np.array([0.0, 0.0, v_climb_ms]),
-        t=0.0,
         rho_kg_m3=_RHO,
         omega_rad_s=omega,
     )
@@ -218,7 +216,7 @@ class TestPittPetersWBS:
         inp_hover = RotorInputs(
             collective_rad=math.radians(theta_deg),
             tilt_lon=0.0, tilt_lat=0.0, R_hub=np.eye(3),
-            v_hub_world=np.zeros(3), wind_world=np.zeros(3), t=0.0,
+            v_hub_world=np.zeros(3), wind_world=np.zeros(3),
             rho_kg_m3=_RHO,
             omega_rad_s=omega,
         )
@@ -239,7 +237,7 @@ class TestPittPetersWBS:
         inp_step = RotorInputs(
             collective_rad=math.radians(theta_deg + 2.0),
             tilt_lon=0.0, tilt_lat=0.0, R_hub=np.eye(3),
-            v_hub_world=np.zeros(3), wind_world=np.zeros(3), t=0.0,
+            v_hub_world=np.zeros(3), wind_world=np.zeros(3),
             rho_kg_m3=_RHO,
             omega_rad_s=omega,
         )
@@ -297,7 +295,6 @@ class TestPittPetersObliqueFlow:
             R_hub=np.eye(3),
             v_hub_world=v_hub_xyz,
             wind_world=np.zeros(3),
-            t=0.0,
             rho_kg_m3=_RHO,
             omega_rad_s=omega,
         )

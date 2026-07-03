@@ -82,7 +82,6 @@ def _make_inputs(*,
         R_hub=R_hub,
         v_hub_world=np.asarray(v_hub_world, dtype=float),
         wind_world=np.asarray(wind_world, dtype=float),
-        t=0.0,
         rho_kg_m3=1.225,
         omega_rad_s=omega_rad_s,
     )
@@ -529,6 +528,6 @@ class TestSwashplateMapping:
 
         # And the magnitudes of pitch-moment-at-φ=0 and roll-moment-at-φ=90°
         # should match (it's the same physical asymmetry, rotated).
-        assert abs(res90.M_orbital[0]) == pytest.approx(
-            abs(res0.M_orbital[1]), rel=0.1
+        assert abs(res90.m_hub_world[0]) == pytest.approx(
+            abs(res0.m_hub_world[1]), rel=0.1
         )

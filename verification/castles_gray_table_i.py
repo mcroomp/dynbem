@@ -94,7 +94,6 @@ def bem_forces(model: BEMModel, theta_deg: float, omega_rpm: float,
         tilt_lon=0.0, tilt_lat=0.0, R_hub=np.eye(3),
         v_hub_world=np.zeros(3),
         wind_world=np.array([0.0, 0.0, v_climb_ms]),
-        t=0.0,
         rho_kg_m3=RHO,
         omega_rad_s=omega,
     )

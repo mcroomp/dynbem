@@ -142,7 +142,6 @@ def hover_inputs(
         v_hub_world=np.zeros(3),
         wind_world=np.zeros(3),
         omega_rad_s=omega_rad_s,
-        t=t,
         rho_kg_m3=rho_kg_m3,
     )
 

@@ -47,7 +47,6 @@ def _make_inputs(tilt_lon: float, tilt_lat: float) -> RotorInputs:
         R_hub=np.eye(3),
         v_hub_world=np.zeros(3),
         wind_world=np.zeros(3),
-        t=0.0,
         rho_kg_m3=1.225,
         omega_rad_s=_OMEGA,
     )
@@ -219,7 +218,7 @@ def test_hover_no_cyclic_keeps_lambda_cs_zero(pp_model):
 def test_cyclic_inflow_reduces_hub_moment(pp_model):
     """Steady-state inflow should partially cancel the cyclic-driven moment.
 
-    Compare M_orbital before/after letting Pitt-Peters reach steady state with
+    Compare m_hub_world before/after letting Pitt-Peters reach steady state with
     a cyclic input held constant: the converged inflow tilt reduces local AoA
     where pitch is increased, so the *integrated* moment is smaller than the
     transient (pre-inflow) value.
@@ -229,9 +228,9 @@ def test_cyclic_inflow_reduces_hub_moment(pp_model):
     res_initial, _ = pp_model.compute_forces(inputs, state0)
     state_ss, res_ss = _euler_integrate_pp(pp_model, inputs)
     # M_y should be reduced in magnitude (inflow opposing the asymmetry).
-    assert 0 < abs(res_ss.M_orbital[1]) < abs(res_initial.M_orbital[1])
+    assert 0 < abs(res_ss.m_hub_world[1]) < abs(res_initial.m_hub_world[1])
     # Sign preserved — still nose-down.
-    assert res_ss.M_orbital[1] < 0
+    assert res_ss.m_hub_world[1] < 0
 
 
 def test_forward_flight_glauert_emerges_from_momentum_balance(pp_model):
@@ -245,7 +244,6 @@ def test_forward_flight_glauert_emerges_from_momentum_balance(pp_model):
         R_hub=np.eye(3),
         v_hub_world=np.array([10.0, 0.0, 0.0]),  # 10 m/s in +X
         wind_world=np.zeros(3),
-        t=0.0,
         rho_kg_m3=1.225,
         omega_rad_s=_OMEGA,
     )

@@ -39,7 +39,6 @@ def _inputs() -> RotorInputs:
         wind_world=np.array([0.0, 10.0, 0.0]),
         rho_kg_m3=1.225,
         omega_rad_s=_OMEGA,
-        t=0.0,
     )
 
 

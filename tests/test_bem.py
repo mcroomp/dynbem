@@ -72,7 +72,6 @@ def _hover_inputs(collective_deg: float, omega_rpm: float) -> RotorInputs:
         R_hub=np.eye(3),          # hub frame == world NED
         v_hub_world=np.zeros(3),
         wind_world=np.zeros(3),   # no wind: pure momentum-driven induction
-        t=0.0,
         rho_kg_m3=1.225,
         omega_rad_s=omega_rad_s,
     ), QuasiStaticRotorState()
@@ -147,7 +146,6 @@ class TestBEMPhysics:
             R_hub=np.eye(3),
             v_hub_world=np.zeros(3),
             wind_world=np.zeros(3),
-            t=0.0,
             rho_kg_m3=1.225,
             omega_rad_s=0.0,
         )
@@ -163,7 +161,6 @@ class TestBEMPhysics:
             R_hub=np.eye(3),
             v_hub_world=np.zeros(3),
             wind_world=np.array([0.0, 0.0, -15.0]),  # 15 m/s upward (-Z NED)
-            t=0.0,
             rho_kg_m3=1.225,
             omega_rad_s=50.0,
         )

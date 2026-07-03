@@ -46,8 +46,7 @@ def make_inputs(omega=25.0, collective=0.1, tilt_lat=0.0, v_wind=5.0):
         omega_rad_s=omega, collective_rad=collective,
         tilt_lon=0.0, tilt_lat=tilt_lat, rho_kg_m3=1.225,
         v_hub_world=np.zeros(3), wind_world=np.array([v_wind, 0.0, 0.0]),
-        R_hub=np.eye(3), t=0.0,
-    )
+        R_hub=np.eye(3),)
 
 
 def thrust_N(result):
@@ -152,8 +151,8 @@ def test_free_hinge_zero_moment():
     inputs = make_inputs(tilt_lat=0.1)
 
     res, _ = model.compute_forces(inputs, model.initial_rotor_state())
-    mx = abs(float(res.M_orbital[0]))
-    my = abs(float(res.M_orbital[1]))
+    mx = abs(float(res.m_hub_world[0]))
+    my = abs(float(res.m_hub_world[1]))
 
     assert mx < 1e-12
     assert my < 1e-12
@@ -177,8 +176,8 @@ def test_stiff_blade_unchanged():
     res_rigid, _ = model_rigid.compute_forces(inputs, model_rigid.initial_rotor_state())
     res_flap, _ = model_flap.compute_forces(inputs, model_flap.initial_rotor_state())
 
-    mx_rigid = float(res_rigid.M_orbital[0])
-    mx_flap = float(res_flap.M_orbital[0])
+    mx_rigid = float(res_rigid.m_hub_world[0])
+    mx_flap = float(res_flap.m_hub_world[0])
 
     assert mx_flap == pytest.approx(mx_rigid, rel=1e-4)
 
@@ -265,8 +264,8 @@ def test_moment_reduction_matches_factor():
     res_rigid, _ = model_rigid.compute_forces(inputs, model_rigid.initial_rotor_state())
     res_flap, _ = model_flap.compute_forces(inputs, model_flap.initial_rotor_state())
 
-    mx_rigid = float(res_rigid.M_orbital[0])
-    mx_flap = float(res_flap.M_orbital[0])
+    mx_rigid = float(res_rigid.m_hub_world[0])
+    mx_flap = float(res_flap.m_hub_world[0])
 
     if abs(mx_rigid) > 1e-10:
         actual_ratio = mx_flap / mx_rigid

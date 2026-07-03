@@ -322,7 +322,7 @@ def simulate_attitude(
         vel = v_along * t_hat
         inputs_settle = RotorInputs(
             collective_rad=col_now, tilt_lon=tlon, tilt_lat=tlat,
-            R_hub=R_hub_eq, v_hub_world=vel, wind_world=wind, t=0.0,
+            R_hub=R_hub_eq, v_hub_world=vel, wind_world=wind,
             rho_kg_m3=1.225,
             omega_rad_s=omega_init,
         )
@@ -360,8 +360,7 @@ def simulate_attitude(
         RotorInputs(
             collective_rad=col_now, tilt_lon=0.0, tilt_lat=0.0,
             R_hub=R_hub_eq, v_hub_world=vel_eq, wind_world=wind,
-            rho_kg_m3=1.225, omega_rad_s=omega_init, t=0.0,
-        ),
+            rho_kg_m3=1.225, omega_rad_s=omega_init,),
         tilt_min=tilt_min, tilt_max=tilt_max,
         tolerance_Nm=trim_tolerance_Nm,
         dt_relax=dt, n_inflow_relax=100,

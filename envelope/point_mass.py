@@ -212,7 +212,6 @@ def simulate_point(
             R_hub=R_hub,
             v_hub_world=vel,
             wind_world=wind_world,
-            t=i * dt,
             omega_rad_s=omega,
             rho_kg_m3=1.225,
         )
@@ -385,7 +384,6 @@ def ramp_column_worker(args: dict) -> dict:
             R_hub=R_hub,
             v_hub_world=vel,
             wind_world=wind_world,
-            t=sim_t,
             omega_rad_s=omega,
             rho_kg_m3=1.225,
         )

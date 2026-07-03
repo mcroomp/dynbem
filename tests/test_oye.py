@@ -151,7 +151,7 @@ class TestOyeHover:
         inp = RotorInputs(
             collective_rad=math.radians(theta_deg),
             tilt_lon=0.0, tilt_lat=0.0, R_hub=np.eye(3),
-            v_hub_world=np.zeros(3), wind_world=np.zeros(3), t=0.0,
+            v_hub_world=np.zeros(3), wind_world=np.zeros(3),
             rho_kg_m3=_RHO,
             omega_rad_s=omega,
         )
@@ -188,7 +188,7 @@ class TestOyeInflowSigns:
         inp = RotorInputs(
             collective_rad=math.radians(8.86),
             tilt_lon=0.0, tilt_lat=0.0, R_hub=np.eye(3),
-            v_hub_world=np.zeros(3), wind_world=np.zeros(3), t=0.0,
+            v_hub_world=np.zeros(3), wind_world=np.zeros(3),
             rho_kg_m3=_RHO,
             omega_rad_s=omega,
         )
@@ -205,7 +205,7 @@ class TestOyeInflowSigns:
         inp_hover = RotorInputs(
             collective_rad=math.radians(8.86),
             tilt_lon=0.0, tilt_lat=0.0, R_hub=np.eye(3),
-            v_hub_world=np.zeros(3), wind_world=np.zeros(3), t=0.0,
+            v_hub_world=np.zeros(3), wind_world=np.zeros(3),
             rho_kg_m3=_RHO,
             omega_rad_s=omega,
         )
@@ -214,7 +214,6 @@ class TestOyeInflowSigns:
             tilt_lon=0.0, tilt_lat=0.0, R_hub=np.eye(3),
             v_hub_world=np.zeros(3),
             wind_world=np.array([0.0, 0.0, 5.0]),     # +Z = downward freestream
-            t=0.0,
             rho_kg_m3=_RHO,
             omega_rad_s=omega,
         )
@@ -246,7 +245,7 @@ class TestOyeLag:
         inp1 = RotorInputs(
             collective_rad=math.radians(8.86),
             tilt_lon=0.0, tilt_lat=0.0, R_hub=np.eye(3),
-            v_hub_world=np.zeros(3), wind_world=np.zeros(3), t=0.0,
+            v_hub_world=np.zeros(3), wind_world=np.zeros(3),
             rho_kg_m3=_RHO,
             omega_rad_s=omega,
         )
@@ -260,7 +259,7 @@ class TestOyeLag:
         inp2 = RotorInputs(
             collective_rad=math.radians(10.86),
             tilt_lon=0.0, tilt_lat=0.0, R_hub=np.eye(3),
-            v_hub_world=np.zeros(3), wind_world=np.zeros(3), t=0.0,
+            v_hub_world=np.zeros(3), wind_world=np.zeros(3),
             rho_kg_m3=_RHO,
             omega_rad_s=omega,
         )
@@ -317,7 +316,7 @@ class TestOyeEnvelopeStability:
             inp = RotorInputs(
                 collective_rad=col, tilt_lon=0.0, tilt_lat=0.0,
                 R_hub=R_hub, v_hub_world=v_along * t_hat,
-                wind_world=wind, t=step * dt,
+                wind_world=wind,
                 rho_kg_m3=_RHO,
                 omega_rad_s=omega,
             )

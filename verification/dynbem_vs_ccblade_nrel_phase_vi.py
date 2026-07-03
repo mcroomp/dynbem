@@ -148,7 +148,6 @@ def dynbem_at_point(model: BEMModel, U_wind_ms: float, Omega_rpm: float,
         R_hub=np.eye(3),
         v_hub_world=np.zeros(3),
         wind_world=np.array([0.0, 0.0, -U_wind_ms]),
-        t=0.0,
         rho_kg_m3=rho,
         omega_rad_s=omega,
     )

@@ -95,7 +95,6 @@ def dynbem_hover_thrust(model: BEMModel, pitch_deg: float,
         R_hub=np.eye(3),
         v_hub_world=np.zeros(3),
         wind_world=np.zeros(3),  # hover: no axial wind
-        t=0.0,
         rho_kg_m3=rho,
         omega_rad_s=omega,
     )

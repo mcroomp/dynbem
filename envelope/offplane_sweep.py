@@ -242,7 +242,6 @@ def sweep_offplane(
             R_hub=R_hub,
             v_hub_world=np.zeros(3),  # station-keeping; moments from wind + spin
             wind_world=wind_world,
-            t=0.0,
             omega_rad_s=omega_rad_s,
             rho_kg_m3=rho_kg_m3,
         )
