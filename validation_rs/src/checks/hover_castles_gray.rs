@@ -4,7 +4,7 @@ use crate::report::Report;
 pub fn check_hover_castles_gray(r: &mut Report) {
     r.begin_module(
         "hover_castles_gray",
-        "Hover vs measured Castles-Gray NACA TN-2474 Table V",
+        "Hover thrust, power (CQ) and Figure of Merit vs measured Castles-Gray NACA TN-2474 Table V",
     );
     struct M {
         theta: f64,
@@ -38,7 +38,12 @@ pub fn check_hover_castles_gray(r: &mut Report) {
         let fm_meas = m.ct.powf(1.5) / (2f64.sqrt() * m.cq);
         let case = format!("theta={:.2} rpm={:.0}", m.theta, m.rpm);
         r.check(&case, "CT", ct, m.ct, 25.0);
-        r.info(&case, "CQ", cq, m.cq);
-        r.info(&case, "FM", fm, fm_meas);
+        // Hover power (CQ) and Figure of Merit -- the power side of the hover
+        // validation. The VPM under-predicts CQ by ~20% (coarse resolution +
+        // linear polar, no drag rise near stall), so CQ has generous headroom;
+        // FM = CT^1.5 / (sqrt(2) CQ) is tighter because the CT and CQ biases
+        // partly cancel.
+        r.check(&case, "CQ", cq, m.cq, 30.0);
+        r.check(&case, "FM", fm, fm_meas, 15.0);
     }
 }

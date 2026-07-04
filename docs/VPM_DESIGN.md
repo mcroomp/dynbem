@@ -764,7 +764,7 @@ amount). Lateral flapping `b1` is currently under-predicted -- see the TODO.
 
 | Validation (`validation_rs`) | Dataset | What it checks | Result |
 |---|---|---|---|
-| `hover_castles_gray` | Castles-Gray NACA TN-2474 Table V | Hover thrust vs measured | within ~8-13% |
+| `hover_castles_gray` | Castles-Gray NACA TN-2474 Table V | Hover thrust, power (CQ) and Figure of Merit vs measured | CT ~8-13%; CQ <~21%; FM <~11% |
 | `measured_companions` | CG 1600 rpm, CG descent, Wheatley TR-515 | Each theory module anchored to a measured point | PASS |
 | `vpm_forward_flight_empirical` | Wheatley & Hood NACA TR-515 Tables III/IV | Forward-flight autorotation lift sweep | <= ~8% to mu = 0.32 |
 

@@ -495,6 +495,18 @@ This rule has bitten before — see [memory feedback-no-silent-reverts].
   exactly one place and prevents the spot tests and the survey from
   drifting apart.
 
+- **Keep the VPM design doc's validation section in sync with
+  `validation_rs`.** Whenever you make a major change to the VPM
+  validation suite -- add or remove a check, change what a check
+  asserts, or move a check between theoretical and empirical -- update
+  the validation tables in
+  [docs/VPM_DESIGN.md](docs/VPM_DESIGN.md) Section 8 in the same
+  commit. Each table row must map to a real `validation_rs` check
+  (module name, reference/dataset, what it checks, and the pass
+  result). The `## 8.3 TODO` list is the place to record
+  known-missing validations; move an item out of the TODO when the
+  corresponding check lands.
+
 ## When extending the aero models
 
 New aero models live in the Rust core (`dynbem_rs/`) and are exposed
