@@ -700,17 +700,37 @@ advances the free wake by one azimuth increment (an O(N^2) Biot-Savart probe
 | Oye (annular 2-stage filter) | 0.105 ms | 1x |
 | Pitt-Peters (3-state L-matrix) | 0.107 ms | ~1.0x |
 | Quasi-static BEM | 10.95 ms | ~104x |
-| VPM free-wake, direct seq (steady-state, N~7,300) | 71.0 ms | ~676x |
-| VPM free-wake, Barnes-Hut theta=0.5 (steady-state, N~11,600) | 40.8 ms | ~388x |
+| VPM direct O(N^2), parallel (N=5,000) | ~58 ms | ~550x |
+| VPM Barnes-Hut theta=0.5, parallel (N=5,000) | ~54 ms | ~515x |
 
 BEM-family rows are release-mode measurements of a single `compute_forces()` call
 at a non-axial flight condition (forward 12 m/s + 5 m/s edgewise + descent 2 m/s).
-VPM rows are steady-state single-step costs (one azimuthal increment) after the
-wake has settled to capacity. Direct seq is a single-threaded velocity evaluation;
-Barnes-Hut uses the same vectorized kernel but with O(N log N) tree traversal.
-Both benefit from Rayon parallel evaluation (Sections 4.1, 7.1), yielding roughly
-1.5–3.3× speedup depending on core count; these table entries show the
-single-threaded baseline.
+The VPM rows are steady-state single-step costs (one azimuthal increment) with the
+wake settled to a fixed N. Both evaluators use the same eight-wide kernel; the
+tree adds O(N log N) traversal. The per-step costs are machine- and load-dependent
+(the ratios matter more than the absolute ms).
+
+**Matched-N direct vs Barnes-Hut, sequential vs Rayon-parallel.** The
+`rotor_profile` binary settles the wake to the particle cap once, then times
+each variant from that *same* settled state -- so every row below is measured on
+an identical wake at an identical N and is directly comparable. ms/step (release,
+`rotor_profile vpm-direct,vpm-bh`):
+
+| N | direct seq | direct par | BH seq | BH par |
+|---|---:|---:|---:|---:|
+| 2,000 | 22 | 11 | 25 | 12 |
+| 5,000 | 134 | 58 | 100 | 54 |
+| 8,000 | 336 | 123 | 118 | 53 |
+
+Two effects are visible: **(1) Rayon parallelism** (the `-par` vs `-seq` columns)
+gives ~2x at N=2,000 rising to ~2.7x by N=8,000 for the direct sum -- the
+per-target work grows with N so there is more to spread across cores; the tree's
+scalar traversal parallelises a little less (~2x). At very small N (a few hundred)
+the thread-pool overhead erases the gain, so sequential can win. **(2) The
+Barnes-Hut O(N log N) tree overtakes the direct O(N^2) sum** as N grows: at
+N=2,000 the direct sum still wins (tree build/traversal not yet amortised), by
+N=5,000 they are comparable, and by N=8,000 BH is ~2.3x faster. The crossover
+shifts with core count and the opening angle theta.
 
 Oye and Pitt-Peters are within ~1% of each other; both evaluate a fixed set
 of algebraic inflow relations per (element, azimuth). The quasi-static BEM is
@@ -718,7 +738,7 @@ of algebraic inflow relations per (element, azimuth). The quasi-static BEM is
 root-finder (Brent) on the momentum / blade-element balance, and non-axial
 wind makes it worse, not better: the swept azimuth exposes more sections to
 the turbulent-wake / reversed-flow branches where the solver has to iterate.
-The VPM is ~400–700x beyond BEM per step; per converged operating point
+The VPM is ~500x beyond BEM per step; per converged operating point
 it is orders of magnitude larger still (see "Per operating point" discussion
 below). The VPM is not an inflow model but a wake-fidelity
 tool that resolves the actual wake geometry, paying the O(N^2) particle cost
@@ -727,9 +747,9 @@ at every one of the ~170 marched steps.
 **Per operating point** the gap is larger still: the BEM-family models are
 already converged after one step, while the VPM needs the full ~170-step
 march to reach a periodic wake -- Pitt-Peters ~0.17 ms vs the VPM (direct
-par) at ~25 s, roughly 1.5 x 10^5 x. With the Barnes-Hut tree (Section 7.1)
-changing the N scaling, steady-state steps at N≈7,000–11,000 show ~1.7–2.0x
-speedup over direct (71 ms direct vs 41 ms BH, Figure 7 table above).
+par) at tens of seconds, roughly 10^5 x. With the Barnes-Hut tree (Section 7.1)
+changing the N scaling, the steady-state per-step cost at large N drops
+~2-2.3x versus the direct sum (see the matched-N table above).
 
 Simulation guidance (bench rotor, omega=120, one rev = 52 ms): a
 Tier-A config (~1,200 particles, 24 steps/rev, 3 revs) costs ~5–10 ms/step

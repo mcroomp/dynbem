@@ -20,7 +20,9 @@
 //!   --max-particles <N>     Cap VPM max_particles per config (default: 20000)
 //!   --duration <secs>       Wall-clock target per model/count (default: 10.0 s)
 //!   --output <fmt>          csv, md, or text (default: text)
-//!   --seq                   Force single-threaded evaluation (no Rayon)
+//!   --seq                   Time only the sequential path (default: time both
+//!                           Rayon-parallel `-par` and sequential `-seq`, so the
+//!                           multi-core speedup shows up as paired VPM rows)
 //!   --help                  Show this message
 //!
 //! Example:
@@ -41,7 +43,7 @@ use dynbem_rs::rotor_definition::{
     BladeGeometry, ControlProperties, LinearPolarParameters, PitchActuation,
     RotorDefinition,
 };
-use dynbem_rs::vpm_rotor::{FlightCondition, VpmRotor, VpmRotorConfig};
+use dynbem_rs::vpm_rotor::{FlightCondition, VpmRotor, VpmRotorConfig, VpmRotorState};
 use std::env;
 use std::f64::consts::PI;
 use std::time::{Duration, Instant};
@@ -155,12 +157,11 @@ impl ModelKind {
 
 // -----
 
-fn profile_vpm(
-    max_particles: usize,
-    barnes_hut: bool,
-    _force_seq: bool,
-    duration: Duration,
-) -> ProfileResult {
+/// Build a VPM rotor at the given particle cap. `barnes_hut` selects the
+/// evaluator and `use_rayon` selects the parallel (multi-core) vs sequential
+/// velocity evaluation; every other parameter is identical, so all runs are a
+/// like-for-like comparison.
+fn build_vpm_rotor(max_particles: usize, barnes_hut: bool, use_rayon: bool) -> VpmRotor<LinearPolar> {
     let defn = test_rotor_definition();
     let polar = LinearPolar::from_properties(&defn.airfoil);
     let config = VpmRotorConfig {
@@ -174,53 +175,132 @@ fn profile_vpm(
         bh_theta: 0.5,
         bh_min_particles: 200,
         flap_dynamics: false,
-        use_rayon: true,
+        use_rayon,
         use_scalar_nan_check: false,
     };
-    let rotor = VpmRotor::new(&defn, polar, ControlGains::default(), config);
-    let fc = test_flight_condition();
+    VpmRotor::new(&defn, polar, ControlGains::default(), config)
+}
 
-    // One full revolution; with 18 steps/rev we get 18 substeps.
-    let omega = fc.omega_rad_s;
-    let dpsi_per_step = 2.0 * PI / 18.0;
-    let dt = dpsi_per_step / omega;
+/// Convection step size: one full revolution in 18 steps.
+fn vpm_dt(fc: &FlightCondition) -> f64 {
+    (2.0 * PI / 18.0) / fc.omega_rad_s
+}
 
-    let model_label = if barnes_hut {
-        "vpm-bh".to_string()
-    } else {
-        "vpm-direct".to_string()
-    };
+/// Settle a wake up to the `max_particles` cap so timing runs at a fixed N.
+/// Marches until the wake reaches the cap or stops growing (whichever first),
+/// then returns the steady FIFO state. Using the direct (exact) evaluator here
+/// means the settled wake is identical regardless of which evaluator is timed.
+fn settle_vpm_to_cap(
+    rotor: &VpmRotor<LinearPolar>,
+    fc: &FlightCondition,
+    dt: f64,
+    max_particles: usize,
+) -> VpmRotorState {
+    let wake_len = |s: &VpmRotorState| s.wake.as_ref().map(|w| w.len()).unwrap_or(0);
+    let (_, mut state) = rotor.march(fc, None, dt, 4);
+    let mut last_len = wake_len(&state);
+    let mut stall = 0u32;
+    // Hard cap on settle steps so an unreachable target can't loop forever.
+    for _ in 0..5000 {
+        if wake_len(&state) >= max_particles {
+            break;
+        }
+        let (_, s) = rotor.step_one(fc, &state, dt);
+        state = s;
+        let len = wake_len(&state);
+        if len == last_len {
+            stall += 1;
+            if stall > 20 {
+                break; // wake has plateaued below the cap
+            }
+        } else {
+            stall = 0;
+        }
+        last_len = len;
+    }
+    state
+}
 
+/// Time one VPM evaluator starting from a pre-settled wake `state` (held at the
+/// cap, so N is constant through the run). Returns the per-step cost.
+fn time_vpm_from(
+    rotor: &VpmRotor<LinearPolar>,
+    fc: &FlightCondition,
+    dt: f64,
+    mut state: VpmRotorState,
+    duration: Duration,
+    model_label: &str,
+) -> ProfileResult {
     eprintln!("Profiling {}...", model_label);
-
-    // Warm up
-    let (_, mut state) = rotor.march(&fc, None, dt, 18);
     let mut checksum = 0.0;
-
-    // Measure
     let start = Instant::now();
     let mut iters = 0u64;
     while start.elapsed() < duration {
-        let (_, new_state) = rotor.step_one(&fc, &state, dt);
+        let (_, new_state) = rotor.step_one(fc, &state, dt);
         state = new_state;
         checksum += state.psi;
         iters += 1;
     }
     let elapsed = start.elapsed().as_secs_f64();
     let ms_per_step = 1e3 * elapsed / iters as f64;
+    let particle_count = state.wake.as_ref().map(|w| w.len()).unwrap_or(0);
 
     eprintln!(
-        "{}: {} steps in {:.2}s = {:.2} ms/step (checksum {:.6})",
-        model_label, iters, elapsed, ms_per_step, checksum
+        "{}: {} steps in {:.2}s = {:.2} ms/step (N={}, checksum {:.6})",
+        model_label, iters, elapsed, ms_per_step, particle_count, checksum
     );
 
     ProfileResult {
-        model: model_label,
-        particle_count: state.wake.as_ref().map(|w| w.len()).unwrap_or(0),
+        model: model_label.to_string(),
+        particle_count,
         iterations: iters,
         elapsed_s: elapsed,
         ms_per_step,
     }
+}
+
+/// Profile the requested VPM evaluators at one particle cap. The wake is
+/// settled ONCE (with the exact direct evaluator) to the cap, then each
+/// requested evaluator is timed from that same state -- so all rows are
+/// measured on an identical wake at an identical N. Unless `seq_only`, every
+/// evaluator is timed both sequential (`-seq`) and Rayon-parallel (`-par`) so
+/// the multi-core speedup is visible directly in the table.
+fn profile_vpm_at(
+    max_particles: usize,
+    want_direct: bool,
+    want_bh: bool,
+    seq_only: bool,
+    duration: Duration,
+) -> Vec<ProfileResult> {
+    let fc = test_flight_condition();
+    let dt = vpm_dt(&fc);
+
+    // Settle with the fast parallel direct evaluator; the wake is identical
+    // regardless of how the subsequent timing runs are evaluated.
+    let settler = build_vpm_rotor(max_particles, false, true);
+    let settled = settle_vpm_to_cap(&settler, &fc, dt, max_particles);
+
+    // (barnes_hut, want) pairs to time.
+    let evaluators = [(false, want_direct, "vpm-direct"), (true, want_bh, "vpm-bh")];
+    // (use_rayon, suffix) modes -- parallel first, then sequential (unless seq_only).
+    let modes: &[(bool, &str)] = if seq_only {
+        &[(false, "-seq")]
+    } else {
+        &[(true, "-par"), (false, "-seq")]
+    };
+
+    let mut out = Vec::new();
+    for &(barnes_hut, want, base) in &evaluators {
+        if !want {
+            continue;
+        }
+        for &(use_rayon, suffix) in modes {
+            let rotor = build_vpm_rotor(max_particles, barnes_hut, use_rayon);
+            let label = format!("{base}{suffix}");
+            out.push(time_vpm_from(&rotor, &fc, dt, settled.clone(), duration, &label));
+        }
+    }
+    out
 }
 
 fn profile_pitt_peters(_force_seq: bool, duration: Duration) -> ProfileResult {
@@ -414,7 +494,7 @@ OPTIONS:
   --max-particles <N>    Cap VPM max_particles (default: 20000)
   --duration <secs>      Wall-clock time per test (default: 10.0 s)
   --output <fmt>         csv, md, or text (default: text)
-  --seq                  Force single-threaded evaluation
+  --seq                  Time only the sequential path (default: both -par and -seq)
   --help, -h             Show this message
 
 EXAMPLES:
@@ -508,20 +588,21 @@ fn main() {
 
     let mut results = vec![];
 
+    // VPM: settle each wake once (to the cap) and time the requested evaluators
+    // on that same state, so vpm-direct and vpm-bh compare at an identical N.
+    let want_direct = models.iter().any(|m| matches!(m, ModelKind::VpmDirect));
+    let want_bh = models.iter().any(|m| matches!(m, ModelKind::VpmBh));
+    if want_direct || want_bh {
+        for &n in &particle_counts {
+            let mut rows = profile_vpm_at(n.min(max_particles), want_direct, want_bh, force_seq, duration);
+            results.append(&mut rows);
+        }
+    }
+
     for model in models {
         match model {
-            ModelKind::VpmDirect => {
-                for &n in &particle_counts {
-                    let r = profile_vpm(n.min(max_particles), false, force_seq, duration);
-                    results.push(r);
-                }
-            }
-            ModelKind::VpmBh => {
-                for &n in &particle_counts {
-                    let r = profile_vpm(n.min(max_particles), true, force_seq, duration);
-                    results.push(r);
-                }
-            }
+            // VPM handled above (paired settle/compare).
+            ModelKind::VpmDirect | ModelKind::VpmBh => {}
             ModelKind::PittPeters => {
                 let r = profile_pitt_peters(force_seq, duration);
                 results.push(r);
