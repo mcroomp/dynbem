@@ -341,6 +341,7 @@ pub fn induced_velocities_seq(field: &ParticleField) -> Vec<[f32; 3]> {
 /// Same formulation, evaluated pair-by-pair with double-precision
 /// accumulation. This is the readable specification and the ground truth the
 /// SIMD path is validated against; it is not the production hot path.
+#[allow(dead_code)] // reference/spec impl; used by the SIMD-vs-scalar tests
 pub fn induced_velocities_ref(field: &ParticleField) -> Vec<[f64; 3]> {
     let n = field.len();
     let mut out = vec![[0.0f64; 3]; n];

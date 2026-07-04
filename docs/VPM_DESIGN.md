@@ -714,23 +714,29 @@ tree adds O(N log N) traversal. The per-step costs are machine- and load-depende
 `rotor_profile` binary settles the wake to the particle cap once, then times
 each variant from that *same* settled state -- so every row below is measured on
 an identical wake at an identical N and is directly comparable. ms/step (release,
-`rotor_profile vpm-direct,vpm-bh`):
+`rotor_profile vpm-direct,vpm-bh --long`):
 
 | N | direct seq | direct par | BH seq | BH par |
 |---|---:|---:|---:|---:|
-| 2,000 | 22 | 11 | 25 | 12 |
-| 5,000 | 134 | 58 | 100 | 54 |
-| 8,000 | 336 | 123 | 118 | 53 |
+| 2,000 | 21 | 11 | 39 | 15 |
+| 5,000 | 198 | 59 | 113 | 53 |
+| 10,000 | 778 | 227 | 197 | 108 |
+| 16,000 | 2,633 | 428 | 708 | 139 |
+| 32,000 | 8,750 | 2,265 | 1,058 | 337 |
 
-Two effects are visible: **(1) Rayon parallelism** (the `-par` vs `-seq` columns)
-gives ~2x at N=2,000 rising to ~2.7x by N=8,000 for the direct sum -- the
-per-target work grows with N so there is more to spread across cores; the tree's
-scalar traversal parallelises a little less (~2x). At very small N (a few hundred)
-the thread-pool overhead erases the gain, so sequential can win. **(2) The
-Barnes-Hut O(N log N) tree overtakes the direct O(N^2) sum** as N grows: at
-N=2,000 the direct sum still wins (tree build/traversal not yet amortised), by
-N=5,000 they are comparable, and by N=8,000 BH is ~2.3x faster. The crossover
-shifts with core count and the opening angle theta.
+Two effects are visible. **(1) The Barnes-Hut O(N log N) tree overtakes the
+direct O(N^2) sum** as N grows. The direct sum's cost quadruples for each
+doubling of N (16x from N=2,000 to 32,000 sends direct-seq from 21 ms to
+8.75 s/step -- ~400x), while the tree grows almost linearly (39 ms to 1.06 s --
+~27x). At N=2,000 the direct sum still wins (tree build/traversal not yet
+amortised), the two cross around N=5,000, and by N=32,000 BH is ~7-8x faster.
+**(2) Rayon parallelism** (the `-par` vs `-seq` columns) gives ~2-4x for the
+direct sum -- the per-target work grows with N so there is more to spread across
+cores -- and ~2-3x for the tree, whose scalar traversal parallelises a little
+less. At very small N (a few hundred) the thread-pool overhead can erase the
+gain, so sequential occasionally wins there. The crossover shifts with core
+count and the opening angle theta. (Absolute ms are machine- and load-dependent;
+the ratios are the point.)
 
 Oye and Pitt-Peters are within ~1% of each other; both evaluate a fixed set
 of algebraic inflow relations per (element, azimuth). The quasi-static BEM is
