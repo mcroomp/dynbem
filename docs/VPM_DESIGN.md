@@ -667,176 +667,48 @@ flap harmonics checked against classical theory (Section 8.4).
 
 ## 7. Performance (measured, release)
 
-Direct O(N^2) evaluation, vectorized eight sources per lane. The `parallel`
-feature is enabled by default; the outer target loop runs via Rayon
-(`par_iter_mut` over targets). Sequential (`induced_velocities_seq`) and
-parallel (`induced_velocities`) paths are measured back-to-back with the
-same binary (`bh_profile N 0 10 seq|par`). Speedup saturates near the
-core count once the per-target work exceeds the Rayon dispatch overhead
-(crossover around N=1,000–2,000 on a 4-core laptop).
+Per-step cost at a non-axial operating point (forward 12 m/s + 5 m/s edgewise
++ descent 2 m/s). The BEM-family models return a converged answer per
+`compute_forces` call; one VPM step advances the free wake by a single azimuth
+increment (an O(N^2) Biot-Savart probe + RK2 advect over the whole cloud):
 
-| N | seq [ms] | par [ms] | par speedup |
-|---:|---:|---:|---:|
-| 500 | 1.5 | 2.4 | 0.6x (overhead dominates) |
-| 2,000 | 23.1 | 15.3 | 1.5x |
-| 5,000 | 149 | 64 | 2.3x |
-| 10,000 | 574 | 193 | 3.0x |
-| 20,000 | 2,288 | 693 | 3.3x |
-
-Scaling follows the expected O(N^2) in both columns; the parallel column
-additionally shows the Rayon speedup approaching ~3.3x (4-core machine,
-bandwidth-limited above that). All figures are velocity-eval wall-clock
-(`bh_profile`, 10 s measurement window, min-noise run).
-
-For reference, the per-step cost of each model at a non-axial operating point
-(forward 12 m/s + 5 m/s edgewise crosswind) on the same machine. In a
-time-domain simulation you call a BEM-family model once per integration step
-(it returns a converged answer, 30 elem x 72 psi), whereas one VPM step
-advances the free wake by one azimuth increment (an O(N^2) Biot-Savart probe
-+ RK2 advect over the whole cloud):
-
-| Model | cost / step | vs Oye |
+| Model | ms/step | relative |
 |---|---:|---:|
-| Oye (annular 2-stage filter) | 0.105 ms | 1x |
-| Pitt-Peters (3-state L-matrix) | 0.107 ms | ~1.0x |
-| Quasi-static BEM | 10.95 ms | ~104x |
-| VPM direct O(N^2), parallel (N=5,000) | ~58 ms | ~550x |
-| VPM Barnes-Hut theta=0.5, parallel (N=5,000) | ~54 ms | ~515x |
+| Oye (2-stage annular filter) | 0.105 | 1x |
+| Pitt-Peters (3-state L-matrix) | 0.107 | ~1x |
+| Quasi-static BEM | 10.95 | ~100x |
+| VPM direct O(N^2) (N=5,000, parallel) | ~58 | ~550x |
+| VPM Barnes-Hut theta=0.5 (N=5,000, parallel) | ~54 | ~515x |
 
-BEM-family rows are release-mode measurements of a single `compute_forces()` call
-at a non-axial flight condition (forward 12 m/s + 5 m/s edgewise + descent 2 m/s).
-The VPM rows are steady-state single-step costs (one azimuthal increment) with the
-wake settled to a fixed N. Both evaluators use the same eight-wide kernel; the
-tree adds O(N log N) traversal. The per-step costs are machine- and load-dependent
-(the ratios matter more than the absolute ms).
+Oye and Pitt-Peters are algebraic inflow relations (near-free). The BEM is
+~100x slower from its per-station Brent root-find. The VPM is not an inflow
+model but a wake-resolving tool: its cost is dominated by the Biot-Savart
+evaluation and scales with the particle count N.
 
-**Matched-N direct vs Barnes-Hut, sequential vs Rayon-parallel.** The
-`rotor_profile` binary settles the wake to the particle cap once, then times
-each variant from that *same* settled state -- so every row below is measured on
-an identical wake at an identical N and is directly comparable. ms/step (release,
-`rotor_profile vpm-direct,vpm-bh --long`):
+**Scaling with N.** The direct sum is O(N^2); the Barnes-Hut tree
+(`VpmRotorConfig::barnes_hut`, off by default) lumps distant particle clusters
+into single equivalent vortices and grows O(N log N), so it overtakes the
+direct sum as the wake grows: comparable at N=5k, ~3x faster at N=16k, and ~7x
+at N=32k (direct ~2.3 s/step vs BH ~0.34 s, parallel). Rayon parallelism
+(default) gives ~2-4x over sequential for the direct sum and ~2x for the tree.
+Reproduce and sweep N with `rotor_profile vpm-direct,vpm-bh --long`
+(`--seq`/`--par` isolate the parallelism). Absolute ms are machine-dependent;
+the ratios are the point.
 
-| N | direct seq | direct par | BH seq | BH par |
-|---|---:|---:|---:|---:|
-| 2,000 | 21 | 11 | 39 | 15 |
-| 5,000 | 198 | 59 | 113 | 53 |
-| 10,000 | 778 | 227 | 197 | 108 |
-| 16,000 | 2,633 | 428 | 708 | 139 |
-| 32,000 | 8,750 | 2,265 | 1,058 | 337 |
+### 7.1 Barnes-Hut tree (O(N log N))
 
-Two effects are visible. **(1) The Barnes-Hut O(N log N) tree overtakes the
-direct O(N^2) sum** as N grows. The direct sum's cost quadruples for each
-doubling of N (16x from N=2,000 to 32,000 sends direct-seq from 21 ms to
-8.75 s/step -- ~400x), while the tree grows almost linearly (39 ms to 1.06 s --
-~27x). At N=2,000 the direct sum still wins (tree build/traversal not yet
-amortised), the two cross around N=5,000, and by N=32,000 BH is ~7-8x faster.
-**(2) Rayon parallelism** (the `-par` vs `-seq` columns) gives ~2-4x for the
-direct sum -- the per-target work grows with N so there is more to spread across
-cores -- and ~2-3x for the tree, whose scalar traversal parallelises a little
-less. At very small N (a few hundred) the thread-pool overhead can erase the
-gain, so sequential occasionally wins there. The crossover shifts with core
-count and the opening angle theta. (Absolute ms are machine- and load-dependent;
-the ratios are the point.)
-
-Oye and Pitt-Peters are within ~1% of each other; both evaluate a fixed set
-of algebraic inflow relations per (element, azimuth). The quasi-static BEM is
-~100x slower because each (element, azimuth) station runs an iterative
-root-finder (Brent) on the momentum / blade-element balance, and non-axial
-wind makes it worse, not better: the swept azimuth exposes more sections to
-the turbulent-wake / reversed-flow branches where the solver has to iterate.
-The VPM is ~500x beyond BEM per step; per converged operating point
-it is orders of magnitude larger still (see "Per operating point" discussion
-below). The VPM is not an inflow model but a wake-fidelity
-tool that resolves the actual wake geometry, paying the O(N^2) particle cost
-at every one of the ~170 marched steps.
-
-**Per operating point** the gap is larger still: the BEM-family models are
-already converged after one step, while the VPM needs the full ~170-step
-march to reach a periodic wake -- Pitt-Peters ~0.17 ms vs the VPM (direct
-par) at tens of seconds, roughly 10^5 x. With the Barnes-Hut tree (Section 7.1)
-changing the N scaling, the steady-state per-step cost at large N drops
-~2-2.3x versus the direct sum (see the matched-N table above).
-
-Simulation guidance (bench rotor, omega=120, one rev = 52 ms): a
-Tier-A config (~1,200 particles, 24 steps/rev, 3 revs) costs ~5–10 ms/step
-with Rayon parallel on 4 cores, acceptable for offline steady-point analysis.
-A Tier-B config (~4,300 particles, 36 steps/rev, 4 revs) is ~40–50 ms/step
-with parallel, suitable for detailed transient studies on high-core systems.
-
-### 7.1 Barnes-Hut tree evaluator (O(N log N))
-
-**Why the tree is faster (the physical picture).** In the direct evaluation
-every particle induces a velocity on every other particle. With $N$ particles
-that is $N \times N$ pairwise Biot-Savart evaluations: double the size of the
-wake and the work quadruples. Most of that work is spent on particles that
-are far apart, and there the detail is wasted -- a compact clump of vortex
-particles seen from far away induces very nearly the same velocity as a
-*single* vortex carrying the clump's total strength, because the regularized
-kernel's far field is just the ordinary Biot-Savart law of the net
-circulation ($K \to 1/r^3$ once $r \gg \sigma$). The tree exploits this: it
-sorts the wake into a nested hierarchy of boxes, and when it evaluates the
-velocity at a point it sums the *nearby* vorticity particle-by-particle (where
-the detail matters) but replaces each *distant* box with one equivalent
-lumped vortex (where it does not). Each evaluation point only ever has to
-touch a handful of near particles plus a modest number of far lumps -- a count
-that grows like $\log N$ rather than $N$ -- so the total cost grows like
-$N \log N$ instead of $N^2$. The bigger the wake, the more this pays off (see
-the table below: ~8x faster at 4,000 particles, ~40x at 16,000).
-
-How "far enough to lump" is decided is the one knob: a box is treated as a
-single lumped vortex when it looks small from the evaluation point, i.e. when
-its width divided by its distance is below the opening angle `theta`. Smaller
-`theta` lumps less aggressively (more boxes summed in full) -- more accurate,
-slower; larger `theta` lumps more -- faster, coarser. `theta ~ 0.5` keeps the
-approximation error to a few percent of the peak velocity.
-
-The direct evaluator above is O(N^2). For large wakes there is a
-monopole Barnes-Hut path (`induced_at_points_bh`, `induced_velocities_bh`,
-`advect_rk2_bh`) that groups distant sources into a single super-particle
-and evaluates the far field with the *same* SIMD kernel as a real particle
--- the regularized kernel's far field is the singular Biot-Savart law
-($K \to 1/r^3$ for $r \gg \sigma$), so a far cell is just a source carrying
-the lumped strength $\sum \boldsymbol{\alpha}$ placed at the
-$|\boldsymbol{\alpha}|$-weighted cell centre with a representative core size.
-The tree is flattened into a compact pre-order node array with escape
-pointers (no child arrays, no recursion in the walk), and the particles are
-reordered at build time into leaf-contiguous, eight-padded blocks. Per target
-the stackless walk runs the SIMD kernel directly over each accepted near
-leaf's packed block -- there is no per-target near-field gather -- while the
-accepted far cells are batched into one small padded buffer and kernelled in
-a single tail pass. Traversal is O(N log N) of light scalar work; the heavy
-arithmetic stays vectorized.
-
-Precisely, a cell of width $s$ seen at distance $d$ is accepted as far when
-$s / d < \theta$, so `theta = 0` lumps nothing and recovers the exact direct
-sum. The opening angle is exposed through `VpmRotorConfig` (`barnes_hut`,
-`bh_theta`, `bh_min_particles`) and is **off by default** -- the direct sum
-is the reference path; the tree engages only when `barnes_hut` is set and the
-wake reaches `bh_min_particles` (below that the tree-build overhead is not
-worth it). A dipole term could be added later for more accuracy at a given
-`theta`.
-
-Measured direct O(N^2) vs tree (`theta = 0.5`) on the profiler's wake-like
-cloud (`bh_profile <N> 0|0.5 10 seq|par`, release, 10 s measurement windows).
-All four combinations measured back-to-back on the same machine state. The
-direct path scales near-linearly with cores (3.1–3.4x at N=4k–16k). The BH
-path also benefits from Rayon but less so (1.6–1.75x): all threads share the
-same flat-tree node array, which fits in L3 at these sizes, so L3 read
-bandwidth becomes the bottleneck once ~2 threads saturate it. The parallel
-BH path uses `par_chunks_mut(64)` (64 targets per Rayon task) to amortise
-dispatch overhead while keeping the per-thread `Scratch` buffer warm:
-
-| N | direct seq [ms] | direct par [ms] | par speedup | tree seq [ms] | tree par [ms] | par speedup |
-|---:|---:|---:|---:|---:|---:|---:|
-| 4,000 | 96.8 | 38.0 | 2.5x | 27.8 | 17.3 | 1.6x |
-| 8,000 | 386.9 | 124.1 | 3.1x | 60.1 | 37.9 | 1.6x |
-| 16,000 | 1,595.6 | 466.7 | 3.4x | 151 | 86.3 | 1.75x |
-
-The direct columns scale cleanly O(N^2) (each doubling ≈ 4x); the tree column
-grows ~1.8x per doubling (close to O(N log N)); the direct-vs-tree speedup
-widening with N means the tree pays off more the larger the wake. The absolute
-ms figures are machine/session specific, but the par speedup and tree speedup
-ratios are consistent between runs.
+A box of particles seen from far away induces nearly the same velocity as a
+single vortex carrying its net circulation -- the regularized kernel's far
+field is the singular Biot-Savart law ($K \to 1/r^3$ for $r \gg \sigma$). The
+tree (`induced_at_points_bh`, `advect_rk2_bh`) sums nearby vorticity
+particle-by-particle and replaces each distant box with one lumped vortex,
+evaluated with the *same* eight-wide SIMD kernel. A box of width $s$ at distance
+$d$ is lumped when $s/d < \theta$ (`bh_theta`, default 0.5; `theta = 0` recovers
+the exact sum). It is flattened into a pre-order node array with escape pointers
+(stackless walk, no recursion) and particles are reordered into leaf-contiguous
+eight-padded blocks, so traversal is light scalar work and the arithmetic stays
+vectorized. Engaged only when `barnes_hut` is set and the wake reaches
+`bh_min_particles`.
 
 ---
 

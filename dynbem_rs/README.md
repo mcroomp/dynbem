@@ -1,6 +1,6 @@
 # dynbem_rs
 
-Pure-Rust BEM / Pitt-Peters / Oye dynamic-inflow rotor aerodynamics library.
+Pure-Rust BEM / Pitt-Peters / Oye / VPM rotor aerodynamics library.
 No pyo3, no numpy, no file I/O -- just the math.
 
 This crate is the computational core behind the
@@ -9,17 +9,25 @@ via PyO3 + maturin and provides the public Python API.
 
 ## Models
 
+Algebraic dynamic-inflow / BEM models (one converged evaluation per call):
+
 | Struct | Inflow model |
 |---|---|
 | `QuasiStaticBEM<P>` | Quasi-static BEM (steady annular momentum) |
 | `PittPetersModel<P>` | Pitt-Peters 3-state dynamic inflow |
 | `OyeBEMModel<P>` | Oye 2-stage annular dynamic inflow (DBEMT equivalent) |
 
-All three are generic over `P: Polar`. Pick `LinearPolar` for a flat-plate
+Wake-resolving model (free-wake, marched one azimuth step per call):
+
+| Struct | Model |
+|---|---|
+| `VpmRotor<P>` | Vortex particle method free-wake, forward flight (see [`../docs/VPM_DESIGN.md`](../docs/VPM_DESIGN.md)) |
+
+All are generic over `P: Polar`. Pick `LinearPolar` for a flat-plate
 lift curve or `TabulatedPolar` for interpolated alpha/CL/CD data; implement
 the `Polar` trait to supply your own.
 
-All three implement the `AeroModel` trait:
+All implement the `AeroModel` trait:
 
 ```rust
 use dynbem_rs::aero_model::IntegrationMethod;
@@ -39,11 +47,35 @@ fn inflow_taus(&self, inputs: &RotorInputs, state: &Self::State)
 
 ```
 
+The three algebraic models return a converged answer from a single
+`compute_forces` call and integrate a small scalar inflow state. `VpmRotor`
+is different: it carries the whole free wake as its state, so `compute_forces`
+panics (a free wake has no single-shot evaluation) and `AeroModel::step`
+advances the wake by exactly one azimuth increment per call (`dt` is the
+convection step; the caller drives the loop). Use `VpmRotor::march` to settle
+a periodic wake and `VpmRotor::step_one` for a single advance. See
+[`../docs/VPM_DESIGN.md`](../docs/VPM_DESIGN.md) for the full design.
+
 Integration methods:
 
 - `IntegrationMethod::SemiImplicitEuler`
 - `IntegrationMethod::ExplicitEuler`
 - `IntegrationMethod::ExponentialRelaxation`
+
+## Blade pitch actuation
+
+`RotorDefinition::pitch_actuation` (`PitchActuation` enum) selects how the
+swashplate commands reach the blade:
+
+- `DirectMechanical` (default): the swashplate sets blade pitch directly.
+- `ServoFlap(ServoFlapActuation)`: a trailing-edge servo-flap drives a free
+  feathering DOF (feathering + damper architecture); the solved feathering
+  angle replaces the direct swashplate pitch path. The quasi-static harmonic
+  solve is in `servoflap.rs`; the time-domain feathering ODE is in
+  `vpm_rotor.rs`. All `ServoFlapActuation` constants are physical and
+  measurable (pitch inertia, bearing damper, AC offset aero spring, blade
+  camber moment) -- see [`../AGENTS.md`](../AGENTS.md) for the sign
+  conventions and the two servo-flap architectures.
 
 ## Polar types
 
@@ -83,7 +115,7 @@ Add to `Cargo.toml`:
 
 ```toml
 [dependencies]
-dynbem_rs = "0.3"
+dynbem_rs = "0.5"
 ```
 
 ```rust
@@ -92,8 +124,8 @@ use dynbem_rs::{
     aero_model::AeroModel,
     polar::LinearPolar,
     pitt_peters::PittPetersModel,
-    rotor_definition::
-        LinearPolarParameters, BladeGeometry, RotorDefinition,
+    rotor_definition::{
+        BladeGeometry, LinearPolarParameters, PitchActuation, RotorDefinition,
     },
 };
 use std::f64::consts::PI;
@@ -106,6 +138,8 @@ let defn = RotorDefinition {
     blade: BladeGeometry::uniform(2, 0.15, 0.015, 0.025, 0.0, 12),  // tip_loss defaults to true
     airfoil,
     control: None,
+    pitch_actuation: PitchActuation::DirectMechanical,
+    flap: None,
     name: "my_rotor".into(),
     description: String::new(),
 };
@@ -278,6 +312,13 @@ are equivalent.
     |                         (private; used only by vpm_rotor)
     +-- vpm_rotor.rs          VpmRotor free-wake forward-flight coupling
                               (see docs/VPM_DESIGN.md)
+
+    bin/
+    +-- rotor_profile.rs      per-step timing across all models; VPM direct vs
+    |                         Barnes-Hut at matched N, sequential vs parallel
+    |                         (`--long` sweep, `--seq` / `--par`)
+    +-- bh_profile.rs         Barnes-Hut velocity-eval microbenchmark
+    +-- profile_kernels.rs    low-level kernel timing
 
 State types (`QuasiStaticRotorState`, `PittPetersRotorState`, `OyeRotorState`,
 `VpmRotorState`) are defined in each model's own module. `RotorStateExt`
