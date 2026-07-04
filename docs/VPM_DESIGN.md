@@ -723,234 +723,66 @@ vectorized. Engaged only when `barnes_hut` is set and the wake reaches
 
 ---
 
-## 8. Validation status
+## 8. Validation
 
-### 8.1 Unit tests (all passing)
+The VPM is validated by the `validation_rs` suite: each check builds a VPM
+rotor and asserts its loads against either closed-form theory (Section 8.1) or
+measured wind-tunnel data (Section 8.2). Run it with:
 
-- **Far field** matches $A / (4\pi d^2)$ within 1%, direction $+y$ for $+z$
-  vorticity.
-- **Self-induction** of a lone particle is zero.
-- **Vectorized vs reference**: the vectorized path matches the f64 scalar
-  reference on a random cloud to $< 10^{-3}$ relative.
-- **Vortex-ring self-propagation**: a thin ring self-propagates along its
-  axis within 30% of the Kelvin thin-core speed
-  $U = \dfrac{\Gamma}{4\pi R}\left[\ln\dfrac{8R}{a} - \dfrac{1}{4}\right]$,
-  transverse velocity negligible.
-- **Advection**: one RK2 step convects a ring downstream.
-- **Barnes-Hut vs direct**: the monopole tree (`theta = 0.5`) matches the
-  direct sum to $< 5\%$ of peak velocity on a random cloud, converges to the
-  direct result as `theta -> 0`, and its RK2 advect step moves a thin ring
-  downstream to within 5% of the direct integrator.
+```
+cargo run --release -p validation_rs [filter]
+```
 
-### 8.2 Thrust/torque vs BEM (axial precursor)
+which writes `tmp/theory_report.txt` -- one `CHECK` line per data point
+(`PASS | FAIL | INFO`). Underneath the coupling, the Biot-Savart engine has
+its own `dynbem_rs` unit tests (`cargo test`): kernel far field vs
+$A/(4\pi d^2)$, zero self-induction, SIMD vs f64 reference ($<10^{-3}$),
+vortex-ring self-propagation (within 30% of the Kelvin speed), and Barnes-Hut
+vs direct ($<5\%$ of peak at $\theta = 0.5$).
 
-Rotor R=1 m, 2 blades, collective 8 deg, omega=120 rad/s.
+### 8.1 Theoretical validation (VPM vs closed-form theory)
 
-| Regime | BEM thrust [N] | VPM thrust [N] | delta |
-|---|---:|---:|---:|
-| hover | 215.6 | 238.2 | +10.5% |
-| climb +3 | 183.2 | 199.9 | +9.1% |
-| climb +6 | 143.4 | 159.2 | +11.0% |
-| descent -3 | 533.4 | 230.5 | -56.8% |
-| descent -6 | 407.9 | 375.6 | -7.9% |
-
-Read:
-
-- **Hover and climb agree to ~10%**, with the correct trend (thrust falls
-  as climb rate rises). The consistent +10% bias has a plausible
-  explanation: BEM has Prandtl tip-loss on (this axial precursor does not),
-  plus coarse azimuth resolution, a hand-picked `sigma`, and no within-step
-  self-induction -- all pushing the same way. Read as a consistency check
-  this is about what one would expect from a correctly wired coupling; it is
-  not an accuracy claim, and the ~10% is not decomposed into those
-  contributions. The forward-flight module (Section 5.5) adds the implicit
-  lifting-line self-induction the precursor lacks: on a comparable hover case
-  (24 steps/rev) it lowers the analogous bias from about +12% (pointwise) to
-  about +9% (uniform lifting-line). Adding tip-clustered (cosine) spanwise
-  spacing plus a locally scaled core closes the rest -- the two levers
-  compose (a local core does nothing on a uniform grid, but once the spacing
-  clusters at the tip it stops over-smoothing the tip vortex), bringing the
-  measured hover bias to under +1% (216.5 N vs a 214.9 N BEM anchor).
-- **Descent diverges**, in the regime where BEM switches to its empirical
-  VRS/windmill model (descent -3 has descent/v_h ~ 0.55, inside the 0-2 VRS
-  band; BEM thrust spikes and its torque goes negative = windmilling). VPM
-  gives a smooth, finite result with torque approaching zero (which is what
-  autorotation would look like) at descent -6 -- but see the caveat.
-
-**Caveat:** the VPM descent numbers are not validated. The trailing-only
-wake, 4-rev truncation, and coarse resolution under-resolve the
-recirculating VRS wake. Descent here means "the two methods diverge in the
-regime where BEM is empirical", not "VPM is right there". Hover and climb
-are the comparisons worth trusting; descent is not.
-
-### 8.3 Forward-flight coupling (acceptance tests, all passing)
-
-These are the acceptance tests for the Section 5.5 module. They are run at
-the coarse resolution preset (Section 5.5.6), so they assert **directional /
-qualitative** physics (signs, monotonicity, boundedness) rather than tight
-quantitative agreement -- the quantitative anchor is the axial reduction.
-
-- **Axial reduction**: with zero cyclic and zero in-plane wind the shed
-  term vanishes and the model must collapse onto the axial case -- hover
-  thrust within 30% of the quasi-static BEM, and hub moments
-  $|M_x|, |M_y| < 0.10\,T R$ (axisymmetry). This is the one quantitative
-  check and the regression guard on the coupling wiring.
-- **Collective**: $dT/d(\text{collective}) > 0$.
-- **Longitudinal cyclic**: `tilt_lon > 0` $\Rightarrow M_y < 0$ and
-  $|M_y|$ grows from the hover baseline (correct cyclic phasing / hub-moment
-  sign).
-- **Lateral cyclic**: `tilt_lat > 0` $\Rightarrow M_x > 0$.
-- **Crosswind**: 8 m/s edgewise inflow -- thrust stays finite and positive,
-  torque finite, the advancing/retreating asymmetry develops a non-zero hub
-  moment, and the wake centroid convects downstream ($x_\text{centroid} > 0$).
-  This exercises the shed term and the free wake-skew, and guards against the
-  numerical blow-up that a wrong-signed shed contribution would produce.
-
-**Not yet covered:** a fully trimmed rotor at a published advance ratio,
-the reversed-flow regime, and any BVI-sensitive case. Forward-flight rotor
-lift against measured data *is* now checked (Section 8.4); trimmed hub
-moments and the reversed-flow regime are not.
-
-### 8.4 Agreement with standard rotor theory
-
-Beyond the internal BEM cross-check (8.2) and the directional acceptance
-tests (8.3), the VPM is compared against two external standards: measured
-forward-flight data and classical closed-form rotor theory. These are the
-"VPM vs standard theory" checks the model is held to.
-
-**Forward-flight autorotation loads vs Wheatley & Hood NACA TR-515.**
-`tests/vpm_forward_flight_empirical` (Rust) marches the free-wake PCA-2
-autogiro rotor to a periodic state at four measured operating points
-(Tables III/IV) and compares the rotor lift coefficient $C_L$ against the
-wind-tunnel values. Rigid blades (flap dynamics off) to isolate the wake
-model:
-
-| Point | mu | alpha (deg) | CL VPM | CL meas | err |
-|---|---:|---:|---:|---:|---:|
-| T3_mu018 | 0.181 | 11.2 | 0.364 | 0.363 | 0.1% |
-| T3_mu025 | 0.249 | 6.6  | 0.180 | 0.192 | 6.3% |
-| T3_mu033 | 0.315 | 4.3  | 0.107 | 0.116 | 8.1% |
-| T4_mu024 | 0.242 | 6.3  | 0.218 | 0.266 | 17.9% |
-
-$C_L$ agrees with measurement to within ~8% up to mu = 0.32; the largest
-error (T4, higher rpm) sits at the edge of the simplified-geometry envelope
-(uniform chord, no twist, linear polar). This is the one
-quantitative-vs-measured anchor for the wake model in forward flight.
-
-**Rigid-flap harmonics vs classical flapping theory.**
-`examples/vpm_flapping_vs_theory` fits the flap response
-
-$$\beta(\psi) = a_0 - a_1\cos\psi - b_1\sin\psi$$
-
-from the VPM flap DOF (Section 5.6) and compares against the
-centrally-hinged ($\nu_\beta = 1$)
-closed forms (Bramwell / Seddon / Prouty),
-
-$$a_0 = \gamma\left[\tfrac{\theta_0}{8}(1+\mu^2) - \tfrac{\lambda}{6}\right],
-\quad
-a_1 = \frac{2\mu(\tfrac{4}{3}\theta_0 - \lambda)}{1 - \mu^2/2},
-\quad
-b_1 = \frac{\tfrac{4}{3}\mu\,a_0}{1 + \mu^2/2},$$
-
-with Lock number $\gamma = \rho\,a\,c\,R^4 / I_\beta$ and the theory's inflow
-$\lambda$ taken from the VPM's own thrust (Glauert) so the comparison is
-apples-to-apples on inflow. Rotor $\gamma = 8.4$, collective 8 deg, angles
-in degrees:
-
-| mu | a0 VPM | a0 theory | a1 VPM | a1 theory | b1 VPM | b1 theory |
-|---:|---:|---:|---:|---:|---:|---:|
-| 0.10 | 6.79 | 6.85 | 1.84 | 1.91 | 0.40 | 0.91 |
-| 0.15 | 6.99 | 7.45 | 2.87 | 2.99 | 0.30 | 1.47 |
-| 0.20 | 6.99 | 7.87 | 3.94 | 4.11 | 0.31 | 2.06 |
-| 0.25 | 6.89 | 8.23 | 5.06 | 5.26 | 0.18 | 2.66 |
-| 0.30 | 6.74 | 8.58 | 6.33 | 6.45 | -0.10 | 3.29 |
-
-Read:
-
-- **Coning $a_0$** matches within 1% at mu = 0.1. At higher mu the VPM stays
-  flat (~6.9 deg) while the closed form climbs to 8.6 deg -- the theory's
-  $(1+\mu^2)$ growth assumes uniform inflow and no reverse flow, both of
-  which flatten the real coning. The VPM captures that; the closed form
-  cannot.
-- **Longitudinal flapping $a_1$** (the dominant blowback harmonic) matches
-  theory to within ~5% across mu = 0.1-0.3. This validates the flap ODE, the
-  aerodynamic flap-moment forcing, and the ~90 deg flap phase lag in one
-  shot -- the disk tilts back by the right amount.
-- **Lateral flapping $b_1$** is much smaller in the VPM (near zero) than in
-  uniform-inflow theory (up to 3.3 deg). $b_1$ is the harmonic most sensitive
-  to the lateral inflow distribution, which the uniform-inflow closed form
-  gets wrong -- but the measured Wheatley phase (~100-120 deg, i.e. a
-  non-trivial lateral component) suggests the VPM currently *under-predicts*
-  $b_1$ rather than merely correcting the theory. Open item (see 8.5).
-
-### 8.5 Validation status at a glance
-
-What is and is not checked today. "Validated" = compared against BEM,
-measured data, or closed-form theory with the agreement quantified above;
-"directional" = sign/trend/stability only; "not validated" = no dedicated
-check yet.
-
-| Item | Status | Notes |
+| Validation (`validation_rs`) | Reference | What it checks |
 |---|---|---|
-| Biot-Savart kernel (far field, self-term, SIMD vs f64 ref) | validated | 8.1, < 0.1% |
-| Vortex-ring self-propagation | validated | within 30% of Kelvin speed |
-| Barnes-Hut vs direct sum | validated | < 5% of peak at theta = 0.5 |
-| Axial thrust/torque vs BEM (hover, climb) | validated | ~10% consistency (8.2) |
-| Forward-flight coupling signs / trends | directional | acceptance tests (8.3) |
-| Forward-flight CL vs measured (Wheatley TR-515) | validated | <= ~8% to mu 0.32 (8.4) |
-| Flap coning $a_0$ vs theory | validated | within 1% at low mu (8.4) |
-| Flap longitudinal $a_1$ vs theory | validated | within ~5% (8.4) |
-| Flap lateral $b_1$ vs theory / measured | NOT validated | VPM under-predicts; needs digitized Wheatley data |
-| Flap DOF coning / hub-moment relief | directional | sign + inequality tests |
-| Feathering DOF (servo-flap) response | directional | zero/collective/cyclic sign tests; no measured anchor |
-| Descent / VRS regime | NOT validated | under-resolved recirculating wake (8.2 caveat) |
-| Reversed-flow region (high mu) | NOT validated | no dedicated check |
-| Absolute hub moments (quantitative) | NOT validated | trend-only so far |
-| Trimmed forward-flight loads | NOT validated | no trim closure yet |
-| BVI-sensitive cases | NOT validated | not attempted |
+| `blade_element_hover` | Combined BEMT, hover (Leishman ch. 3) | Hover thrust coefficient vs closed form |
+| `climb_momentum` | Axial-climb momentum theory | `C_T` ~ 2 lam_i (lam_i + lam_c); loads fall with climb |
+| `glauert_forward_inflow` | Glauert forward-flight inflow | Disk inflow + wake-skew angle |
+| `wake_skew` | Wake-skew geometry | Skew grows with mu; covariant under X/Y rotation |
+| `prandtl_tip_loss` | Directional | Tip-loss flag reduces global loads |
+| `autorotation` | Directional | Negative-torque branch reached in descent + edgewise |
+| `flapping_harmonics` | Bramwell / Seddon flap theory | Coning `a0`, longitudinal flap `a1` vs closed form |
+| `cyclic_sign` | Directional (AGENTS.md) | Collective monotone; cyclic tilt signs |
+| `flap_directional` | Directional | Flap coning in hover; hub-moment relief under cyclic |
+| `servo_flap` | Directional | Kaman servo-flap feathering (zero / collective / cyclic) |
+| `cyclic_phase_servo` | Directional | Direct-mech pitching `My` vs servo-flap rolling `Mx` |
 
----
+Hover thrust tracks BEMT to within ~15-25%; coning `a0` and longitudinal
+flapping `a1` match the closed forms to ~14% (the disk tilts back by the right
+amount). Lateral flapping `b1` is currently under-predicted -- see the TODO.
 
-## 8.6 Theory validation binary
+### 8.2 Empirical validation (VPM vs measured data)
 
-The canonical theory-vs-VPM check suite lives in
-`dynbem_rs/bin/theory_report.rs` and runs as a standalone binary
-(not part of the normal `cargo test` run, because each check costs
-several VPM revolutions):
-
-```
-cargo run --release --bin theory_report
-```
-
-Output: `tmp/theory_report.txt` -- one `CHECK` line per data point in the
-format:
-
-```
-CHECK  module=<name>  case=<params>  qty=<quantity>  vpm=<value>  ref=<reference>  err=<pct>  tol=<threshold>  PASS|FAIL|INFO
-```
-
-Current result (Castles-Gray rotor, release build, 24 steps/rev, 10 settling revolutions):
-
-```
-SUMMARY  total=47  pass=47  fail=0
-```
-
-Modules checked:
-
-| Module | Theory / dataset | Key result |
+| Validation (`validation_rs`) | Dataset | What it checks |
 |---|---|---|
-| blade_element_hover | BEMT closed form, hover | CT within 14-18% of uniform-inflow theory |
-| hover_castles_gray | Castles-Gray measured TN-2474 | CT within 8-13% of measured |
-| climb_momentum | Momentum theory, axial climb | CT and lambda_i both decrease with climb |
-| prandtl_tip_loss | Directional | Tip-loss flag does not increase CT or CQ |
-| glauert_forward_inflow | Glauert inflow + wake skew | Chi within 1.2%; mean inflow err 26% (tol 35%) |
-| wake_skew | Wake-skew monotonicity + covariance | 0.03 deg X/Y chi diff; monotone growth with mu |
-| autorotation | Directional | Negative torque found at col=1 deg, mu=0.28, vz=-4 m/s |
-| flapping_harmonics | Bramwell/Seddon/Prouty closed forms | Coning within 14%; a1 within 14%; b1 < a1 |
-| measured_companions | CG 1600 rpm, CG descent, Wheatley CL | All within stated tolerances |
+| `hover_castles_gray` | Castles-Gray NACA TN-2474 Table V | Hover thrust vs measured (within ~8-13%) |
+| `measured_companions` | CG 1600 rpm, CG descent, Wheatley TR-515 | Each theory module anchored to a measured point |
+| `vpm_forward_flight_empirical` | Wheatley & Hood NACA TR-515 Tables III/IV | Forward-flight autorotation lift sweep (<= ~8% to mu = 0.32) |
 
-Re-run after any change to VPM wake emission, the flap ODE, or the
-Biot-Savart kernel to detect regressions.
+`validation_rs` also validates the QS / Pitt-Peters / Oye BEM models against
+the same Castles-Gray data (`hover_ct_empirical`, `hover_cq_empirical`,
+`descent_cq_empirical`) -- those check the BEM family, not the VPM, and are
+outside the scope of this doc.
+
+### 8.3 TODO
+
+- **Lateral flapping `b1`** -- VPM under-predicts vs uniform-inflow theory and
+  the measured Wheatley phase; needs digitized data.
+- **Descent / VRS regime** -- the trailing-only, truncated wake under-resolves
+  the recirculating VRS wake; descent loads are not validated.
+- **Reversed-flow region** at high mu -- no full-360 polar yet.
+- **Trimmed forward-flight loads** -- no trim closure.
+- **Absolute hub moments** -- quantitative anchor still missing (trend-only).
+- **BVI-sensitive cases** -- not attempted.
 
 ---
 
