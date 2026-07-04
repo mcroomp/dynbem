@@ -39,7 +39,9 @@ pub fn check_vpm_empirical(r: &mut Report) {
     const N_AVG: usize = 2;
 
     for rec in csv_rows(csv_data) {
-        let row: Row = rec.deserialize(None).expect("vpm_forward_flight_empirical.csv parse");
+        let row: Row = rec
+            .deserialize(None)
+            .expect("vpm_forward_flight_empirical.csv parse");
         let omega = omega_from_rpm(row.n_rpm);
         let dt = (2.0 * std::f64::consts::PI / omega) / STEPS_PER_REV as f64;
         let n_total = (N_SETTLE + N_AVG) * STEPS_PER_REV;
@@ -55,7 +57,10 @@ pub fn check_vpm_empirical(r: &mut Report) {
 
         if rewrite {
             let new_tol = (err_pct / 100.0 + 0.05).max(err_pct / 100.0 * 3.0);
-            new_rows.push(Row { cl_max_err: new_tol, ..row });
+            new_rows.push(Row {
+                cl_max_err: new_tol,
+                ..row
+            });
         }
     }
 

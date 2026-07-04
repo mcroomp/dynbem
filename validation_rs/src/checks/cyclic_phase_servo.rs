@@ -29,14 +29,14 @@ use crate::report::Report;
 use dynbem_rs::cyclic::ControlGains;
 use dynbem_rs::polar::LinearPolar;
 use dynbem_rs::rotor_definition::{
-    BladeGeometry, LinearPolarParameters, PitchActuation, RotorDefinition,
-    ServoFlapActuation, ServoFlapGeometry,
+    BladeGeometry, LinearPolarParameters, PitchActuation, RotorDefinition, ServoFlapActuation,
+    ServoFlapGeometry,
 };
 use dynbem_rs::vpm_rotor::{FlightCondition, VpmRotor, VpmRotorConfig};
 
 const B_OMEGA: f64 = 20.0; // rad/s, near measured equilibrium at V_wind=10 m/s
-const B_R:     f64 = 2.5;
-const B_ROOT:  f64 = 0.5;
+const B_R: f64 = 2.5;
+const B_ROOT: f64 = 0.5;
 const B_CHORD: f64 = 0.20;
 
 fn beaupoil_defn(actuation: PitchActuation) -> RotorDefinition {
@@ -59,7 +59,7 @@ fn beaupoil_defn(actuation: PitchActuation) -> RotorDefinition {
             CD0: 0.0079,
             alpha_stall_deg: 13.0,
         },
-        control: None,      // gain=1, phase=0 -- isolates actuator effect
+        control: None, // gain=1, phase=0 -- isolates actuator effect
         pitch_actuation: actuation,
         flap: None,
         name: "beaupoil_2026_test".to_string(),
@@ -74,12 +74,12 @@ fn beaupoil_servo() -> ServoFlapActuation {
     ServoFlapActuation {
         I_theta_kgm2: 0.05,
         damper_Nms_per_rad: 2.0,
-        ac_offset_m: 0.0,                      // Kaman ideal: feathering axis at AC
+        ac_offset_m: 0.0, // Kaman ideal: feathering axis at AC
         blade_Cm_AC: 0.0,
         flap: ServoFlapGeometry {
             C_M_delta_per_rad: -1.0,
-            r_inner_m: 1.0,                    // mid-span flap start
-            r_outer_m: 0.9 * B_R,              // near-tip flap end
+            r_inner_m: 1.0,       // mid-span flap start
+            r_outer_m: 0.9 * B_R, // near-tip flap end
         },
     }
 }
@@ -97,12 +97,14 @@ fn beaupoil_fast_rotor(defn: &RotorDefinition) -> VpmRotor<LinearPolar> {
     //
     // NAN_DEBUG=1: enable the scalar nan-asserting induction path so any bad
     // particle pair is reported with full diagnostics before the NaN propagates.
-    let nan_debug = std::env::var("NAN_DEBUG").map(|v| v == "1").unwrap_or(false);
+    let nan_debug = std::env::var("NAN_DEBUG")
+        .map(|v| v == "1")
+        .unwrap_or(false);
     let cfg = VpmRotorConfig {
         max_particles: 2500,
         sigma: 0.45,
         nonlinear_lifting_line: false,
-        use_rayon: !nan_debug,   // single-threaded when asserting
+        use_rayon: !nan_debug, // single-threaded when asserting
         use_scalar_nan_check: nan_debug,
         ..VpmRotorConfig::fast_test()
     };
@@ -125,7 +127,8 @@ fn march_nan_debug(
     let mut results = Vec::with_capacity(avg_window);
 
     for step in 0..n_steps {
-        let (res, next_state) = rotor.step_one(fc, state.as_ref().unwrap_or(&VpmRotorState::default()), dt);
+        let (res, next_state) =
+            rotor.step_one(fc, state.as_ref().unwrap_or(&VpmRotorState::default()), dt);
 
         if res.thrust.is_nan() || res.mx_hub.is_nan() || res.my_hub.is_nan() {
             panic!(
@@ -143,12 +146,12 @@ fn march_nan_debug(
     // Average over the window (mirrors march() behaviour)
     let n = results.len() as f64;
     dynbem_rs::vpm_rotor::VpmRotorResult {
-        thrust:         results.iter().map(|r| r.thrust).sum::<f64>() / n,
-        torque:         results.iter().map(|r| r.torque).sum::<f64>() / n,
-        mx_hub:         results.iter().map(|r| r.mx_hub).sum::<f64>() / n,
-        my_hub:         results.iter().map(|r| r.my_hub).sum::<f64>() / n,
-        n_particles:    results.last().map(|r| r.n_particles).unwrap_or(0),
-        wake_centroid:  results.last().map(|r| r.wake_centroid).unwrap_or([0.0; 3]),
+        thrust: results.iter().map(|r| r.thrust).sum::<f64>() / n,
+        torque: results.iter().map(|r| r.torque).sum::<f64>() / n,
+        mx_hub: results.iter().map(|r| r.mx_hub).sum::<f64>() / n,
+        my_hub: results.iter().map(|r| r.my_hub).sum::<f64>() / n,
+        n_particles: results.last().map(|r| r.n_particles).unwrap_or(0),
+        wake_centroid: results.last().map(|r| r.wake_centroid).unwrap_or([0.0; 3]),
     }
 }
 
@@ -175,7 +178,9 @@ pub fn check_cyclic_phase_servo(r: &mut Report) {
         rho: RHO,
     };
 
-    let nan_debug = std::env::var("NAN_DEBUG").map(|v| v == "1").unwrap_or(false);
+    let nan_debug = std::env::var("NAN_DEBUG")
+        .map(|v| v == "1")
+        .unwrap_or(false);
 
     // --- direct-mechanical: pitching moment (My) should dominate ---
     let defn_direct = beaupoil_defn(PitchActuation::DirectMechanical);
@@ -217,7 +222,8 @@ pub fn check_cyclic_phase_servo(r: &mut Report) {
         res_d.my_hub.abs() > res_d.mx_hub.abs(),
         &format!(
             "direct: pitching should dominate: |My|={:.3} > |Mx|={:.3} Nm",
-            res_d.my_hub.abs(), res_d.mx_hub.abs()
+            res_d.my_hub.abs(),
+            res_d.mx_hub.abs()
         ),
     );
 
@@ -250,7 +256,10 @@ pub fn check_cyclic_phase_servo(r: &mut Report) {
             ..fc
         };
         let res_lat = rotor_direct.march(&fc_lat, None, dt, n_steps).0;
-        eprintln!("direct tilt_lat>0: Mx={:.3} My={:.3} (Mx>0 expected for roll-right)", res_lat.mx_hub, res_lat.my_hub);
+        eprintln!(
+            "direct tilt_lat>0: Mx={:.3} My={:.3} (Mx>0 expected for roll-right)",
+            res_lat.mx_hub, res_lat.my_hub
+        );
     }
 
     r.info("servo_flap", "mx_hub_Nm", res_s.mx_hub, f64::NAN);
@@ -274,7 +283,8 @@ pub fn check_cyclic_phase_servo(r: &mut Report) {
         res_s.mx_hub.abs() > res_s.my_hub.abs(),
         &format!(
             "servo-flap: rolling should dominate: |Mx|={:.3} > |My|={:.3} Nm",
-            res_s.mx_hub.abs(), res_s.my_hub.abs()
+            res_s.mx_hub.abs(),
+            res_s.my_hub.abs()
         ),
     );
 }

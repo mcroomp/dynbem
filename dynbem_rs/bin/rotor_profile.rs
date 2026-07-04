@@ -23,6 +23,11 @@
 //!   --seq                   Time only the sequential path (default: time both
 //!                           Rayon-parallel `-par` and sequential `-seq`, so the
 //!                           multi-core speedup shows up as paired VPM rows)
+//!   --par                   Time only the Rayon-parallel path (fast; avoids the
+//!                           slow sequential O(N^2) direct sum at large N)
+//!   --long                  Extend the particle sweep to large N
+//!                           (2k,5k,10k,16k,32k) to show direct vs BH growth;
+//!                           raises --max-particles to 32000
 //!   --help                  Show this message
 //!
 //! Example:
@@ -30,9 +35,7 @@
 //!   rotor_profile all --output csv > profile.csv
 //!   rotor_profile pitt-peters,oye --seq
 
-
-
-use dynbem_rs::aero_io::{RotorInputs, Vec3, Mat3};
+use dynbem_rs::aero_io::{Mat3, RotorInputs, Vec3};
 use dynbem_rs::aero_model::AeroModel;
 use dynbem_rs::cyclic::ControlGains;
 use dynbem_rs::oye::OyeBEMModel;
@@ -40,8 +43,7 @@ use dynbem_rs::pitt_peters::PittPetersModel;
 use dynbem_rs::polar::LinearPolar;
 use dynbem_rs::quasi_static_bem::QuasiStaticBEM;
 use dynbem_rs::rotor_definition::{
-    BladeGeometry, ControlProperties, LinearPolarParameters, PitchActuation,
-    RotorDefinition,
+    BladeGeometry, ControlProperties, LinearPolarParameters, PitchActuation, RotorDefinition,
 };
 use dynbem_rs::vpm_rotor::{FlightCondition, VpmRotor, VpmRotorConfig, VpmRotorState};
 use std::env;
@@ -161,7 +163,11 @@ impl ModelKind {
 /// evaluator and `use_rayon` selects the parallel (multi-core) vs sequential
 /// velocity evaluation; every other parameter is identical, so all runs are a
 /// like-for-like comparison.
-fn build_vpm_rotor(max_particles: usize, barnes_hut: bool, use_rayon: bool) -> VpmRotor<LinearPolar> {
+fn build_vpm_rotor(
+    max_particles: usize,
+    barnes_hut: bool,
+    use_rayon: bool,
+) -> VpmRotor<LinearPolar> {
     let defn = test_rotor_definition();
     let polar = LinearPolar::from_properties(&defn.airfoil);
     let config = VpmRotorConfig {
@@ -259,17 +265,39 @@ fn time_vpm_from(
     }
 }
 
+/// Which parallelism variants to time for each VPM evaluator.
+#[derive(Clone, Copy, PartialEq)]
+enum TimingMode {
+    /// Sequential only (`-seq` rows).
+    SeqOnly,
+    /// Rayon-parallel only (`-par` rows).
+    ParOnly,
+    /// Both, parallel first then sequential (default), so the multi-core
+    /// speedup is a `-par`/`-seq` row pair.
+    Both,
+}
+
+impl TimingMode {
+    /// (use_rayon, label suffix) pairs to time for this mode.
+    fn variants(self) -> &'static [(bool, &'static str)] {
+        match self {
+            TimingMode::SeqOnly => &[(false, "-seq")],
+            TimingMode::ParOnly => &[(true, "-par")],
+            TimingMode::Both => &[(true, "-par"), (false, "-seq")],
+        }
+    }
+}
+
 /// Profile the requested VPM evaluators at one particle cap. The wake is
 /// settled ONCE (with the exact direct evaluator) to the cap, then each
 /// requested evaluator is timed from that same state -- so all rows are
-/// measured on an identical wake at an identical N. Unless `seq_only`, every
-/// evaluator is timed both sequential (`-seq`) and Rayon-parallel (`-par`) so
-/// the multi-core speedup is visible directly in the table.
+/// measured on an identical wake at an identical N. `mode` selects sequential,
+/// parallel, or both, so the multi-core speedup is visible in the table.
 fn profile_vpm_at(
     max_particles: usize,
     want_direct: bool,
     want_bh: bool,
-    seq_only: bool,
+    mode: TimingMode,
     duration: Duration,
 ) -> Vec<ProfileResult> {
     let fc = test_flight_condition();
@@ -281,13 +309,11 @@ fn profile_vpm_at(
     let settled = settle_vpm_to_cap(&settler, &fc, dt, max_particles);
 
     // (barnes_hut, want) pairs to time.
-    let evaluators = [(false, want_direct, "vpm-direct"), (true, want_bh, "vpm-bh")];
-    // (use_rayon, suffix) modes -- parallel first, then sequential (unless seq_only).
-    let modes: &[(bool, &str)] = if seq_only {
-        &[(false, "-seq")]
-    } else {
-        &[(true, "-par"), (false, "-seq")]
-    };
+    let evaluators = [
+        (false, want_direct, "vpm-direct"),
+        (true, want_bh, "vpm-bh"),
+    ];
+    let modes = mode.variants();
 
     let mut out = Vec::new();
     for &(barnes_hut, want, base) in &evaluators {
@@ -297,7 +323,14 @@ fn profile_vpm_at(
         for &(use_rayon, suffix) in modes {
             let rotor = build_vpm_rotor(max_particles, barnes_hut, use_rayon);
             let label = format!("{base}{suffix}");
-            out.push(time_vpm_from(&rotor, &fc, dt, settled.clone(), duration, &label));
+            out.push(time_vpm_from(
+                &rotor,
+                &fc,
+                dt,
+                settled.clone(),
+                duration,
+                &label,
+            ));
         }
     }
     out
@@ -422,8 +455,10 @@ fn profile_bem(_force_seq: bool, duration: Duration) -> ProfileResult {
 fn print_text(results: &[ProfileResult]) {
     println!();
     println!("Rotor profiling results");
-    println!("Rotor: R={:.1}m, rpm={:.0}, blades={}", 
-             ROTOR_RADIUS_M, ROTOR_RPM, 2);
+    println!(
+        "Rotor: R={:.1}m, rpm={:.0}, blades={}",
+        ROTOR_RADIUS_M, ROTOR_RPM, 2
+    );
     println!();
     println!(
         "{:<15} {:<15} {:>12} {:>12}",
@@ -450,7 +485,11 @@ fn print_csv(results: &[ProfileResult]) {
         println!(
             "{},{},{},{}",
             r.model,
-            if r.particle_count == 0 { 0 } else { r.particle_count },
+            if r.particle_count == 0 {
+                0
+            } else {
+                r.particle_count
+            },
             r.iterations,
             r.ms_per_step
         );
@@ -495,6 +534,8 @@ OPTIONS:
   --duration <secs>      Wall-clock time per test (default: 10.0 s)
   --output <fmt>         csv, md, or text (default: text)
   --seq                  Time only the sequential path (default: both -par and -seq)
+  --par                  Time only the Rayon-parallel path (fast at large N)
+  --long                 Extend sweep to large N (2k,5k,10k,16k,32k); cap -> 32000
   --help, -h             Show this message
 
 EXAMPLES:
@@ -509,11 +550,13 @@ fn main() {
     let args: Vec<String> = env::args().collect();
 
     let mut models = vec![];
-    let particle_counts = vec![500, 2000, 5000, 10000, 20000];
+    let mut particle_counts = vec![500, 2000, 5000, 10000, 20000];
     let mut max_particles = 20000;
     let mut duration = Duration::from_secs_f64(10.0);
     let mut output_fmt = "text";
     let mut force_seq = false;
+    let mut force_par = false;
+    let mut long_sweep = false;
 
     let mut i = 1;
     while i < args.len() {
@@ -524,6 +567,12 @@ fn main() {
             return;
         } else if arg == "--seq" {
             force_seq = true;
+            i += 1;
+        } else if arg == "--par" {
+            force_par = true;
+            i += 1;
+        } else if arg == "--long" {
+            long_sweep = true;
             i += 1;
         } else if arg == "--max-particles" {
             i += 1;
@@ -586,7 +635,22 @@ fn main() {
         ];
     }
 
+    // `--long`: extend the sweep to large N (16k, 32k) so the O(N^2) direct sum
+    // vs O(N log N) Barnes-Hut growth is visible. Raises the cap to match unless
+    // the user set a larger one explicitly.
+    if long_sweep {
+        particle_counts = vec![2000, 5000, 10000, 16000, 32000];
+        max_particles = max_particles.max(32000);
+    }
+
     let mut results = vec![];
+
+    // Parallelism variants to time: --seq or --par restrict to one; default both.
+    let timing_mode = match (force_seq, force_par) {
+        (true, false) => TimingMode::SeqOnly,
+        (false, true) => TimingMode::ParOnly,
+        _ => TimingMode::Both,
+    };
 
     // VPM: settle each wake once (to the cap) and time the requested evaluators
     // on that same state, so vpm-direct and vpm-bh compare at an identical N.
@@ -594,7 +658,13 @@ fn main() {
     let want_bh = models.iter().any(|m| matches!(m, ModelKind::VpmBh));
     if want_direct || want_bh {
         for &n in &particle_counts {
-            let mut rows = profile_vpm_at(n.min(max_particles), want_direct, want_bh, force_seq, duration);
+            let mut rows = profile_vpm_at(
+                n.min(max_particles),
+                want_direct,
+                want_bh,
+                timing_mode,
+                duration,
+            );
             results.append(&mut rows);
         }
     }

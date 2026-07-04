@@ -28,16 +28,16 @@ pub fn check_hover_empirical(r: &mut Report) {
     let rewrite = std::env::var("REWRITE_EMPIRICAL_CSV").is_ok();
     let mut new_rows: Vec<Row> = Vec::new();
 
-    let qs  = castles_gray_qs(12);
-    let pp  = castles_gray_pp(12);
+    let qs = castles_gray_qs(12);
+    let pp = castles_gray_pp(12);
     let oye = castles_gray_oye(12);
 
     for rec in csv_rows(csv_data) {
         let row: Row = rec.deserialize(None).expect("hover_empirical.csv parse");
         let inp = bem_hover_inputs(row.theta_deg, row.rpm);
         let ct = match row.model.as_str() {
-            "QS"  => run_ct(&qs,  &inp, row.rpm, 1),
-            "PP"  => run_ct(&pp,  &inp, row.rpm, 10000),
+            "QS" => run_ct(&qs, &inp, row.rpm, 1),
+            "PP" => run_ct(&pp, &inp, row.rpm, 10000),
             "OYE" => run_ct(&oye, &inp, row.rpm, 10000),
             other => panic!("unknown model: {other}"),
         };
@@ -45,7 +45,10 @@ pub fn check_hover_empirical(r: &mut Report) {
         let tol_pct = row.max_err * 100.0;
         r.check(&row.name, "CT", ct, row.ct_empirical, tol_pct);
         if rewrite {
-            new_rows.push(Row { max_err: (err_pct / 100.0 + 0.01).max(0.011), ..row });
+            new_rows.push(Row {
+                max_err: (err_pct / 100.0 + 0.01).max(0.011),
+                ..row
+            });
         }
     }
 

@@ -789,12 +789,27 @@ mod tests {
         use crate::rotor_definition::BladeGeometry;
         RotorDefinition {
             blade: BladeGeometry {
-                n_blades: 4, radius_m: 2.5, root_cutout_m: 0.5,
-                chord_m: 0.20, twist_deg: 0.0, n_elements: 10, tip_loss: true,
-                r_stations_m: Vec::new(), chord_stations_m: Vec::new(), twist_stations_deg: Vec::new(),
+                n_blades: 4,
+                radius_m: 2.5,
+                root_cutout_m: 0.5,
+                chord_m: 0.20,
+                twist_deg: 0.0,
+                n_elements: 10,
+                tip_loss: true,
+                r_stations_m: Vec::new(),
+                chord_stations_m: Vec::new(),
+                twist_stations_deg: Vec::new(),
             },
-            airfoil: LinearPolarParameters { CL0: 0.393, CL_alpha_per_rad: 5.79, CD0: 0.0079, alpha_stall_deg: 13.0 },
-            control: Some(ControlProperties { swashplate_pitch_gain_rad: 0.3, swashplate_phase_deg: Some(0.0) }),
+            airfoil: LinearPolarParameters {
+                CL0: 0.393,
+                CL_alpha_per_rad: 5.79,
+                CD0: 0.0079,
+                alpha_stall_deg: 13.0,
+            },
+            control: Some(ControlProperties {
+                swashplate_pitch_gain_rad: 0.3,
+                swashplate_phase_deg: Some(0.0),
+            }),
             pitch_actuation: PitchActuation::DirectMechanical,
             flap: None,
             name: "beaupoil_2026".to_string(),
@@ -804,11 +819,14 @@ mod tests {
 
     fn rawes_ic_inputs(omega: f64, tilt_lon: f64, tilt_lat: f64) -> RotorInputs {
         RotorInputs {
-            collective_rad: -0.18, tilt_lon, tilt_lat,
+            collective_rad: -0.18,
+            tilt_lon,
+            tilt_lat,
             R_hub: r_rawes_ic(),
             v_hub_world: Vec3::zero(),
             wind_world: Vec3::new(0.0, 10.0, 0.0),
-            omega_rad_s: omega, rho_kg_m3: 1.225,
+            omega_rad_s: omega,
+            rho_kg_m3: 1.225,
         }
     }
 
@@ -830,9 +848,18 @@ mod tests {
         let inputs = rawes_ic_inputs(53.161687, 0.0, 0.0);
         let (result, _) = model.compute_forces(&inputs, &model.initial_state());
         let fdz = f_dot_body_z(&result, &inputs.R_hub);
-        assert!(fdz < 0.0, "QS RAWES IC: F dot body_z should be negative, got {fdz:.3}");
-        assert!(result.F_world.0[1] > 0.0, "QS RAWES IC: F_east should be positive (downwind)");
-        assert!(result.F_world.0[2] < 0.0, "QS RAWES IC: F_up should be positive (-Z)");
+        assert!(
+            fdz < 0.0,
+            "QS RAWES IC: F dot body_z should be negative, got {fdz:.3}"
+        );
+        assert!(
+            result.F_world.0[1] > 0.0,
+            "QS RAWES IC: F_east should be positive (downwind)"
+        );
+        assert!(
+            result.F_world.0[2] < 0.0,
+            "QS RAWES IC: F_up should be positive (-Z)"
+        );
     }
 
     /// Same test with trim cyclic applied.
@@ -842,7 +869,10 @@ mod tests {
         let inputs = rawes_ic_inputs(53.161687, 0.0, 0.022616);
         let (result, _) = model.compute_forces(&inputs, &model.initial_state());
         let fdz = f_dot_body_z(&result, &inputs.R_hub);
-        assert!(fdz < 0.0, "QS RAWES IC trim cyclic: F dot body_z should be negative, got {fdz:.3}");
+        assert!(
+            fdz < 0.0,
+            "QS RAWES IC trim cyclic: F dot body_z should be negative, got {fdz:.3}"
+        );
     }
 
     /// QS BEM on logged RAWES flight row 122 (oblique descent + crosswind).
@@ -858,17 +888,29 @@ mod tests {
             tilt_lon: 0.012614825392536453,
             tilt_lat: 0.035447368174067954,
             R_hub: Mat3([
-                [-0.007232662001129507, -0.9995813722829041, 0.02801372495419454],
+                [
+                    -0.007232662001129507,
+                    -0.9995813722829041,
+                    0.02801372495419454,
+                ],
                 [0.684832857996051, -0.025365018889292906, -0.728258589019448],
                 [0.7286642884136498, 0.013917471093409295, 0.684729624547885],
             ]),
-            v_hub_world: Vec3::new(-0.5280840184646872, -0.17333482520461627, -0.4766214883089747),
+            v_hub_world: Vec3::new(
+                -0.5280840184646872,
+                -0.17333482520461627,
+                -0.4766214883089747,
+            ),
             wind_world: Vec3::new(0.0, 10.0, 0.0),
             rho_kg_m3: 1.225,
             omega_rad_s: 37.02311435435481,
         };
         let (result, _) = model.compute_forces(&inputs, &model.initial_state());
-        let body_z = Vec3::new(inputs.R_hub.0[0][2], inputs.R_hub.0[1][2], inputs.R_hub.0[2][2]);
+        let body_z = Vec3::new(
+            inputs.R_hub.0[0][2],
+            inputs.R_hub.0[1][2],
+            inputs.R_hub.0[2][2],
+        );
         let minus_f_dot_bz = -result.F_world.dot(body_z);
         assert!(
             minus_f_dot_bz > 0.0,

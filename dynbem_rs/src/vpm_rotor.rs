@@ -2,7 +2,7 @@
 //
 // Extends the axial coupling to cyclic pitch and crosswind / edgewise flow,
 // following standard unsteady lifting-line free-wake practice (Leishman,
-// "Principles of Helicopter Aerodynamics"; Bagai & Leishman 1995). 
+// "Principles of Helicopter Aerodynamics"; Bagai & Leishman 1995).
 // See VPM_DESIGN.md and validation_rs for comprehensive theory validation tests.
 //
 // What this adds over the axial coupling:
@@ -31,10 +31,9 @@ use crate::rotor_definition::{
     FlapProperties, PitchActuation, RotorDefinition, ServoFlapActuation,
 };
 use crate::vpm::{
-    advect_rk2, advect_rk2_bh, advect_rk2_seq, advect_rk2_bh_seq, advect_rk2_nan_check,
-    induced_at_points, induced_at_points_bh, induced_at_points_seq, induced_at_points_bh_seq,
-    induced_at_points_nan_check,
-    ParticleField,
+    advect_rk2, advect_rk2_bh, advect_rk2_bh_seq, advect_rk2_nan_check, advect_rk2_seq,
+    induced_at_points, induced_at_points_bh, induced_at_points_bh_seq, induced_at_points_nan_check,
+    induced_at_points_seq, ParticleField,
 };
 use std::f64::consts::PI;
 
@@ -297,9 +296,8 @@ impl<P: Polar> VpmRotor<P> {
 
         // Spanwise integral for the aerodynamic feathering spring (see the
         // `feather_span_integral` field).
-        let feather_span_integral: f64 = (0..n)
-            .map(|i| chord[i] * r_mid[i] * r_mid[i] * dr[i])
-            .sum();
+        let feather_span_integral: f64 =
+            (0..n).map(|i| chord[i] * r_mid[i] * r_mid[i] * dr[i]).sum();
 
         Self {
             polar,
@@ -328,7 +326,10 @@ impl<P: Polar> VpmRotor<P> {
     /// from generic `RotorInputs`. Shared by the `AeroModel` load evaluation
     /// (`compute_forces`) and the time-advance (`step`).
     fn flight_condition(&self, inputs: &RotorInputs) -> (FlightCondition, Kinematics) {
-        let r_tip = *self.r_edge.last().expect("r_edge always has n+1 >= 2 edges");
+        let r_tip = *self
+            .r_edge
+            .last()
+            .expect("r_edge always has n+1 >= 2 edges");
         let kin = kinematics(inputs, inputs.omega_rad_s, r_tip);
         let fc = FlightCondition {
             collective_rad: inputs.collective_rad,
@@ -487,30 +488,71 @@ impl<P: Polar> VpmRotor<P> {
             eprintln!("march_window: n={} nb={} omega={} dt={} dpsi={} total_steps={} wake_len={} warm={}",
                 n, nb, omega, dt, dpsi, total_steps, wake.len(), warm.is_some());
             eprintln!("  gamma_prev[0][..3]={:?}", &gamma_prev[0][..3.min(n)]);
-            eprintln!("  theta_1c={} theta_1s={} servo_active={}", theta_1c, theta_1s, servo_active);
-            assert!(omega.is_finite() && omega > 0.0, "march_window: bad omega={}", omega);
+            eprintln!(
+                "  theta_1c={} theta_1s={} servo_active={}",
+                theta_1c, theta_1s, servo_active
+            );
+            assert!(
+                omega.is_finite() && omega > 0.0,
+                "march_window: bad omega={}",
+                omega
+            );
             assert!(dt.is_finite() && dt > 0.0, "march_window: bad dt={}", dt);
-            assert!(dpsi.is_finite() && dpsi > 0.0, "march_window: bad dpsi={}", dpsi);
+            assert!(
+                dpsi.is_finite() && dpsi > 0.0,
+                "march_window: bad dpsi={}",
+                dpsi
+            );
             assert!(n > 0, "march_window: n_elements=0");
             for i in 0..n {
-                assert!(self.r_mid[i].is_finite() && self.r_mid[i] > 0.0,
-                    "march_window: r_mid[{}]={}", i, self.r_mid[i]);
-                assert!(self.chord[i].is_finite() && self.chord[i] > 0.0,
-                    "march_window: chord[{}]={}", i, self.chord[i]);
-                assert!(self.dr[i].is_finite() && self.dr[i] > 0.0,
-                    "march_window: dr[{}]={}", i, self.dr[i]);
-                assert!(self.sigma_mid[i].is_finite() && self.sigma_mid[i] > 0.0,
-                    "march_window: sigma_mid[{}]={}", i, self.sigma_mid[i]);
+                assert!(
+                    self.r_mid[i].is_finite() && self.r_mid[i] > 0.0,
+                    "march_window: r_mid[{}]={}",
+                    i,
+                    self.r_mid[i]
+                );
+                assert!(
+                    self.chord[i].is_finite() && self.chord[i] > 0.0,
+                    "march_window: chord[{}]={}",
+                    i,
+                    self.chord[i]
+                );
+                assert!(
+                    self.dr[i].is_finite() && self.dr[i] > 0.0,
+                    "march_window: dr[{}]={}",
+                    i,
+                    self.dr[i]
+                );
+                assert!(
+                    self.sigma_mid[i].is_finite() && self.sigma_mid[i] > 0.0,
+                    "march_window: sigma_mid[{}]={}",
+                    i,
+                    self.sigma_mid[i]
+                );
             }
             // Check wake particle strengths -- huge strengths cause huge u_far.
             for p in 0..wake.len() {
-                let amag = ((wake.ax[p] as f64).powi(2) + (wake.ay[p] as f64).powi(2) + (wake.az[p] as f64).powi(2)).sqrt();
-                assert!(amag.is_finite() && amag < 1e6,
+                let amag = ((wake.ax[p] as f64).powi(2)
+                    + (wake.ay[p] as f64).powi(2)
+                    + (wake.az[p] as f64).powi(2))
+                .sqrt();
+                assert!(
+                    amag.is_finite() && amag < 1e6,
                     "march_window: wake particle {} has |a|={} a=[{},{},{}]",
-                    p, amag, wake.ax[p], wake.ay[p], wake.az[p]);
-                assert!(wake.px[p].is_finite() && wake.py[p].is_finite() && wake.pz[p].is_finite(),
+                    p,
+                    amag,
+                    wake.ax[p],
+                    wake.ay[p],
+                    wake.az[p]
+                );
+                assert!(
+                    wake.px[p].is_finite() && wake.py[p].is_finite() && wake.pz[p].is_finite(),
                     "march_window: wake particle {} has NaN pos=[{},{},{}]",
-                    p, wake.px[p], wake.py[p], wake.pz[p]);
+                    p,
+                    wake.px[p],
+                    wake.py[p],
+                    wake.pz[p]
+                );
             }
         }
 
@@ -598,10 +640,18 @@ impl<P: Polar> VpmRotor<P> {
                         }
                     }
                     // Also eprintln the worst-case magnitude for tracing.
-                    let u_far_max: f64 = u_far.iter().flat_map(|v| v.iter().map(|x| x.abs())).fold(0.0, f64::max);
+                    let u_far_max: f64 = u_far
+                        .iter()
+                        .flat_map(|v| v.iter().map(|x| x.abs()))
+                        .fold(0.0, f64::max);
                     if u_far_max > omega * r_tip * 5.0 {
-                        eprintln!("  u_far warn: step={} b={} u_far_max={:.2} (5x tip_speed={:.1})",
-                            step, b, u_far_max, omega * r_tip * 5.0);
+                        eprintln!(
+                            "  u_far warn: step={} b={} u_far_max={:.2} (5x tip_speed={:.1})",
+                            step,
+                            b,
+                            u_far_max,
+                            omega * r_tip * 5.0
+                        );
                     }
                 }
 
@@ -710,20 +760,63 @@ impl<P: Polar> VpmRotor<P> {
                 let mut gam = gamma_prev[b].clone();
                 if cfg.use_scalar_nan_check {
                     for i in 0..n {
-                        assert!(gam[i].is_finite(), "kj nan: step={} b={} gamma_prev[{}]={}", step, b, i, gam[i]);
-                        assert!(self.r_mid[i].is_finite() && self.r_mid[i] > 0.0,
-                            "kj nan: step={} b={} r_mid[{}]={}", step, b, i, self.r_mid[i]);
-                        assert!(self.chord[i].is_finite() && self.chord[i] > 0.0,
-                            "kj nan: step={} b={} chord[{}]={}", step, b, i, self.chord[i]);
-                        assert!(self.dr[i].is_finite() && self.dr[i] > 0.0,
-                            "kj nan: step={} b={} dr[{}]={}", step, b, i, self.dr[i]);
-                        assert!(self.sigma_mid[i].is_finite() && self.sigma_mid[i] > 0.0,
-                            "kj nan: step={} b={} sigma_mid[{}]={}", step, b, i, self.sigma_mid[i]);
-                        assert!(self.sigma_edge[i].is_finite() && self.sigma_edge[i] > 0.0,
-                            "kj nan: step={} b={} sigma_edge[{}]={}", step, b, i, self.sigma_edge[i]);
+                        assert!(
+                            gam[i].is_finite(),
+                            "kj nan: step={} b={} gamma_prev[{}]={}",
+                            step,
+                            b,
+                            i,
+                            gam[i]
+                        );
+                        assert!(
+                            self.r_mid[i].is_finite() && self.r_mid[i] > 0.0,
+                            "kj nan: step={} b={} r_mid[{}]={}",
+                            step,
+                            b,
+                            i,
+                            self.r_mid[i]
+                        );
+                        assert!(
+                            self.chord[i].is_finite() && self.chord[i] > 0.0,
+                            "kj nan: step={} b={} chord[{}]={}",
+                            step,
+                            b,
+                            i,
+                            self.chord[i]
+                        );
+                        assert!(
+                            self.dr[i].is_finite() && self.dr[i] > 0.0,
+                            "kj nan: step={} b={} dr[{}]={}",
+                            step,
+                            b,
+                            i,
+                            self.dr[i]
+                        );
+                        assert!(
+                            self.sigma_mid[i].is_finite() && self.sigma_mid[i] > 0.0,
+                            "kj nan: step={} b={} sigma_mid[{}]={}",
+                            step,
+                            b,
+                            i,
+                            self.sigma_mid[i]
+                        );
+                        assert!(
+                            self.sigma_edge[i].is_finite() && self.sigma_edge[i] > 0.0,
+                            "kj nan: step={} b={} sigma_edge[{}]={}",
+                            step,
+                            b,
+                            i,
+                            self.sigma_edge[i]
+                        );
                     }
-                    assert!(self.sigma_edge[n].is_finite() && self.sigma_edge[n] > 0.0,
-                        "kj nan: step={} b={} sigma_edge[n={}]={}", step, b, n, self.sigma_edge[n]);
+                    assert!(
+                        self.sigma_edge[n].is_finite() && self.sigma_edge[n] > 0.0,
+                        "kj nan: step={} b={} sigma_edge[n={}]={}",
+                        step,
+                        b,
+                        n,
+                        self.sigma_edge[n]
+                    );
                 }
                 for iter in 0..max_iter {
                     let mut converged = true;
@@ -733,11 +826,27 @@ impl<P: Polar> VpmRotor<P> {
                         let g_new = 0.5 * u_mag * c * cl;
                         let g_relaxed = gam[i] + cfg.relax * (g_new - gam[i]);
                         if cfg.use_scalar_nan_check {
-                            assert!(u_mag.is_finite() && u_mag < 1e8,
+                            assert!(
+                                u_mag.is_finite() && u_mag < 1e8,
                                 "kj nan: step={} b={} iter={} i={} u_mag={} u_far={:?} gam={:?}",
-                                step, b, iter, i, u_mag, u_far[i], &gam);
-                            assert!(cl.is_finite(),
-                                "kj nan: step={} b={} iter={} i={} cl={} u_mag={}", step, b, iter, i, cl, u_mag);
+                                step,
+                                b,
+                                iter,
+                                i,
+                                u_mag,
+                                u_far[i],
+                                &gam
+                            );
+                            assert!(
+                                cl.is_finite(),
+                                "kj nan: step={} b={} iter={} i={} cl={} u_mag={}",
+                                step,
+                                b,
+                                iter,
+                                i,
+                                cl,
+                                u_mag
+                            );
                             assert!(g_relaxed.is_finite() && g_relaxed.abs() < 1e8,
                                 "kj nan: step={} b={} iter={} i={} g_new={} g_relaxed={} u_mag={} cl={} c={}",
                                 step, b, iter, i, g_new, g_relaxed, u_mag, cl, c);
@@ -761,8 +870,14 @@ impl<P: Polar> VpmRotor<P> {
                                 "final nan: step={} b={} i={} urel[{}]={} u_mag={} cl={} gam[i]={} r_mid={} th={:?} u_far={:?}",
                                 step, b, i, k, urel[k], u_mag, cl, gam[i], self.r_mid[i], th, u_far[i]);
                         }
-                        assert!(gam[i].is_finite() && gam[i].abs() < 1e8,
-                            "final nan: step={} b={} i={} gam[i]={}", step, b, i, gam[i]);
+                        assert!(
+                            gam[i].is_finite() && gam[i].abs() < 1e8,
+                            "final nan: step={} b={} i={} gam[i]={}",
+                            step,
+                            b,
+                            i,
+                            gam[i]
+                        );
                     }
                     u_rel[b][i] = urel;
                     let r = self.r_mid[i];
@@ -807,13 +922,46 @@ impl<P: Polar> VpmRotor<P> {
                 let beta_b = beta[b];
 
                 if cfg.use_scalar_nan_check {
-                    assert!(psi_b.is_finite(), "shed nan: step={} b={} psi_b={}", step, b, psi_b);
-                    assert!(rh[0].is_finite() && rh[1].is_finite(), "shed nan: step={} b={} rh={:?}", step, b, rh);
-                    assert!(beta_b.is_finite(), "shed nan: step={} b={} beta_b={}", step, b, beta_b);
+                    assert!(
+                        psi_b.is_finite(),
+                        "shed nan: step={} b={} psi_b={}",
+                        step,
+                        b,
+                        psi_b
+                    );
+                    assert!(
+                        rh[0].is_finite() && rh[1].is_finite(),
+                        "shed nan: step={} b={} rh={:?}",
+                        step,
+                        b,
+                        rh
+                    );
+                    assert!(
+                        beta_b.is_finite(),
+                        "shed nan: step={} b={} beta_b={}",
+                        step,
+                        b,
+                        beta_b
+                    );
                     for i in 0..n {
-                        assert!(gamma[b][i].is_finite(), "shed nan: step={} b={} gamma[{}]={}", step, b, i, gamma[b][i]);
+                        assert!(
+                            gamma[b][i].is_finite(),
+                            "shed nan: step={} b={} gamma[{}]={}",
+                            step,
+                            b,
+                            i,
+                            gamma[b][i]
+                        );
                         for k in 0..3 {
-                            assert!(u_rel[b][i][k].is_finite(), "shed nan: step={} b={} u_rel[{}][{}]={}", step, b, i, k, u_rel[b][i][k]);
+                            assert!(
+                                u_rel[b][i][k].is_finite(),
+                                "shed nan: step={} b={} u_rel[{}][{}]={}",
+                                step,
+                                b,
+                                i,
+                                k,
+                                u_rel[b][i][k]
+                            );
                         }
                     }
                 }
@@ -843,9 +991,23 @@ impl<P: Polar> VpmRotor<P> {
                     let seg = [ur[0] * dt, ur[1] * dt, ur[2] * dt];
                     let r_edge = self.r_edge[j];
                     if cfg.use_scalar_nan_check {
-                        assert!(r_edge.is_finite(), "shed trail nan: step={} b={} j={} r_edge={}", step, b, j, r_edge);
-                        assert!(seg[0].is_finite() && seg[1].is_finite() && seg[2].is_finite(),
-                            "shed trail nan: step={} b={} j={} ur={:?} seg={:?}", step, b, j, ur, seg);
+                        assert!(
+                            r_edge.is_finite(),
+                            "shed trail nan: step={} b={} j={} r_edge={}",
+                            step,
+                            b,
+                            j,
+                            r_edge
+                        );
+                        assert!(
+                            seg[0].is_finite() && seg[1].is_finite() && seg[2].is_finite(),
+                            "shed trail nan: step={} b={} j={} ur={:?} seg={:?}",
+                            step,
+                            b,
+                            j,
+                            ur,
+                            seg
+                        );
                     }
                     let pos = [
                         (r_edge * rh[0]) as f32,
@@ -860,9 +1022,19 @@ impl<P: Polar> VpmRotor<P> {
                     if cfg.use_scalar_nan_check {
                         assert!(pos[0].is_finite() && pos[1].is_finite() && pos[2].is_finite(),
                             "shed trail nan: step={} b={} j={} pos={:?} r_edge={} rh={:?} beta_b={}", step, b, j, pos, r_edge, rh, beta_b);
-                        assert!(a[0].is_finite() && a[1].is_finite() && a[2].is_finite(),
-                            "shed trail nan: step={} b={} j={} a={:?} g_trail={} seg={:?}", step, b, j, a, g_trail, seg);
-                        let amag = ((a[0] as f64).powi(2) + (a[1] as f64).powi(2) + (a[2] as f64).powi(2)).sqrt();
+                        assert!(
+                            a[0].is_finite() && a[1].is_finite() && a[2].is_finite(),
+                            "shed trail nan: step={} b={} j={} a={:?} g_trail={} seg={:?}",
+                            step,
+                            b,
+                            j,
+                            a,
+                            g_trail,
+                            seg
+                        );
+                        let amag =
+                            ((a[0] as f64).powi(2) + (a[1] as f64).powi(2) + (a[2] as f64).powi(2))
+                                .sqrt();
                         assert!(amag < 1e4,
                             "shed trail LARGE: step={} b={} j={} |a|={} a={:?} g_trail={} seg={:?} u_rel_b0={:?}",
                             step, b, j, amag, a, g_trail, seg, &u_rel[b][..3.min(n)]);
@@ -887,11 +1059,31 @@ impl<P: Polar> VpmRotor<P> {
                         (mag * rh[2]) as f32,
                     ];
                     if cfg.use_scalar_nan_check {
-                        assert!(pos[0].is_finite() && pos[1].is_finite() && pos[2].is_finite(),
-                            "shed span nan: step={} b={} i={} pos={:?} r={} rh={:?} beta_b={}", step, b, i, pos, r, rh, beta_b);
-                        assert!(a[0].is_finite() && a[1].is_finite() && a[2].is_finite(),
-                            "shed span nan: step={} b={} i={} a={:?} mag={} d_gamma={} dr={}", step, b, i, a, mag, d_gamma, self.dr[i]);
-                        let amag = ((a[0] as f64).powi(2) + (a[1] as f64).powi(2) + (a[2] as f64).powi(2)).sqrt();
+                        assert!(
+                            pos[0].is_finite() && pos[1].is_finite() && pos[2].is_finite(),
+                            "shed span nan: step={} b={} i={} pos={:?} r={} rh={:?} beta_b={}",
+                            step,
+                            b,
+                            i,
+                            pos,
+                            r,
+                            rh,
+                            beta_b
+                        );
+                        assert!(
+                            a[0].is_finite() && a[1].is_finite() && a[2].is_finite(),
+                            "shed span nan: step={} b={} i={} a={:?} mag={} d_gamma={} dr={}",
+                            step,
+                            b,
+                            i,
+                            a,
+                            mag,
+                            d_gamma,
+                            self.dr[i]
+                        );
+                        let amag =
+                            ((a[0] as f64).powi(2) + (a[1] as f64).powi(2) + (a[2] as f64).powi(2))
+                                .sqrt();
                         assert!(amag < 1e4,
                             "shed span LARGE: step={} b={} i={} |a|={} a={:?} mag={} d_gamma={} gamma={:?}",
                             step, b, i, amag, a, mag, d_gamma, &gamma[b]);
@@ -947,8 +1139,13 @@ impl<P: Polar> VpmRotor<P> {
                 let c_th = act.damper_Nms_per_rad;
                 // Aerodynamic feathering spring from the AC offset [N*m/rad]:
                 //   k_aero = 0.5*rho*omega^2*cl_alpha*ac_offset*Int(c r^2 dr)
-                let k_aero = 0.5 * fc.rho * omega * omega * self.cl_alpha
-                    * act.ac_offset_m * self.feather_span_integral;
+                let k_aero = 0.5
+                    * fc.rho
+                    * omega
+                    * omega
+                    * self.cl_alpha
+                    * act.ac_offset_m
+                    * self.feather_span_integral;
                 let damp_fac = 1.0 / (1.0 + dt * c_th / i_th);
                 for b in 0..nb {
                     let rhs = (m_servo[b] - k_aero * theta_f[b]) / i_th;
@@ -974,8 +1171,15 @@ impl<P: Polar> VpmRotor<P> {
             }
             if cfg.use_scalar_nan_check {
                 for p in 0..wake.len() {
-                    assert!(wake.px[p].is_finite() && wake.py[p].is_finite() && wake.pz[p].is_finite(),
-                        "advect nan: step={} particle={} pos=[{},{},{}]", step, p, wake.px[p], wake.py[p], wake.pz[p]);
+                    assert!(
+                        wake.px[p].is_finite() && wake.py[p].is_finite() && wake.pz[p].is_finite(),
+                        "advect nan: step={} particle={} pos=[{},{},{}]",
+                        step,
+                        p,
+                        wake.px[p],
+                        wake.py[p],
+                        wake.pz[p]
+                    );
                 }
             }
             if wake.len() > max_particles {
@@ -1009,7 +1213,11 @@ impl<P: Polar> VpmRotor<P> {
             beta: if flap_active { Some(beta) } else { None },
             beta_dot: if flap_active { Some(beta_dot) } else { None },
             theta_f: if servo_active { Some(theta_f) } else { None },
-            theta_f_dot: if servo_active { Some(theta_f_dot) } else { None },
+            theta_f_dot: if servo_active {
+                Some(theta_f_dot)
+            } else {
+                None
+            },
         };
         (result, out_state)
     }
@@ -1180,5 +1388,3 @@ pub fn induced_velocities_at_points(
 ) -> Vec<[f32; 3]> {
     induced_at_points(wake, tx, ty, tz)
 }
-
-

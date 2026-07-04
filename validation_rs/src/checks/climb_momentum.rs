@@ -47,5 +47,11 @@ pub fn check_climb_momentum(r: &mut Report) {
         prev_li = lambda_i;
     }
     let mean_rel = rels.iter().sum::<f64>() / rels.len() as f64;
-    r.check("aggregate", "mean_momentum_closure", mean_rel * 100.0, 0.0, 80.0);
+    r.check(
+        "aggregate",
+        "mean_momentum_closure",
+        mean_rel * 100.0,
+        0.0,
+        80.0,
+    );
 }

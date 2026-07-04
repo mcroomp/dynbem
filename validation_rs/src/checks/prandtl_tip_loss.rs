@@ -2,7 +2,10 @@ use crate::helpers::*;
 use crate::report::Report;
 
 pub fn check_prandtl_tip_loss(r: &mut Report) {
-    r.begin_module("prandtl_tip_loss", "Tip-loss flag must reduce global loads (directional)");
+    r.begin_module(
+        "prandtl_tip_loss",
+        "Tip-loss flag must reduce global loads (directional)",
+    );
     let mut defn_on = theory_rotor(12, 0.0);
     defn_on.blade.tip_loss = true;
     let mut defn_off = theory_rotor(12, 0.0);

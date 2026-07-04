@@ -10,7 +10,9 @@ use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::PyTypeInfo;
 
-fn parse_integration_method(method: Option<&str>) -> PyResult<core_::aero_model::IntegrationMethod> {
+fn parse_integration_method(
+    method: Option<&str>,
+) -> PyResult<core_::aero_model::IntegrationMethod> {
     match method.unwrap_or("semi_implicit").to_ascii_lowercase().as_str() {
         "semi_implicit" | "semi-implicit" | "semiimplicit" | "implicit" => {
             Ok(core_::aero_model::IntegrationMethod::SemiImplicitEuler)

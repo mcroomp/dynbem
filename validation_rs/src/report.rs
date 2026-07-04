@@ -10,8 +10,8 @@ pub struct Row {
     pub qty: &'static str,
     pub vpm: f64,
     pub reference: f64,
-    pub err_pct: f64,   // signed % error vs reference (NaN = no reference)
-    pub tol_pct: f64,   // tolerance threshold (NaN = info-only)
+    pub err_pct: f64, // signed % error vs reference (NaN = no reference)
+    pub tol_pct: f64, // tolerance threshold (NaN = info-only)
     pub status: Status,
     pub note: Option<String>,
 }
@@ -40,7 +40,10 @@ pub struct Report {
 
 impl Report {
     pub fn new() -> Self {
-        Self { rows: Vec::new(), current_module: "" }
+        Self {
+            rows: Vec::new(),
+            current_module: "",
+        }
     }
 
     pub fn begin_module(&mut self, name: &'static str, desc: &str) {
@@ -65,23 +68,35 @@ impl Report {
         };
         let pass = err_pct.abs() < tol_pct || err_pct.is_nan();
         let status = if pass { Status::Pass } else { Status::Fail };
-        self.emit(case.into(), qty, vpm, reference, err_pct, tol_pct, status, None);
+        self.emit(
+            case.into(),
+            qty,
+            vpm,
+            reference,
+            err_pct,
+            tol_pct,
+            status,
+            None,
+        );
     }
 
     /// Record an info-only quantity (no pass/fail assertion).
-    pub fn info(
-        &mut self,
-        case: impl Into<String>,
-        qty: &'static str,
-        vpm: f64,
-        reference: f64,
-    ) {
+    pub fn info(&mut self, case: impl Into<String>, qty: &'static str, vpm: f64, reference: f64) {
         let err_pct = if reference.abs() > 1e-15 {
             (vpm - reference) / reference * 100.0
         } else {
             f64::NAN
         };
-        self.emit(case.into(), qty, vpm, reference, err_pct, f64::NAN, Status::Info, None);
+        self.emit(
+            case.into(),
+            qty,
+            vpm,
+            reference,
+            err_pct,
+            f64::NAN,
+            Status::Info,
+            None,
+        );
     }
 
     /// Record a directional / boolean check.
@@ -100,7 +115,16 @@ impl Report {
             f64::NAN
         };
         let status = if pass { Status::Pass } else { Status::Fail };
-        self.emit(case.into(), qty, vpm, reference, err_pct, f64::NAN, status, Some(note.into()));
+        self.emit(
+            case.into(),
+            qty,
+            vpm,
+            reference,
+            err_pct,
+            f64::NAN,
+            status,
+            Some(note.into()),
+        );
     }
 
     fn emit(
@@ -150,9 +174,21 @@ impl Report {
     }
 
     pub fn summary(&self) -> (usize, usize, usize) {
-        let total = self.rows.iter().filter(|r| r.status != Status::Info).count();
-        let pass = self.rows.iter().filter(|r| r.status == Status::Pass).count();
-        let fail = self.rows.iter().filter(|r| r.status == Status::Fail).count();
+        let total = self
+            .rows
+            .iter()
+            .filter(|r| r.status != Status::Info)
+            .count();
+        let pass = self
+            .rows
+            .iter()
+            .filter(|r| r.status == Status::Pass)
+            .count();
+        let fail = self
+            .rows
+            .iter()
+            .filter(|r| r.status == Status::Fail)
+            .count();
         (total, pass, fail)
     }
 
@@ -186,6 +222,9 @@ impl Report {
 
 fn chrono_now() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
-    let s = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+    let s = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
     format!("unix={}", s)
 }

@@ -2,11 +2,11 @@
 //!
 //! Runs theory validation checks against published datasets and closed-form solutions.
 
-pub mod report;
-pub mod helpers;
 pub mod checks;
+pub mod helpers;
+pub mod report;
 
-pub use report::{Report, Status, Row};
+pub use report::{Report, Row, Status};
 
 pub use checks::run_filtered_checks;
 
@@ -23,4 +23,3 @@ pub fn run_theory_validation_filtered(filter: &str) -> Report {
     checks::run_filtered_checks(&mut report, Some(filter));
     report
 }
-

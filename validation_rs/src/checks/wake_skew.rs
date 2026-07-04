@@ -62,5 +62,11 @@ pub fn check_wake_skew(r: &mut Report) {
     let hy = (res_y.wake_centroid[0].powi(2) + res_y.wake_centroid[1].powi(2)).sqrt();
     let dh = (hx - hy).abs() / hx.max(1e-9);
     r.check("covariance_mu=0.20", "chi_xy_diff_deg", dchi, 0.0, 8.0);
-    r.check("covariance_mu=0.20", "horiz_shift_diff_pct", dh * 100.0, 0.0, 30.0);
+    r.check(
+        "covariance_mu=0.20",
+        "horiz_shift_diff_pct",
+        dh * 100.0,
+        0.0,
+        30.0,
+    );
 }

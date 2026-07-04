@@ -74,8 +74,8 @@
 
 use aligned_vec::AVec;
 use bytemuck::cast_slice;
-use wide::f32x8;
 use rayon::prelude::*;
+use wide::f32x8;
 
 /// 1 / (4 pi), the Biot-Savart prefactor.
 const INV_4PI: f32 = 0.079_577_47;
@@ -249,7 +249,12 @@ fn eval_target(xj: f32, yj: f32, zj: f32, src: &Chunks<'_>, n_chunks: usize) -> 
 /// the Rayon thread pool (one target per task, sources vectorized eight-wide
 /// per lane as in the sequential path). The number of threads is controlled by
 /// Rayon's global pool (defaults to the logical core count).
-pub fn induced_at_points(field: &ParticleField, tx: &[f32], ty: &[f32], tz: &[f32]) -> Vec<[f32; 3]> {
+pub fn induced_at_points(
+    field: &ParticleField,
+    tx: &[f32],
+    ty: &[f32],
+    tz: &[f32],
+) -> Vec<[f32; 3]> {
     let n = field.len();
     let m = tx.len();
     let mut out = vec![[0.0f32; 3]; m];
@@ -456,12 +461,23 @@ pub fn induced_at_points_nan_check(
                  r2={} rho2={} denom={} k={} du=[{},{},{}]",
                 j,
                 s,
-                xj, yj, zj,
-                field.px[s], field.py[s], field.pz[s],
-                sax, say, saz,
+                xj,
+                yj,
+                zj,
+                field.px[s],
+                field.py[s],
+                field.pz[s],
+                sax,
+                say,
+                saz,
                 sigma,
-                r2, rho2, denom, k,
-                dux, duy, duz
+                r2,
+                rho2,
+                denom,
+                k,
+                dux,
+                duy,
+                duz
             );
 
             ux += dux;
@@ -474,7 +490,10 @@ pub fn induced_at_points_nan_check(
         assert!(
             vx.is_finite() && vy.is_finite() && vz.is_finite(),
             "nan_check: accumulated NaN at target j={}: v=[{},{},{}]",
-            j, vx, vy, vz
+            j,
+            vx,
+            vy,
+            vz
         );
         out[j] = [vx, vy, vz];
     }
@@ -830,7 +849,10 @@ fn build_node(
 
     let finalize = |wsum: f32, wpos: [f32; 3], wsig: f32| -> ([f32; 3], f32) {
         if wsum > 1e-20 {
-            ([wpos[0] / wsum, wpos[1] / wsum, wpos[2] / wsum], wsig / wsum)
+            (
+                [wpos[0] / wsum, wpos[1] / wsum, wpos[2] / wsum],
+                wsig / wsum,
+            )
         } else {
             (cc, 1.0)
         }
@@ -1020,7 +1042,10 @@ fn simd_min_max(v: &[f32]) -> (f32, f32) {
         }
     }
     let mut lo = vmin.to_array().into_iter().fold(f32::INFINITY, f32::min);
-    let mut hi = vmax.to_array().into_iter().fold(f32::NEG_INFINITY, f32::max);
+    let mut hi = vmax
+        .to_array()
+        .into_iter()
+        .fold(f32::NEG_INFINITY, f32::max);
     for &r in tail {
         if r < lo {
             lo = r;
@@ -1254,7 +1279,9 @@ pub fn advect_rk2_bh(field: &mut ParticleField, freestream: [f32; 3], dt: f32, t
 /// Sequential (non-parallelized) variant of `advect_rk2_bh`. Uses the
 /// sequential Barnes-Hut evaluator for single-threaded execution.
 pub fn advect_rk2_bh_seq(field: &mut ParticleField, freestream: [f32; 3], dt: f32, theta: f32) {
-    advect_rk2_with(field, freestream, dt, |f| induced_velocities_bh_seq(f, theta));
+    advect_rk2_with(field, freestream, dt, |f| {
+        induced_velocities_bh_seq(f, theta)
+    });
 }
 
 #[cfg(test)]
@@ -1279,7 +1306,11 @@ mod tests {
 
         assert!(up[0].abs() < 1e-4, "u_x should vanish, got {}", up[0]);
         assert!(up[2].abs() < 1e-4, "u_z should vanish, got {}", up[2]);
-        assert!(up[1] > 0.0, "u_y should be +y (CCW about +z), got {}", up[1]);
+        assert!(
+            up[1] > 0.0,
+            "u_y should be +y (CCW about +z), got {}",
+            up[1]
+        );
         assert!(
             (up[1] - expected).abs() / expected < 1e-2,
             "u_y = {}, expected ~ {}",
@@ -1295,7 +1326,11 @@ mod tests {
         let mut f = ParticleField::new();
         f.push([0.3, -0.2, 1.1], [0.5, -0.7, 0.9], 0.05);
         let u = induced_velocities(&f);
-        assert!(u[0].iter().all(|c| c.abs() < 1e-6), "self velocity {:?}", u[0]);
+        assert!(
+            u[0].iter().all(|c| c.abs() < 1e-6),
+            "self velocity {:?}",
+            u[0]
+        );
     }
 
     /// The SIMD path agrees with the scalar f64 reference on a random cloud.
@@ -1372,8 +1407,7 @@ mod tests {
         vz /= n as f64;
         vtrans /= n as f64;
 
-        let u_kelvin =
-            circulation / (4.0 * PI * radius) * ((8.0 * radius / sigma).ln() - 0.25);
+        let u_kelvin = circulation / (4.0 * PI * radius) * ((8.0 * radius / sigma).ln() - 0.25);
 
         assert!(vz > 0.0, "ring should propagate in +z, got vz = {}", vz);
         assert!(
@@ -1502,7 +1536,11 @@ mod tests {
             for i in 0..n {
                 let theta = 2.0 * std::f32::consts::PI * (i as f32) / (n as f32);
                 let (s, c) = theta.sin_cos();
-                f.push([radius * c, radius * s, 0.0], [seg * -s, seg * c, 0.0], sigma);
+                f.push(
+                    [radius * c, radius * s, 0.0],
+                    [seg * -s, seg * c, 0.0],
+                    sigma,
+                );
             }
             f
         };

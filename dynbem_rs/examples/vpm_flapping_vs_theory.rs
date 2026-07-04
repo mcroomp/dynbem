@@ -23,12 +23,12 @@
 //
 // Run: cargo run --release -p dynbem_rs --example vpm_flapping_vs_theory
 
+use dynbem_rs::cyclic::ControlGains;
 use dynbem_rs::polar::LinearPolar;
 use dynbem_rs::rotor_definition::{
     BladeGeometry, FlapProperties, LinearPolarParameters, PitchActuation, RotorDefinition,
 };
 use dynbem_rs::vpm_rotor::{FlightCondition, VpmRotor, VpmRotorConfig};
-use dynbem_rs::cyclic::ControlGains;
 use std::f64::consts::PI;
 
 const N_BLADES: usize = 2;
@@ -116,7 +116,10 @@ fn main() {
         "PCA-style flap comparison: R={R_TIP} m, {N_BLADES} blades, chord={CHORD} m, \
          Omega={OMEGA} rad/s, collective={collective_deg} deg"
     );
-    println!("Lock number gamma = {:.2}, I_beta = {} kg*m^2, nu_beta = 1", gamma, I_BETA);
+    println!(
+        "Lock number gamma = {:.2}, I_beta = {} kg*m^2, nu_beta = 1",
+        gamma, I_BETA
+    );
     println!();
     println!(
         "{:>5} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8}",

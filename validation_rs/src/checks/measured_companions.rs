@@ -3,7 +3,10 @@ use crate::report::Report;
 use dynbem_rs::vpm_rotor::FlightCondition;
 
 pub fn check_measured_companions(r: &mut Report) {
-    r.begin_module("measured_companions", "Each theory module anchored to a measured dataset");
+    r.begin_module(
+        "measured_companions",
+        "Each theory module anchored to a measured dataset",
+    );
 
     // --- companion: hover Castles-Gray 1600 rpm
     let defn = castles_gray_rotor(10);
@@ -17,7 +20,13 @@ pub fn check_measured_companions(r: &mut Report) {
         let omega = omega_from_rpm(rpm);
         let (res, _s) = settle(&rotor, &hover_fc_omega(theta_deg, omega), 10);
         let ct = ct_at(res.thrust, omega, R_TIP);
-        r.check(format!("CG1600 theta={theta_deg:.2}"), "CT", ct, ct_meas, 35.0);
+        r.check(
+            format!("CG1600 theta={theta_deg:.2}"),
+            "CT",
+            ct,
+            ct_meas,
+            35.0,
+        );
     }
 
     // --- companion: climb + descent (Castles-Gray WBS)

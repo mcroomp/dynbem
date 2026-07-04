@@ -21,9 +21,21 @@ pub fn check_glauert_forward_inflow(r: &mut Report) {
         let chi_g = mu.atan2(lambda_g.max(1e-6));
         let case = format!("mu={mu:.2}");
         r.check(&case, "lambda_inflow", lambda_vpm, lambda_g, 65.0);
-        r.check(&case, "chi_deg", chi_vpm.to_degrees(), chi_g.to_degrees(), 20.0);
+        r.check(
+            &case,
+            "chi_deg",
+            chi_vpm.to_degrees(),
+            chi_g.to_degrees(),
+            20.0,
+        );
         r.info(&case, "CT", ct, f64::NAN);
     }
     let mean_err = lam_errs.iter().sum::<f64>() / lam_errs.len() as f64;
-    r.check("aggregate", "mean_inflow_err_pct", mean_err * 100.0, 0.0, 35.0);
+    r.check(
+        "aggregate",
+        "mean_inflow_err_pct",
+        mean_err * 100.0,
+        0.0,
+        35.0,
+    );
 }

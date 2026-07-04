@@ -29,8 +29,20 @@ pub fn check_flapping_harmonics(r: &mut Report) {
             a0 > 0.0,
             "coning must be positive",
         );
-        r.check(&case, "coning_a0_deg", a0.to_degrees(), a0_th.to_degrees(), 15.0);
-        r.check(&case, "longit_a1_deg", a1.to_degrees(), a1_th.to_degrees(), 15.0);
+        r.check(
+            &case,
+            "coning_a0_deg",
+            a0.to_degrees(),
+            a0_th.to_degrees(),
+            15.0,
+        );
+        r.check(
+            &case,
+            "longit_a1_deg",
+            a1.to_degrees(),
+            a1_th.to_degrees(),
+            15.0,
+        );
         // b1 (lateral) under-predicted by free wake -- info only, bounded < a1.
         r.assert_bool(
             &case,

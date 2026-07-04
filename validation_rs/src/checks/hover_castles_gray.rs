@@ -2,7 +2,10 @@ use crate::helpers::*;
 use crate::report::Report;
 
 pub fn check_hover_castles_gray(r: &mut Report) {
-    r.begin_module("hover_castles_gray", "Hover vs measured Castles-Gray NACA TN-2474 Table V");
+    r.begin_module(
+        "hover_castles_gray",
+        "Hover vs measured Castles-Gray NACA TN-2474 Table V",
+    );
     struct M {
         theta: f64,
         rpm: f64,
@@ -10,8 +13,18 @@ pub fn check_hover_castles_gray(r: &mut Report) {
         cq: f64,
     }
     let meas = [
-        M { theta: 8.46, rpm: 1200.0, ct: 0.00400, cq: 0.000226 },
-        M { theta: 10.29, rpm: 1200.0, ct: 0.00488, cq: 0.000342 },
+        M {
+            theta: 8.46,
+            rpm: 1200.0,
+            ct: 0.00400,
+            cq: 0.000226,
+        },
+        M {
+            theta: 10.29,
+            rpm: 1200.0,
+            ct: 0.00488,
+            cq: 0.000342,
+        },
     ];
     let defn = castles_gray_rotor(10);
     let rotor = make_rotor(&defn);

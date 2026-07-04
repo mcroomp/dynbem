@@ -50,7 +50,10 @@ pub fn check_servo_flap(r: &mut Report) {
     };
     let (_res_z, state_z) = rotor.march(&fc_zero, None, dt, 13 * STEPS_PER_REV);
     let theta_f_z = state_z.theta_f.expect("servo active -> theta_f present");
-    let max_theta = theta_f_z.iter().cloned().fold(0.0_f64, |a, v| a.max(v.abs()));
+    let max_theta = theta_f_z
+        .iter()
+        .cloned()
+        .fold(0.0_f64, |a, v| a.max(v.abs()));
     r.info("zero_cmd", "max_theta_f_rad", max_theta, 0.0);
     r.assert_bool(
         "zero_cmd",
@@ -65,7 +68,9 @@ pub fn check_servo_flap(r: &mut Report) {
     let fc_col = hover_fc(8.0);
     let (_res_c, state_c) = rotor.march(&fc_col, None, dt, 26 * STEPS_PER_REV);
     let theta_f = state_c.theta_f.expect("servo active -> theta_f present");
-    let theta_f_dot = state_c.theta_f_dot.expect("servo active -> theta_f_dot present");
+    let theta_f_dot = state_c
+        .theta_f_dot
+        .expect("servo active -> theta_f_dot present");
     for (i, (&t, &td)) in theta_f.iter().zip(&theta_f_dot).enumerate() {
         let blade = format!("collective_blade{i}");
         r.info(&blade, "theta_f_rad", t, f64::NAN);
@@ -92,7 +97,10 @@ pub fn check_servo_flap(r: &mut Report) {
             td.abs(),
             2.0,
             td.abs() < 2.0,
-            &format!("feathering should settle (theta_dot~0), got {:.3} rad/s", td),
+            &format!(
+                "feathering should settle (theta_dot~0), got {:.3} rad/s",
+                td
+            ),
         );
     }
 

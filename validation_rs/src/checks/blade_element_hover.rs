@@ -2,7 +2,10 @@ use crate::helpers::*;
 use crate::report::Report;
 
 pub fn check_blade_element_hover(r: &mut Report) {
-    r.begin_module("blade_element_hover", "VPM vs combined BEMT, hover; Leishman ch.3");
+    r.begin_module(
+        "blade_element_hover",
+        "VPM vs combined BEMT, hover; Leishman ch.3",
+    );
     let defn = theory_rotor(12, 0.0);
     let rotor = make_rotor(&defn);
     for &theta_deg in &[8.46_f64, 10.29] {

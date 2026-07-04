@@ -276,7 +276,14 @@ mod tests {
         let defn = beaupoil_rotor();
         let polar = LinearPolar::from_properties(&defn.airfoil);
         let aero = OyeBEMModel::build(defn, 36, polar);
-        let out = run_trim(&aero, aero.initial_state(), [0.0, 0.0, 0.0], 0.0, 0.0, TOL_OYE);
+        let out = run_trim(
+            &aero,
+            aero.initial_state(),
+            [0.0, 0.0, 0.0],
+            0.0,
+            0.0,
+            TOL_OYE,
+        );
         assert!(
             out.converged,
             "Oye hover trim did not converge: iters={} mx={:.4} my={:.4}",
@@ -291,7 +298,14 @@ mod tests {
         let defn = beaupoil_rotor();
         let polar = LinearPolar::from_properties(&defn.airfoil);
         let aero = PittPetersModel::build(defn, 36, polar);
-        let out = run_trim(&aero, aero.initial_state(), [0.0, 10.0, 0.0], 0.0, 0.0, TOL_PITT);
+        let out = run_trim(
+            &aero,
+            aero.initial_state(),
+            [0.0, 10.0, 0.0],
+            0.0,
+            0.0,
+            TOL_PITT,
+        );
         assert!(
             out.converged,
             "Pitt forward trim did not converge: iters={} mx={:.4} my={:.4}",
@@ -306,8 +320,21 @@ mod tests {
         let defn = beaupoil_rotor();
         let polar = LinearPolar::from_properties(&defn.airfoil);
         let aero = PittPetersModel::build(defn, 36, polar);
-        let out = run_trim(&aero, aero.initial_state(), [0.0, 10.0, 0.0], 0.0, 0.0, TOL_PITT);
-        let (mx, my) = moments_hub(&aero, &out.final_state, out.tilt_lon, out.tilt_lat, [0.0, 10.0, 0.0]);
+        let out = run_trim(
+            &aero,
+            aero.initial_state(),
+            [0.0, 10.0, 0.0],
+            0.0,
+            0.0,
+            TOL_PITT,
+        );
+        let (mx, my) = moments_hub(
+            &aero,
+            &out.final_state,
+            out.tilt_lon,
+            out.tilt_lat,
+            [0.0, 10.0, 0.0],
+        );
         assert!((mx - out.mx_residual).abs() < 1e-6);
         assert!((my - out.my_residual).abs() < 1e-6);
     }
@@ -318,35 +345,69 @@ mod tests {
         let polar = LinearPolar::from_properties(&defn.airfoil);
         let aero = PittPetersModel::build(defn, 36, polar);
         let m_target = 5.0;
-        let out = run_trim(&aero, aero.initial_state(), [0.0, 10.0, 0.0], 0.0, m_target, TOL_PITT);
+        let out = run_trim(
+            &aero,
+            aero.initial_state(),
+            [0.0, 10.0, 0.0],
+            0.0,
+            m_target,
+            TOL_PITT,
+        );
         assert!(
             out.converged,
             "Pitt target-moment trim did not converge: iters={} mx={:.4} my={:.4}",
             out.iterations, out.mx_residual, out.my_residual
         );
-        let (mx, my) = moments_hub(&aero, &out.final_state, out.tilt_lon, out.tilt_lat, [0.0, 10.0, 0.0]);
+        let (mx, my) = moments_hub(
+            &aero,
+            &out.final_state,
+            out.tilt_lon,
+            out.tilt_lat,
+            [0.0, 10.0, 0.0],
+        );
         assert!(mx.abs() < TOL_PITT, "Mx={mx:.4} should be near 0");
-        assert!((my - m_target).abs() < TOL_PITT, "My={my:.4} should be near {m_target:.4}");
+        assert!(
+            (my - m_target).abs() < TOL_PITT,
+            "My={my:.4} should be near {m_target:.4}"
+        );
     }
 
     #[test]
     fn relax_inflow_settles_to_fixed_point_for_both_models() {
         use crate::aero_model::RotorStateExt;
         let defn = beaupoil_rotor();
-        let pp = PittPetersModel::build(defn.clone(), 36, LinearPolar::from_properties(&defn.airfoil));
-        let oye = OyeBEMModel::build(defn.clone(), 36, LinearPolar::from_properties(&defn.airfoil));
+        let pp = PittPetersModel::build(
+            defn.clone(),
+            36,
+            LinearPolar::from_properties(&defn.airfoil),
+        );
+        let oye = OyeBEMModel::build(
+            defn.clone(),
+            36,
+            LinearPolar::from_properties(&defn.airfoil),
+        );
         let inputs = base_inputs([0.0, 10.0, 0.0]);
 
         let s1_pp = relax_inflow(&pp, pp.initial_state(), &inputs, 500, 0.005);
         let s2_pp = relax_inflow(&pp, s1_pp.clone(), &inputs, 500, 0.005);
-        let d_pp: f64 = s1_pp.get_inflow().iter().zip(s2_pp.get_inflow().iter())
-            .map(|(a, b)| (b - a) * (b - a)).sum::<f64>().sqrt();
+        let d_pp: f64 = s1_pp
+            .get_inflow()
+            .iter()
+            .zip(s2_pp.get_inflow().iter())
+            .map(|(a, b)| (b - a) * (b - a))
+            .sum::<f64>()
+            .sqrt();
         assert!(d_pp < 1e-4, "Pitt inflow not settled: delta={d_pp:.4e}");
 
         let s1_oye = relax_inflow(&oye, oye.initial_state(), &inputs, 500, 0.005);
         let s2_oye = relax_inflow(&oye, s1_oye.clone(), &inputs, 500, 0.005);
-        let d_oye: f64 = s1_oye.get_inflow().iter().zip(s2_oye.get_inflow().iter())
-            .map(|(a, b)| (b - a) * (b - a)).sum::<f64>().sqrt();
+        let d_oye: f64 = s1_oye
+            .get_inflow()
+            .iter()
+            .zip(s2_oye.get_inflow().iter())
+            .map(|(a, b)| (b - a) * (b - a))
+            .sum::<f64>()
+            .sqrt();
         assert!(d_oye < 1e-4, "Oye inflow not settled: delta={d_oye:.4e}");
     }
 
@@ -362,8 +423,12 @@ mod tests {
         let inputs = base_inputs(wind);
         for _ in 0..200 {
             let (_, deriv) = aero.compute_forces(&inputs, &state);
-            let arr: Vec<f64> = state.get_inflow().iter().zip(deriv.get_inflow().iter())
-                .map(|(x, dx)| x + 0.005 * dx).collect();
+            let arr: Vec<f64> = state
+                .get_inflow()
+                .iter()
+                .zip(deriv.get_inflow().iter())
+                .map(|(x, dx)| x + 0.005 * dx)
+                .collect();
             state.set_inflow(arr);
         }
 
@@ -372,7 +437,8 @@ mod tests {
         assert!(baseline > 10.0, "baseline too small: {baseline:.2}");
 
         let out = run_trim(&aero, state, wind, 0.0, 0.0, TOL_PITT);
-        let trim_mag = (out.mx_residual * out.mx_residual + out.my_residual * out.my_residual).sqrt();
+        let trim_mag =
+            (out.mx_residual * out.mx_residual + out.my_residual * out.my_residual).sqrt();
         assert!(
             trim_mag < baseline / 70.0,
             "solver did not cancel disturbance: baseline={baseline:.2} trim={trim_mag:.4}"
@@ -389,10 +455,18 @@ mod tests {
             &aero,
             aero.initial_state(),
             &base_inputs([0.0, 10.0, 0.0]),
-            0.0, 0.0, 0.0, 0.0,
-            -tight, tight,
-            0.01, 20,
-            0.008_726_646_259_971_648, 0.005, 100, 0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            -tight,
+            tight,
+            0.01,
+            20,
+            0.008_726_646_259_971_648,
+            0.005,
+            100,
+            0,
         );
         assert!(out.tilt_lon >= -tight && out.tilt_lon <= tight);
         assert!(out.tilt_lat >= -tight && out.tilt_lat <= tight);

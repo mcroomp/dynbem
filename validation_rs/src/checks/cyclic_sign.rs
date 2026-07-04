@@ -49,7 +49,12 @@ pub fn check_cyclic_sign(r: &mut Report) {
     let (base, _) = rotor.march(&fc_base, None, dt, n_steps);
     let (tilted_lon, _) = rotor.march(&fc_lon, None, dt, n_steps);
     r.info("lon_cyclic_base", "my_hub_Nm", base.my_hub, f64::NAN);
-    r.info("lon_cyclic_tilted", "my_hub_Nm", tilted_lon.my_hub, f64::NAN);
+    r.info(
+        "lon_cyclic_tilted",
+        "my_hub_Nm",
+        tilted_lon.my_hub,
+        f64::NAN,
+    );
     r.assert_bool(
         "lon_cyclic",
         "my_lt_base_and_negative",
@@ -68,7 +73,12 @@ pub fn check_cyclic_sign(r: &mut Report) {
 
     let (tilted_lat, _) = rotor.march(&fc_lat, None, dt, n_steps);
     r.info("lat_cyclic_base", "mx_hub_Nm", base.mx_hub, f64::NAN);
-    r.info("lat_cyclic_tilted", "mx_hub_Nm", tilted_lat.mx_hub, f64::NAN);
+    r.info(
+        "lat_cyclic_tilted",
+        "mx_hub_Nm",
+        tilted_lat.mx_hub,
+        f64::NAN,
+    );
     r.assert_bool(
         "lat_cyclic",
         "mx_gt_base_and_positive",
@@ -88,14 +98,22 @@ pub fn check_cyclic_sign(r: &mut Report) {
     let moment = cross.mx_hub.hypot(cross.my_hub);
     r.info("crosswind", "thrust_N", cross.thrust, f64::NAN);
     r.info("crosswind", "hub_moment_Nm", moment, f64::NAN);
-    r.info("crosswind", "wake_centroid_x_m", cross.wake_centroid[0], f64::NAN);
+    r.info(
+        "crosswind",
+        "wake_centroid_x_m",
+        cross.wake_centroid[0],
+        f64::NAN,
+    );
     r.assert_bool(
         "crosswind",
         "thrust_positive",
         cross.thrust,
         0.0,
         cross.thrust.is_finite() && cross.thrust > 0.0,
-        &format!("crosswind: thrust should be positive, got {:.1}", cross.thrust),
+        &format!(
+            "crosswind: thrust should be positive, got {:.1}",
+            cross.thrust
+        ),
     );
     r.assert_bool(
         "crosswind",

@@ -8,8 +8,8 @@
 // Build and run (RELEASE is mandatory -- VPM is ~50-100x slower in debug):
 //   cargo run --release -p validation_rs
 
-use validation_rs::{run_theory_validation, run_theory_validation_filtered};
 use std::time::Instant;
+use validation_rs::{run_theory_validation, run_theory_validation_filtered};
 
 fn main() {
     let t0 = Instant::now();
@@ -19,11 +19,13 @@ fn main() {
     //   cargo run --release -p validation_rs -- cyclic_phase_servo
     let filter: Option<String> = std::env::args().nth(1);
 
-    println!("THEORY_REPORT  dynbem_rs  run_start=unix_seconds_{}  (RELEASE mode required)",
-             std::time::SystemTime::now()
-                 .duration_since(std::time::UNIX_EPOCH)
-                 .unwrap()
-                 .as_secs());
+    println!(
+        "THEORY_REPORT  dynbem_rs  run_start=unix_seconds_{}  (RELEASE mode required)",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+    );
     if let Some(ref f) = filter {
         println!("Filter: running only checks matching '{f}'");
     }
@@ -32,17 +34,24 @@ fn main() {
 
     let report = match filter.as_deref() {
         Some(f) => run_theory_validation_filtered(f),
-        None    => run_theory_validation(),
+        None => run_theory_validation(),
     };
 
     let elapsed = t0.elapsed();
     let (total, pass, fail) = report.summary();
     println!();
-    println!("=== SUMMARY  total={}  pass={}  fail={}  elapsed={:.1}s", total, pass, fail, elapsed.as_secs_f64());
+    println!(
+        "=== SUMMARY  total={}  pass={}  fail={}  elapsed={:.1}s",
+        total,
+        pass,
+        fail,
+        elapsed.as_secs_f64()
+    );
 
     // Write to tmp/
     let out_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent().unwrap()
+        .parent()
+        .unwrap()
         .join("tmp");
     std::fs::create_dir_all(&out_dir).ok();
     let out_path = out_dir.join("theory_report.txt");

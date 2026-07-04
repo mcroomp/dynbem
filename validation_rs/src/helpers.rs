@@ -6,24 +6,27 @@ use dynbem_rs::rotor_definition::{
     BladeGeometry, FlapProperties, LinearPolarParameters, PitchActuation, RotorDefinition,
 };
 pub use dynbem_rs::rotor_definition::{ServoFlapActuation, ServoFlapGeometry};
-use dynbem_rs::vpm_rotor::{FlightCondition, VpmRotor, VpmRotorConfig, VpmRotorResult, VpmRotorState, induced_velocities_at_points};
+use dynbem_rs::vpm_rotor::{
+    induced_velocities_at_points, FlightCondition, VpmRotor, VpmRotorConfig, VpmRotorResult,
+    VpmRotorState,
+};
 use std::f64::consts::PI;
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
-pub const R_TIP:           f64 = 0.914;
-pub const R_ROOT:          f64 = 0.155;
-pub const CHORD:           f64 = 0.0479;
-pub const N_BLADES:        usize = 3;
-pub const CL_ALPHA:        f64 = 5.90;
-pub const CD0:             f64 = 0.01046;
+pub const R_TIP: f64 = 0.914;
+pub const R_ROOT: f64 = 0.155;
+pub const CHORD: f64 = 0.0479;
+pub const N_BLADES: usize = 3;
+pub const CL_ALPHA: f64 = 5.90;
+pub const CD0: f64 = 0.01046;
 pub const ALPHA_STALL_DEG: f64 = 15.5;
-pub const RHO:             f64 = 1.225;
-pub const OMEGA:           f64 = 125.6637; // 1200 rpm
-pub const STEPS_PER_REV:   usize = 24;
-pub const PCA2_R:          f64 = 6.85;
+pub const RHO: f64 = 1.225;
+pub const OMEGA: f64 = 125.6637; // 1200 rpm
+pub const STEPS_PER_REV: usize = 24;
+pub const PCA2_R: f64 = 6.85;
 
 // ---------------------------------------------------------------------------
 // Helper functions
@@ -171,7 +174,12 @@ pub fn make_rotor(defn: &RotorDefinition) -> VpmRotor<LinearPolar> {
 /// 800 particles. Much faster than make_rotor; suitable for checks that just
 /// need the right sign, not converged magnitudes.
 pub fn make_fast_rotor(defn: &RotorDefinition) -> VpmRotor<LinearPolar> {
-    VpmRotor::new(defn, polar_for(&defn.airfoil), ControlGains::default(), VpmRotorConfig::fast_test())
+    VpmRotor::new(
+        defn,
+        polar_for(&defn.airfoil),
+        ControlGains::default(),
+        VpmRotorConfig::fast_test(),
+    )
 }
 
 pub fn make_pca2_rotor(defn: &RotorDefinition) -> VpmRotor<LinearPolar> {
@@ -445,4 +453,3 @@ pub fn csv_rows(data: &str) -> Vec<csv::StringRecord> {
         .from_reader(data.as_bytes());
     rdr.records().map(|r| r.expect("CSV parse error")).collect()
 }
-
