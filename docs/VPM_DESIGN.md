@@ -670,30 +670,41 @@ flap harmonics checked against classical theory (Section 8.4).
 Per-step cost at a non-axial operating point (forward 12 m/s + 5 m/s edgewise
 + descent 2 m/s). The BEM-family models return a converged answer per
 `compute_forces` call; one VPM step advances the free wake by a single azimuth
-increment (an O(N^2) Biot-Savart probe + RK2 advect over the whole cloud):
+increment (an O(N^2) Biot-Savart probe + RK2 advect over the whole cloud).
 
-| Model | ms/step | relative |
+**Algorithm comparison** (ms/step). The VPM row is an optimal operating point:
+a reasonable wake size (N=5,000) evaluated with the Barnes-Hut tree, parallel.
+
+| Model | ms/step | x Oye |
 |---|---:|---:|
 | Oye (2-stage annular filter) | 0.105 | 1x |
-| Pitt-Peters (3-state L-matrix) | 0.107 | ~1x |
-| Quasi-static BEM | 10.95 | ~100x |
-| VPM direct O(N^2) (N=5,000, parallel) | ~58 | ~550x |
-| VPM Barnes-Hut theta=0.5 (N=5,000, parallel) | ~54 | ~515x |
+| Pitt-Peters (3-state L-matrix) | 0.107 | 1x |
+| Quasi-static BEM | 10.95 | 104x |
+| VPM (Barnes-Hut, parallel, N=5,000) | 54 | 514x |
 
 Oye and Pitt-Peters are algebraic inflow relations (near-free). The BEM is
 ~100x slower from its per-station Brent root-find. The VPM is not an inflow
 model but a wake-resolving tool: its cost is dominated by the Biot-Savart
 evaluation and scales with the particle count N.
 
-**Scaling with N.** The direct sum is O(N^2); the Barnes-Hut tree
-(`VpmRotorConfig::barnes_hut`, off by default) lumps distant particle clusters
-into single equivalent vortices and grows O(N log N), so it overtakes the
-direct sum as the wake grows: comparable at N=5k, ~3x faster at N=16k, and ~7x
-at N=32k (direct ~2.3 s/step vs BH ~0.34 s, parallel). Rayon parallelism
-(default) gives ~2-4x over sequential for the direct sum and ~2x for the tree.
-Reproduce and sweep N with `rotor_profile vpm-direct,vpm-bh --long`
-(`--seq`/`--par` isolate the parallelism). Absolute ms are machine-dependent;
-the ratios are the point.
+**VPM cost vs particle count** (ms/step, matched N on the same settled wake,
+`rotor_profile vpm-direct,vpm-bh --long`):
+
+| N | direct seq | direct par | BH seq | BH par |
+|---:|---:|---:|---:|---:|
+| 2,000 | 21 | 11 | 39 | 15 |
+| 5,000 | 198 | 59 | 113 | 53 |
+| 10,000 | 778 | 227 | 197 | 108 |
+| 16,000 | 2,633 | 428 | 708 | 139 |
+| 32,000 | 8,750 | 2,265 | 1,058 | 337 |
+
+The direct sum is O(N^2) (cost quadruples per doubling of N); the Barnes-Hut
+tree (`VpmRotorConfig::barnes_hut`, off by default) lumps distant particle
+clusters into single equivalent vortices and grows O(N log N), so it overtakes
+the direct sum as the wake grows -- comparable at N=5k, ~3x faster at N=16k,
+~7x at N=32k. Rayon parallelism (default) gives ~2-4x over sequential for the
+direct sum and ~2x for the tree (`--seq`/`--par` isolate it). Absolute ms are
+machine-dependent; the ratios are the point.
 
 ### 7.1 Barnes-Hut tree (O(N log N))
 
