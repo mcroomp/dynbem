@@ -742,19 +742,19 @@ vs direct ($<5\%$ of peak at $\theta = 0.5$).
 
 ### 8.1 Theoretical validation (VPM vs closed-form theory)
 
-| Validation (`validation_rs`) | Reference | What it checks |
-|---|---|---|
-| `blade_element_hover` | Combined BEMT, hover (Leishman ch. 3) | Hover thrust coefficient vs closed form |
-| `climb_momentum` | Axial-climb momentum theory | `C_T` ~ 2 lam_i (lam_i + lam_c); loads fall with climb |
-| `glauert_forward_inflow` | Glauert forward-flight inflow | Disk inflow + wake-skew angle |
-| `wake_skew` | Wake-skew geometry | Skew grows with mu; covariant under X/Y rotation |
-| `prandtl_tip_loss` | Directional | Tip-loss flag reduces global loads |
-| `autorotation` | Directional | Negative-torque branch reached in descent + edgewise |
-| `flapping_harmonics` | Bramwell / Seddon flap theory | Coning `a0`, longitudinal flap `a1` vs closed form |
-| `cyclic_sign` | Directional (AGENTS.md) | Collective monotone; cyclic tilt signs |
-| `flap_directional` | Directional | Flap coning in hover; hub-moment relief under cyclic |
-| `servo_flap` | Directional | Kaman servo-flap feathering (zero / collective / cyclic) |
-| `cyclic_phase_servo` | Directional | Direct-mech pitching `My` vs servo-flap rolling `Mx` |
+| Validation (`validation_rs`) | Reference | What it checks | Result |
+|---|---|---|---|
+| `blade_element_hover` | Combined BEMT, hover (Leishman ch. 3) | Hover thrust coefficient vs closed form | within ~15-25% |
+| `climb_momentum` | Axial-climb momentum theory | `C_T` ~ 2 lam_i (lam_i + lam_c); loads fall with climb | PASS (monotone) |
+| `glauert_forward_inflow` | Glauert forward-flight inflow | Disk inflow + wake-skew angle | skew <1.2%; inflow <26% |
+| `wake_skew` | Wake-skew geometry | Skew grows with mu; covariant under X/Y rotation | PASS |
+| `prandtl_tip_loss` | Directional | Tip-loss flag reduces global loads | PASS |
+| `autorotation` | Directional | Negative-torque branch reached in descent + edgewise | PASS |
+| `flapping_harmonics` | Bramwell / Seddon flap theory | Coning `a0`, longitudinal flap `a1` vs closed form | `a0`, `a1` within ~14% |
+| `cyclic_sign` | Directional (AGENTS.md) | Collective monotone; cyclic tilt signs | PASS |
+| `flap_directional` | Directional | Flap coning in hover; hub-moment relief under cyclic | PASS |
+| `servo_flap` | Directional | Kaman servo-flap feathering (zero / collective / cyclic) | PASS |
+| `cyclic_phase_servo` | Directional | Direct-mech pitching `My` vs servo-flap rolling `Mx` | PASS |
 
 Hover thrust tracks BEMT to within ~15-25%; coning `a0` and longitudinal
 flapping `a1` match the closed forms to ~14% (the disk tilts back by the right
@@ -762,11 +762,11 @@ amount). Lateral flapping `b1` is currently under-predicted -- see the TODO.
 
 ### 8.2 Empirical validation (VPM vs measured data)
 
-| Validation (`validation_rs`) | Dataset | What it checks |
-|---|---|---|
-| `hover_castles_gray` | Castles-Gray NACA TN-2474 Table V | Hover thrust vs measured (within ~8-13%) |
-| `measured_companions` | CG 1600 rpm, CG descent, Wheatley TR-515 | Each theory module anchored to a measured point |
-| `vpm_forward_flight_empirical` | Wheatley & Hood NACA TR-515 Tables III/IV | Forward-flight autorotation lift sweep (<= ~8% to mu = 0.32) |
+| Validation (`validation_rs`) | Dataset | What it checks | Result |
+|---|---|---|---|
+| `hover_castles_gray` | Castles-Gray NACA TN-2474 Table V | Hover thrust vs measured | within ~8-13% |
+| `measured_companions` | CG 1600 rpm, CG descent, Wheatley TR-515 | Each theory module anchored to a measured point | PASS |
+| `vpm_forward_flight_empirical` | Wheatley & Hood NACA TR-515 Tables III/IV | Forward-flight autorotation lift sweep | <= ~8% to mu = 0.32 |
 
 `validation_rs` also validates the QS / Pitt-Peters / Oye BEM models against
 the same Castles-Gray data (`hover_ct_empirical`, `hover_cq_empirical`,
