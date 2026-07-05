@@ -2,14 +2,15 @@ use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use dynbem_rs::aero_io::{Mat3, RotorInputs, Vec3};
 use dynbem_rs::aero_model::AeroModel;
 use dynbem_rs::bem_common::{element_force, ElementCtx, RadialGrid, SweepCtx};
-use dynbem_rs::oye::{OyeBEMModel, OYE_K};
-use dynbem_rs::pitt_peters::PittPetersModel;
+use dynbem_rs::oye::{OyeBEMModel, OyeRotorState, OYE_K};
+use dynbem_rs::pitt_peters::{PittPetersModel, PittPetersRotorState};
 use dynbem_rs::polar::{LinearPolar, TabulatedPolar};
-use dynbem_rs::quasi_static_bem::{solve_bem_element, QuasiStaticBEM};
+use dynbem_rs::quasi_static_bem::{
+    solve_bem_element, BEMElementGeometry, QuasiStaticBEM, QuasiStaticRotorState,
+};
 use dynbem_rs::rotor_definition::{
     BladeGeometry, LinearPolarParameters, PitchActuation, RotorDefinition,
 };
-use dynbem_rs::rotor_state::{OyeRotorState, PittPetersRotorState, QuasiStaticRotorState};
 
 fn make_rotor_definition(n_elements: usize) -> RotorDefinition {
     RotorDefinition {
@@ -54,23 +55,26 @@ fn make_inputs() -> RotorInputs {
 
 fn bench_solve_bem_element(c: &mut Criterion) {
     let polar = LinearPolar::new(0.0, 5.7, 0.01, 15.0_f64.to_radians());
+    let geom = BEMElementGeometry::new(
+        0.85,                 // r
+        0.02,                 // dr
+        0.06,                 // chord
+        2.0_f64.to_radians(), // twist_rad
+        120.0,                // omega
+        1.225,                // rho
+        2,                    // n_blades
+        1.0,                  // radius_m
+        &polar,               // polar
+        true,                 // use_tip_loss
+        0.2,                  // root_cutout_m
+    );
     c.bench_function("solve_bem_element", |b| {
         b.iter(|| {
             black_box(solve_bem_element(
-                0.85,
-                0.02,
-                0.06,
-                2.0_f64.to_radians(),
-                8.0_f64.to_radians(),
-                120.0,
-                -1.0,
-                1.225,
-                2,
-                1.0,
-                &polar,
-                true,
-                0.0,
-                0.2,
+                black_box(&geom),
+                black_box(8.0_f64.to_radians()), // collective_rad
+                black_box(-1.0),                 // v_climb
+                black_box(0.0),                  // v_t_extra
             ))
         })
     });
