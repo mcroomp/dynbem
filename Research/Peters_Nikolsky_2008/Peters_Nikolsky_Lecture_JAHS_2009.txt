@@ -1,0 +1,285 @@
+How Dynamic In.ow Survives in the Competitive World of Rotorcraft Aerodynamics 
+The Alexander Nikolsky Honorary Lecture 
+
+David A. Peters*
+McDonnell Douglas Professor of Engineering 
+Department of Mechanical, Aerospace, and Structural Engineering, Washington University 
+St. Louis, MO 
+
+Dynamic wake models have found a .rm place in rotary-wing analysis since their inception in the 1950s, proliferation in the 1970s, and maturation in the 1990s. They have maintained their usefulness, despite the appearance of new and more powerful tools—such as prescribed-wake models, free-wake models, and computational .uid dynamics—due to the following .ve fundamental reasons: (1) the various models and improvements have always come in response to important, yet unexplained experimental results; (2) the response to those results was invariably based on sound physical intuition as to the nature of the discrepancies; (3) the model improvements at each step were based on engineering physics rather than heuristic .t of data; (4) the models included only enough physics to explain the phenomenon—and no more; and (5) each model was hierarchical to earlier models so that no model was ever replaced—i.e., each new improvement included earlier models as special cases. Because of this, dynamic wake models have maintained a strength in the domains of real-time .ight simulation, stability computations, and .ight mechanics and control. This paper looks in detail at how these developments have transpired and how they relate to the importance of simpli.ed tools, in general. 
+Nomenclature 	Vmass-.ow parameter Xwake skew parameter =tan(./2) aslope of lift curve, rad-1 
+* 	ßblade .apping angle, rad 
+aequivalent lift-curve slope .,.*blade Lock number, equivalent Lock number CL,CMroll-moment and pitch-moment coef.cients .blade lag angle, rad CTthrust coef.cient .body pitch angle, rad [C] coupling matrix of dynamic wake models .0,.s,.ccollective and cyclic pitch, rad cblade chord, m .wake curvature 
+{F} forcing functions of dynamic wake models .climb ratio 
+hrotor height above ground divided by R µadvance ratio Iyblade inertia, kg-m2 µ0 propeller advance, 1/.KGground effect factor .average induced .ow ratio KRewake skew intensity parameter .nstates of dynamic wake models [L] matrix of in.uence coef.cients .0,.s,.cstates of Pitt model [M] mass matrix of dynamic wake models .density of air, kg/m3 Nnumber of blades sblade solidity pblade .apping frequency, per/rev tnondimensional time, t, ( )*=d/dtpitch rate 
+qb 	.total dynamic in.ow 
+Rblade radius, m fbody roll angle, rad rnondimensional radial coordinate .wake skew angle, rad Tnondimensional time constant .azimuth angle, rad ttime, s rotor speed, rad/s 
+.frequency of oscillation, per/rev or Hz 
+*Corresponding author: email: dap@me.wustl.edu. Received June 2008; accepted 
+()R,()Pregressing, progressing mode 
+November 2008. 
+C
+
+D. A. PETERS JOURNAL OF THE AMERICAN HELICOPTER SOCIETY 
+
+Fig. 1. Ecological niches of aerodynamic models. 
+Introduction 
+
+In the very competitive world of aerodynamic modeling of rotorcraft, one could argue that computational .uid dynamics (CFD) is the top predator (Fig. 1), and that it .lls many competitive niches. However, CFD is not well suited to the computation of the induced .ow due to wakes because the arti.cial viscosity of those codes (necessary for numerical stability) tends to cause concentrated vorticity to decay, thus losing the most powerful source of induced .ow—the vortex wake. Thus, free-wake models (rather than CFD) tend to dominate the tools used to .nd induced .ow .elds for rotorcraft. 
+Free-wake models, however, are not perfect. They rely on many con­vergence parameters such as vortex-core size, number of radial and az­imuthal .laments, and the number of wake turns used before truncation. In addition, the models are fairly unstable at low speeds and completely unstable in hover. To enhance numerical stability, free-wake models are often replaced by prescribed-wake models as the method of choice to .nd the induced .ow .eld; although prescribed-wake models still have the other convergence issues. Nevertheless, the utility of these vortex-lattice codes far exceeds their drawbacks, and they are used extensively in the industry. 
+Despite the existence of these very attractive and powerful tools (CFD and vortex-lattice), dynamic wake models have persisted as being the model of choice in many rotary-wing applications and especially in dy­namics, stability and control, and real-time .ight simulation. The purpose of this paper is to look back through the history of the development of dynamic in.ow models and try to determine why they have been so suc­cessful and why they continue to be used in many applications. Along the way, it will also be noted that many Nikolsky lecturers have been involved in the development of dynamic in.ow models; see Fig. 2. 
+To begin, we should de.ne what we mean by a dynamic wake (i.e., dynamic in.ow) model. I believe that there are three characteristics that set a theory aside as being in this genre. First, it must be a mathematical model that, given the time history of blade loads on a rotor, will produce the induced .ow normal to the rotor disk as a function of the key coor­dinates: time, radial position, and azimuthal position. Thus, it is a theory that separates the wake model from both the airloads and structural mod­els in a formal way (i.e., it asks neither how the time history of loads has been computed nor for what purpose they will be used). Second, the form of a dynamic wake model must be in terms of a .nite number of ordinary differential equations in time that take the form 
+
+dvn
+[M]+[C]{vn}={Fm}(1)
+dt
+
+where the vnare states that de.ne the .ow .eld, [M] is an apparent mass matrix, [C] is a matrix of in.uence coef.cients, and {Fm} depends on the blade loading. It follows that the vnare state variables for the .ow .eld that are driven by the blade loads. Third, a dynamic wake model must be formulated in such a way that the number of states chosen can be determined by the user based on the .delity of the model needed for a given application. It must be a hierarchical model in which one might use a single state, three states—or even more—depending upon the application. This de.nes what we discuss here as dynamic wake (or dynamic in.ow) models. 
+Foundation (1950–1969) 
+
+
+Simple momentum theory 
+The origins of dynamic wake models go back to the work of Ken Amer (the 1988 Nikolsky Lecturer) when he was examining some ex­perimental data on the roll damping of helicopters (Ref. 1). Amer noted that the measured roll damping was signi.cantly larger than that pre­dicted by theory, and this brings us to our .rst point about dynamic wake models through the years. They tend to follow directly from unexplained experimental data that have a signi.cant impact on helicopter design and understanding. This was the case with Amer, and it has remained the case throughout the development of dynamic in.ow models. Experimental re­sults have consistently motivated the development of improvements to the theory. 
+Returning to Amer, it is noteworthy that he offered a plausible expla­nation of the unexplained data. On page 1 of Ref. 1, Amer writes: 
+The . . . discrepancy between the data and the theory appears 
+to be due primarily to the changes in the distribution of thrust 
+around the rotor disk. These changes in induced velocity are 
+
+
+Q1 Fig. 2. 
+not taken into account in the theoretical calculations because 
+of the excessive labor that would be involved. 
+Amer was exactly correct in this conjecture, and this brings us to our second point on the effectiveness of dynamic wake models. The develop­ment of dynamic wake models has been based on keen physical insight as to what could be creating the discrepancy. In this case, Amer’s intuition took him straight to the heart of the phenomenon. 
+In particular, the roll damping of a helicopter arises from the tilt of the tip-path plane that develops in response to a roll rate. The resultant tilt of the thrust vector tends to oppose the roll motion, thus giving a roll damping. The tilt is due to the blade .apping response to the gyroscopic and aerodynamic forces created by roll rate. Since these forces are near the natural frequency of the blades (once per rev), the tilt is inversely proportional to blade damping. Thus, since blade damping is ./16, it follows that the roll damping is 16/.,where .is the Lock number. 
+The Lock number is a ratio of aerodynamic forces to inertial forces in a helicopter, 
+.=.acR4/Iy(2) 
+
+where .is the density of air, ais the slope of the lift curve, cis the blade chord, Ris the blade radius, and Iyis the blade mass moment of inertia about the .apping hinge. The change in thrust from side to side on the rotor creates a change in in.ow from side to side that, in turn, lowers the differential in angle of attack and decreases the aerodynamic effectiveness of the blades—often by as much as 50%. Thus, blade damping goes down and roll damping goes up. Amer saw that this must be the case. 
+Sissingh (Ref. 2) soon showed that the computation effort was not so prohibitive as Amer had originally thought, and Sissingh derived in.ow formulas for both hover and forward .ight. Sissingh used a very simple, straightforward model to predict this effect. He applied standard momentum theory to the rotor slipstream but in a new way. He treated the two sides of the rotor disk as separate momentum tubes, each with a different thrust and, consequently, each with a different induced .ow. From this, he could predict in closed form the relationship between the aerodynamic roll moment and the gradient in .ow. His formulas explained the discrepancies noted by Sissingh in Ref. 2. This was the .rst dynamic in.ow model, albeit quasi-steady. 
+The manner in which Sissingh performed his analysis brings us to the third and fourth important points about the success of dynamic wake models. First, they are based on engineering physics, and, second, they include just enough physics to explain the effect—but no more. In this case, Sissingh used a simple momentum theory on each half of the rotor disk. This was all that was necessary to obtain what he needed. The .ow was assumed constant with radius (implying a discontinuity across the center), but that did not matter. No further re.nement was needed to explain the Amer data. The fact that dynamic wake models are based on D. A. PETERS 
+physics has given them both staying power and growing power. Had Amer and Sissingh rather decided simply to put an empirical correction factor on roll damping, future models could not have developed from it. The fact that Sissingh derived the correction factor from momentum theory gave the model a physical basis and a place from which to expand. Since the theory was made as simple as possible, it could both give physical insight and become a useful tool—applied over a broad range of problems. 
+
+Vortex considerations 
+Sissingh’s work was well known in Great Britain but did not make deep inroads into developments in the United States for a number of years. Meanwhile, however, other researchers in America were coming to similarly interesting results. Once again, these results were motivated by unexplained phenomena. It was noted that, at zero or low lift, a helicopter rotor could develop a .utter when the natural frequency of the blades was near an integer multiple of the number of blades times the rotor speed, N. The effect was most pronounced at low values of lift coef.cient. Robert Loewy (the 1984 Nikolsky Lecturer) conjectured that the effect might be due to the layers of returning vorticity beneath each blade (Ref. 3). When the natural frequency was near an integer multiple of N, these vortices might line up, creating an increased in.ow and loss of aerodynamic damping. 
+As with the Amer conjecture, Loewy’s explanation turned out to be exactly correct. He worked out a lift-de.ciency function for the ap­proximation in which the helical, returning wake is represented by a two-dimensional system with in.nite layers of vorticity spaced below the airfoil. It turns out that the physics of this hypothesis was all that was needed to completely explain the phenomenon. The Loewy lift-de.ciency function showed a large drop in damping at the precise integer multiples where the experimental effect had been noticed, and the drop was inversely proportional to the wake spacing (Fig. 3). Thus, damping went to zero as thrust went to zero, just as in the data. An interesting spin-off of the Loewy results is that they show—for cyclic pitch inputs (such as are typical of helicopter pitch or roll)—that even the static lift (.=0 is an integer multiple of N) is lowered by this large factor. The loss of lift for static pitch or roll (at .=0) is identical to the loss pre­dicted by Sissingh from momentum theory. However, the Loewy theory went beyond Sissingh in that it treated other frequencies. The Loewy result also showed that, for unsteady inputs removed from N,there would be a time delay (i.e., a magnitude and phase shift) from the static value. Thus, Loewy theory was not simply quasi-steady, it was unsteady. Although the Loewy theory was in the frequency domain—and therefore not a true dynamic wake model—it contained the seeds of dynamic wake models to come. 
+
+Fig. 3. Flap damping based on Loewy lift de.ciency. 
+JOURNAL OF THE AMERICAN HELICOPTER SOCIETY 
+
+As an interesting sidelight, Rene Miller (the 1983 Nikolsky Lecturer) added some three-dimensional corrections to Loewy theory (Ref. 4), but these additions never had the popularity of the original Loewy function. The reason for this is that Loewy had just enough physics to explain the phenomena—and no more. Another interesting aspect of the Loewy results in Fig. 3 is a comparison of the various damping curves with the curve for h=8, which is—in essence—Theodorsen theory. Although the damping based on Theodorsen monotonically decreases with fre­quency, the more accurate Loewy theory shows that—away from integer multiples—the lift de.ciency remains close to unity due to the time delay terms. In other words, the major effect of the returning wake is to cancel most of the Theodorsen effects and to replace them with Sissingh effects. Thus, for rotor blades, it is better to use no unsteady aerodynamics at all than to use Theodorsen theory. 
+
+Development (1970–1989) 
+
+Rediscovery 
+The next two decades, the 1970s and 1980s, saw the development and popularization of dynamic in.ow and other related dynamic wake models. In 1971, Pat Curtiss (the 2000 Nikolsky winner) and Norm Shupe showed that the Sissingh theory could be greatly simpli.ed and treated as an equivalent Lock number (Ref. 5). In particular, the Curtiss derivation showed that the net effect of the Sissingh equations for a static input is an equivalent reduction in lift-curve slope leading to a reduced value a*implying a reduction in Lock number (see Eq. (2)) 
+a*/a=.*/.=[1 +sa/8V]-1 (3) 
+
+where sis the blade solidity and Vis the nondimensional mass .ow pa­rameter. Curtiss pointed out that this drop in effective lift agrees with the Loewy lift-de.ciency function for cyclic modes at integer-multiple fre­quencies. Curtiss further recognized that, for time-varying cyclic inputs, there must be a time lag for the buildup of in.ow (and, correspondingly, for the reduction in lift). Thus, Curtiss certainly stands as the father of dynamic in.ow modeling. 
+Another interesting development during this era was that Sissingh had moved from England to the United States and had begun to work for Lockheed California in the late 1960s. He—along with another British engineer, Michael Harrison—was working on the development of REXOR, the .rst attempt at a comprehensive helicopter code. Harri­son promptly put the Sissingh in.ow effect into REXOR—including an in.ow time delay based on the mass of an assumed height of a column of air at the disk (Ref. 6) (Appendix A). Thus, by 1970 the roots of Q2 dynamic in.ow modeling had found their way into rotor analysis in the United States through two different paths: (1) Pat Curtiss at Princeton and 
+(2) Michael Harrison at Lockheed. (The REXOR code and theory manual were not published openly until the late 1970s (Ref. 6).) 
+Meanwhile, in 1970 the U.S. Army had set up the Army Aeronau­tical Research Laboratory (AARL) under the direction of Paul Yaggy. Q3 AARL was colocated with NASA Ames at Moffett Field, California. Bob Ormiston had come to lead the Army dynamics group, and he hired a young engineer from Washington University, Dave Peters. At that time, numerous data on the response of hingeless rotors to pitch and shaft inputs were being generated from wind tunnel tests in the NASA 40 ×80 and 7 ×10 low-speed wind tunnels. The motivation for these tests arose from the AH-56 Cheyenne program. The AH-56 was Lockheed’s hingeless-rotor, compound helicopter. The challenges of that program led the Army to form the AARL (later called AMRDL, the Army Air Mobility Research and Development Laboratory) to look to the science of helicopter dynamics. 
+
+Fig. 4. Response data from 7.5-ft model rotor, . = 5.0, s a = 0.729. 
+It was clear from the NASA/Army data that the existing theories were not adequate to explain the test results, and Bob Ormiston was looking for answers. He instructed Dave Peters to write a specialized code that could compute rotor response, including all of the usual suspects for lack of correlation: elastic blade bending, reversed .ow, root cutout, tip loss, and higher harmonics. Despite these efforts, the inclusion of these effects failed to explain the discrepancies. However, having come from Princeton and having studied with Pat Curtiss, Ormiston was aware of the dynamic wake effect of Sissingh. Fortunately, the Peters codes were perfectly structured for adding this type of wake effect in a rigorous manner. 
+Immediately upon addition of the Sissingh terms, the calculations for static data in hover agreed with the experimental data as shown in Fig. 4, taken from Ref. 8. In the results of Fig. 4, the rotor is slowed, thus giving a range of .apping frequencies, p. One can see that the traditional theories are off by a factor greater than 2 in the response predictions of roll and pitch moments due to cyclic pitch. The theory of Ormiston and Peters (with the Sissingh terms), on the other hand, nicely matches the experimental data. It is clear from the results in Fig. 4 that the quasi-steady dynamic wake model is able to predict most of the important effects in these static hover tests. (Interestingly, because REXOR was so expensive to run, it was not practical for Lockheed to use it for these comparisons. Otherwise, that code (with the Sissingh model) would have successfully predicted the experimental results.) 
+Despite this success in steady hover conditions, the use of the Siss­ingh in.ow equations was unable to provide adequate correlation for either dynamic data in hover, static data in forward .ight, or dynamic data in forward .ight. Ormiston, like Michael Harrison and Pat Curtiss before him, had the idea of adding some type of time delay to the in.ow equations. However, rather than a heuristic value of time delay—as had been applied in earlier work—Ormiston decided that there should be an analytical determination of this parameter. He knew about a study in the 1950s by Carpenter and Fridovitch in which they applied step and ramp inputs for collective pitch and then observed the buildup of in.ow (and the resultant loss of lift) as a function of time (Ref. 7). Carpenter and Fridovitch had found that the apparent mass of an impermeable disk (being accelerated in still air) gave the appropriate time delay for the development of collective in.ow mode. 
+Ormiston suggested to Peters that he use both the apparent mass and the apparent inertia of an impermeable disk for the time delays of the in.ow to model this effect for both collective and cyclic modes. The addition of these apparent mass terms resulted in a set of dynamic wake equations for hover based entirely on physics. 
+[8/(3p)]d.0/dt+[2V].0 =CT(4) 
+
+
+Fig. 5. Rotor dynamic response to cyclic pitch, p = 1.15, . = 4.25. 
+[16/(45p)]d.s/dt+[V/2].s=-CL(5) [16/(45p)]d.c/dt+[V/2].c=-CM(6) 
+
+where tis nondimensional time, t; .0, .s,and .care the uniform, side­to-side, and fore-to-aft gradients in induced .ow; and Vis the mass .ow parameter, to be de.ned later. Results obtained with these equations pro­vided excellent correlation with all of the steady and unsteady hover data taken by NASA and the Army, as can be seen in Figs. 5 and 6 taken from Ref. 9. At this same time, Dave Peters’ former advisor Kurt Hohenemser (and his students back at Washington University) was running dynamic tests of their own and .nding similar discrepancies as were occurring at Ames. They decided to use a dynamic wake model—similar to that of Eqs. (5) and (6)—but to use parameter identi.cation to .nd the gains and time constants of that system (Ref. 10). Figure 7 shows the results of the Hohenemser investigation. In that test, one shaft spun the rotor while another turned the cyclic. Thus, pure regressing or progressing inputs could be given to the system based on the difference in the two shaft speeds. Hohenemser and his group determined that a gain of 2.0 and a time constant of 4.0 gave the optimally best correlation of the data. These values turn out to be within 2% of the values as taken from the analytic formulation of Eqs. (5) and (6). 
+At this point, the validity of the unsteady dynamic in.ow model in hover was well established, but the correlations in forward .ight were still very poor. It was clear that—for forward .ight—the form of Eqs. (4)–(6) 
+D. A. PETERS 
+
+Fig. 6. Rotor dynamic response to shaft oscillations in hover. 
+
+Fig. 7. Blade .apping response to rotating input. 
+
+would have to be modi.ed to include couplings between the collective and cyclic modes. Ormiston and Peters assumed a 3 ×3[L]matrix to represent the couplings among the equations. They then attempted to determine the values of these couplings via a number of alternative approaches—including both modeling the rotor as a horseshoe vortex and applying pure parameter identi.cation. Nothing, however, was entirely satisfactory (Ref. 9). 
+
+Skewed .ow 
+During this same time period, computer power was growing, and some investigators like Jack Landgrebe were beginning to model the wake by vortex lattice methods either with a .xed lattice geometry or with a free wake (Ref. 11). Dave Peters returned to Washington University in 1975 and was convinced that what needed to be done was to exercise these vortex-lattice codes in controlled numerical experiments and thereby identify the coupling parameters of the system. Dale Pitt, an engineer at the Army Aviation Systems Command in St. Louis, came to Washington University as Peters’ second doctoral student, and he had access to the Landgrebe code. Peters gave him the task of using the Landgrebe code to .nd [L]. 
+JOURNAL OF THE AMERICAN HELICOPTER SOCIETY 
+
+However, Pitt wanted to do a literature search .rst. Pitt won out over Peters’ initial objections. He thoroughly searched the literature and found that Mangler and Squire (Ref. 12) had computed rotor-induced velocities from potential .ow theory based on the circular wing theory of Kin­ner (Ref. 13). (Interestingly, Stepniewski, the 1981 inaugural Nikolsky Lecturer, used the Mangler and Squire theory in a numerical approach to perform induced .ow calculations (Ref. 14). He showed that the average induced .ow from potential .ow was the same as that of Glauert’s momentum theory.) 
+Pitt used the potential functions of Mangler and Squire to develop a closed-form representation of the [L]and [M] matrices that would both couple the in.ow equations and determine the time delays of Eq. (1) (Ref. 15). His theory is given below. 
+*
+........0...0..CT.
+[M] .s+V[L]-1 .s=-CL(7) 
+......
+.c.c-CM
+µ2 +(.+.)(.+2.)
+V=(8) 
+µ2 +(.+.)2 
+..
+8 
+00 
+.3p.
+..
+..
+16 
+..
+[M] =0 0 (9) 
+..
+.45p.
+..
+16 00 
+45p
+..
+1 15p
+0 -X
+.2 64 .
+..
+..
+[L] =0 2(1 +X2) 0 (10) 
+..
+..
+15pX0 2(1 -X2)
+64 .=.0 +.srsin .+.crcos .(11) 
+
+Equation (7) is the standard form of the Pitt model with ()*=d()/dt.It includes the effect of wake contraction through the mass .ow parameter V(Eq. (8)), which is written in terms of advance ratio µ, climb rate .,and average induced .ow .. The mass matrix (Eq. (9)) gives the same inertia terms as Peters developed based on the impermeable disk. The effect of wake skew angle .appears explicitly in the parameter X=tan(./2) (Eq. (10)). These wake skew terms are the important contribution by Pitt to the model. Once this set of equations is solved, the .nal induced .ow is de.ned by Eq. (11) in which .is the total induced velocity at any point on the disk (normalized on tip speed), ris the nondimensional radial coordinate, and .is the azimuth angle. 
+As it turns out, Pitt eventually ran the Landgrebe code to identify 
+[L] and compared that with his closed-form [L] matrix, as can be seen in Fig. 8. All elements show excellent correlation between the two ap­proaches. However, because the Pitt model is in closed form based on potential .ow theory, it provides a more applicable framework for future developments than does a model based on numerical .t of vortex-lattice results. 
+Once the Pitt theory was in place, it was straightforward to go back and correlate the original 7 ×10 data that had begun this whole line of in­vestigation. Gopal Gaonkar did an excellent job of this (Ref. 16). Figure 9 shows typical examples of how the theory with no in.ow, the theory with combined momentum theory and apparent mass (Eqs. (4)–(6)) and the Pitt model compare with the experimental data. The improvement in data correlation of computations with the Pitt model over computations with the previous theories is dramatic. 
+As these results were widely disseminated, the Pitt model system­atically became the standard fare in many .ight simulation and rotor response codes. Simultaneously, it was becoming clear that the effect of dynamic in.ow would also be essential for coupled rotor-body stability analysis. This became evident as Bill Bousman began experiments on air and ground resonance with a dynamically scaled model. 
+
+
+Wayne Johnson (Ref. 17) had been using his new code CAMRAD to correlate this new rotor-body dynamics data taken by Bill Bousman. He soon discovered that not even the frequency calculations were accurate if dynamic wake models were not included. Figure 10 shows the im­provement in frequency and damping when dynamic in.ow is included in CAMRAD. 
+In Fig. 10, open symbols are the experimental data (i.e., frequen­cies extracted from test data by harmonic analysis of transients). The solid lines show theoretical results from CAMRAD for the modal frequencies—with each curve labeled by the particular mode (regressing or progressing, .ap or inplane, and body pitch and roll). The top set of curves correlates the data against CAMRAD (run without dynamic in.ow), and the bottom set correlates the same data against CAMRAD (run with dynamic in.ow). 
+In either ser of plots, the nonrotating frequencies at =0 emerge and begin to shift and couple as rpm is increased. Often, two modes couple together and then reemerge as new modal branches. In the top set of curves, the comparison of frequencies is good at lower rpm but begins to 
+degrade as the rotor speed (and aerodynamic effectiveness) is increased. 
+Fig. 8. [L] matrix from the Landgrebe code compared with the Pitt 
+For greater than 400 rpm, the predicted frequencies for the regressing 
+model. 
+
+Fig. 9. Gaonkar results for rotor .apping response in forward .ight. 
+D. A. PETERS JOURNAL OF THE AMERICAN HELICOPTER SOCIETY 
+
+.ap mode (ßR) and of the body pitch mode (.) are not supported by the the eigenvectors to identify the character of the modes, since the ex-data, and the frequency of the body roll mode (f) is slightly in error. perimental data do not include any means of doing so. One normally Furthermore, the theory is predicting .ve branches, whereas the data looks at the largest participation of any degree of freedom in an eigen­display only four. vector and thus identi.es the mode with that motion. When Johnson 
+However, in the lower set of curves—with dynamic wake—theoretical looked at the frequency branches from CAMRAD (with the presence of curves pass directly through all four data branches. There is another es-dynamic in.ow), he noticed that the regressing .ap mode had become pecially interesting aspect of this correlation. In particular, Johnson used critically damped (0 frequency) and therefore had gone off of the plot. 
+
+This explained the existence of only four modal frequencies in the data. In addition, Johnson noted that the eigenvector of the lowest frequency mode was dominated by the in.ow states themselves rather than by any structural degree of freedom. Thus, he labeled that branch .or “the in­.ow mode.” This was further con.rmation of the importance of dynamic in.ow to any rotor stability analysis. 
+
+Generalized theory 
+As it became clear that dynamic wake modeling was necessary for correct aeroelastic and stability modeling, more and more researchers began incorporating various in.ow models into their codes. It was at this time that Friedmann at University of California, Los Angeles, be­gantouse Pad´e approximants to turn traditional frequency-domain the­ories (such as Theodorsen and Loewy) into .nite-state models that might compete with dynamic in.ow (Ref. 18). As Friedmann ap­plied his Pad´e approximation of Loewy theory to blade dynamics, he noted that there seemed to be large discrepancy between the results with Loewy theory and those with dynamic in.ow. The discrepancy appeared especially pronounced at low frequencies for the collective mode. 
+Peters consequently turned his attention to understanding this appar­ent anomaly. As it turns out, the “discrepancy” was simply the result of a singularity in the Loewy theory for the collective mode at .=0. This singularity had not been heretofore studied, but it explained the anoma­lies. However, as Peters was looking into the relationships between the Pitt and Loewy models, it occurred to him that it should be possible to extend dynamic in.ow to include all harmonics and all radial distribu­tions of in.ow and thereby encompass Lowey theory as well as Sissingh theory in a single model. 
+A simple preliminary calculation showed that the dips in the Loewy function at integer-multiple frequencies could be represented through an extension of the potential functions used by Pitt. Figure 11 shows the approximate comparison that was created. As Peters looked at the comparison of the imaginary part of the Loewy function with the Pitt theory, he further realized that there was a relationship between the time constants of the various harmonics as predicted by the two respective models (i.e., the slope of the imaginary part Gat these integers. In particular, one could obtain simple, closed-form representations of the time constant for the lowest mode of the mth harmonic from either representation. 
+Dynamic wake: T=0.75/(m+3/2) 
+(12)Loewy at r=3/4: T=0.75/m
+
+Equation (12) shows that the time constants of the two theories are very similar (especially for harmonics of m=4 and above. In contrast, the m=1 time constant from Loewy theory (T=0.75) is 2.5 times as large as is the true value from Pitt (T=0.30), and the discrepancy is even greater for m=0 in which case Loewy gives T=8rather than T=0.50 (and this accounts for the singularity noted by Peters). Of course, for m=0 and m=1, the dynamic wake model is known to have the correct time constants because of comparisons both with Carpenter and Fridovitch and with the NASA data. Therefore, Eq. (12) implies that a more general theory (based on potential .ow theory) might well give both the Pitt model and an improvement to Loewy theory. 
+D. A. PETERS 
+Peters took these preliminary comparisons to Bob Ormiston and Bill Warmbrodt in their respective Army and NASA groups and convinced them to give him some funding to pursue this line of extension of dy­namic wake models. The funding arrived in 1985, just as Peters moved from Washington University to Georgia Tech, where he joined the Ro­torcraft Center of Excellence. Robin Gray (the 1991 Nikolsky Lecturer) had successfully attracted funding for the Rotorcraft Center in 1982. (Of note is the fact that Gray had worked under Alexander Nikolsky on rotor in.ow (Ref. 19).) By 1985, one of Peters’ former doctoral students, Dan Schrage (the 1999 Nikolsky Lecturer), had come as the new director of that Center. 
+Peters’ .rst doctoral student at Georgia Tech was Cheng Jian He, who had worked on wake modeling under Wang Shi Cun in China. Peters put He on the task of extending the Pitt model to be completely general. Together, Peters and He were able to derive (from the three-dimensional potential .ow equations) an entirely closed form, general version of the dynamic wake model. This new model includes all harmonics and all radial distributions of in.ow at arbitrary wake skew angle (ranging from axial .ow to edgewise .ow) (Ref. 20). The theory is in closed form and is amazingly compact—such that everything needed to code the method can be expressed in a 10-point font on a single side of an 8.5 ×11 sheet of paper. In addition, the He model contains the Pitt model as a special case (when the number of states is truncated to 3). This makes it very convenient to upgrade existing codes from the Pitt model to the He model. 
+At this same time, some excellent laser velocimeter data were being taken in the NASA Langley Transonic Dynamics Tunnel. These gave the induced .ow .eld of a rotor in forward .ight. Data were taken for two different blade sets, for various advance ratios, and for various shaft angles. It was the perfect venue for He to test out the new theory (Ref. 21). Shown in Fig. 12 is the in.ow comparison for the tapered blades at an advance ratio of 0.15. The correlation is similarly good at all other measured conditions. 
+Q4 Also shown in Fig. 12 are data from both a prescribed-wake model and a free-wake model. Incredibly, the He model gives as good or better correlation than is provided by the vortex-lattice methods. The reason for this is fairly straightforward. Although the vortex-lattice models have more physics than does the potential .ow model, the He model has just enough physics to compute the .ow—but no more. Also, whereas vortex-lattice models have convergence issues—with the number of trailing .laments, number of shed .laments, the number of turns of the wake, and the vortex core size—the He model is robust and based on orthogonal 
+JOURNAL OF THE AMERICAN HELICOPTER SOCIETY 
+
+
+potential functions. Thus, it is always at the optimum convergence for any number of states. That is why it fares so well in comparison. 
+Another of Peters’ students, Ay Su, soon began work on how to nonlinearize the wake model so that it would be applicable even in hover. Su showed that the model could be made nonlinear in the uniform-.ow state in such a way that it would agree with He in forward .ight and with nonlinear momentum theory in hover (Ref. 22). Fortunately, Prof. Narayanan Komerath of Georgia Tech concurrently produced laser data from the new Georgia Tech Hover Test stand. Correlations between the nonlinear version of the theory and the hover experimental data, as given in Ref. 21, are excellent. For example, Fig. 13 shows the unsteady in.ow at a .xed point in space for a two-bladed model rotor. Interestingly, there at .rst was a phase discrepancy between theory and experiment. However, rather than being attributed to the theory, it turned out to be due to an error in the phasing of the experimental data collection system. 
+Another noteworthy development at this time was that one of Dr. Schrage’s students, Bill Lewis, did a Ph.D. thesis on how pilots perceived the performance of .ight simulators when the simulators had various .delity levels of dynamic wake models included (Ref. 23). This authenticated that pilots could tell the improvement in the realistic nature of .ight simulation when dynamic in.ow was modeled correctly. 
+
+Thus, the He model was established as a generalized theory that not only had good validation in hover and forward .ight, but that also reproduced the Pitt model as a special case. After his Ph.D., Cheng Jian He stayed on at Georgia Tech for some time as a postdoctoral fellow. He later joined Advanced Rotorcraft Technology and began to put his model into .ight simulation codes such as FLIGHTLAB. Soon the He model was also in the new comprehensive Army code, RCAS. Generalized dynamic wake models had arrived in the mainstream of aerodynamic applications. 
+
+Re.nement (1990–2008) 
+
+The last two decades of dynamic wake modeling have seen a series of improvements made to the dynamic in.ow and dynamic wake mod­els. As was the case in the previous history, these new improvements were generally motivated by unexplained experimental data—followed by physically intuitive arguments by the researchers—then consummated by application of the simplest possible physics to put numbers to the ideas. The three main re.nements have been (1) the addition of wake curvature, (2) the extension to all components of .ow both on and off the rotor disk, and (3) the addition of a correction for swirl velocity. 
+
+Wake curvature 
+As the new wake models found their way into .ight simulation codes, it became clear that there existed a phenomenon explained neither by dy­namic in.ow models nor by the vortex models. In particular, there was the issue of off-axis coupling. When a helicopter makes a pull-up ma­neuver via a cyclic stick input, there is inevitably an accompanying roll response—an off-axis response. However, the simulation codes consis­tently predicted the off-axis response to be of opposite sign from the .ight test data. 
+Aviv Rosen postulated that the off-axis effect might be due to the fact that, during a pull-up, the wake distorts into a curved helix—thus stacking vortex layers more tightly together on one side than on the other (Ref. 24). The differential in vortex spacing could cause a differential in velocity that might explain the phenomenon. Rosen demonstrated that a simple vortex-wake model of the curvature could indeed explain part of the off-axis error. Keller and Curtiss further showed that this effect could alternatively be captured by simple momentum theory with a curved momentum tube (Ref. 25). They expressed the effect as a forcing function (proportional to rotor pitch rate) placed on the right-hand side of the dynamic in.ow equations. 
+Based on this, Prasad at Georgia Tech (along with his students and Peters) extended the Pitt and He dynamic wake models to include terms due to wake curvature (the result of pitch rate). Prasad and his students moved the curvature terms to the left-hand side of the equations and placed them within the [L] matrix. Thus, rather than appearing as forcing functions, they are treated along with wake skew and wake contraction as wake deformation effects on [L] (Ref. 24). Figure 14 shows the three wake deformation variables that consequently appear in the equations via [L]. Wake contraction is included in the Vparameter, as introduced by Pitt and generalized by Su. The wake skew appears in the Xparameter, where Xis tangent of one half of the skew angle. (Thus, Xvaries from 0 to 1.0 as skew goes from 0.in hover to 90.in edgewise .ow.) Third, wake curvature appears as additional terms in the [L] matrix due to either lateral or longitudinal curvature .. 
+Prasad understood that, just as dynamic in.ow incurs a time delay for the developing .ow .eld, the three distortion parameters also require .rst-order time delays for their development. With the new formulation, Prasad proved that the off-axis coupling could be predicted (Fig. 15). The formulation of the new model implies that the previous dynamic wake theories are included in the new theory (as the special case when curvature is zero). Thus, the wake models remain hierarchical. 
+
+
+
+It is interesting to note that early applications of wake curvature (e.g., Refs. 22, 23) needed to add a magni.cation factor KReto the wake-curvature effect to obtain good correlation. Often the factor had to be as large as 4.0 or more. The results in Ref. 24 and Fig. 15, however, show that—when all of the effects of nonuniform .ow and tail interactions are included, the magnitude of the wake-curvature effect from momentum theory (KRe=1.0) gives good correlation. 
+
+Off-Rotor Flow Field 
+
+Another set of experimental data that was causing concern at this time was a set of data in ground effect taken by the Japanese. These data involved both a dynamically moving ground plan and a partial ground plane (such as a rotor hovering partly over a ship deck). To handle this type of behavior, investigators decided that perhaps an actuator disk, such as is modeled in dynamic in.ow theory, might be put at the ground plane. Such a disk could be translated and rotated—to simulate ship deck motion—or could be partially loaded to simulate partial ground. 
+To accommodate this approach, the actuator disk would have to in­clude mass sources (to simulate the nonpenetration boundary condition), and one would need to be able to compute all three components of in­duced .ow both on and above that disk. Peters’ students Morillo, Yu, and Hsieh set out to generalize the model in just this way. 
+Morillo showed that such an in.ow theory could be derived directly from the potential .ow equations via a Galerkin approach in which the comparison functions are not velocity .elds at the rotor disk (as He had assumed) but are velocity potentials (Ref. 27). Morillo included 
+D. A. PETERS JOURNAL OF THE AMERICAN HELICOPTER SOCIETY 
+
+states are velocity potentials, all three components of the entire .ow .eld can be known. Morillo successfully derived this theory in a compact closed form (with the exception of some singular potentials). The the­ory included the He theory as the special case for which the potential functions with mass sources are truncated. Thus, once again, previous theories are hierarchical to this one. 
+Yu (Ref. 26) applied the theory to ground effect, showing that it could Q5 indeed predict the effect of moving, tilted, and partial ground planes, as well as a standard ground plane, as shown in Fig. 16, which gives the ground effect factor KGas a function of rotor height in rotor radii. To complete the development, Hsieh added a closed-form version of the singular velocity potentials associated with some of the mass-injection terms (Ref. 29), for which Morillo had been unable to obtain a closed form. Thus, the theory became complete for all components of .ow both on and off the disk. 
+
+Swirl velocity 
+The .nal re.nement to be discussed here is that of swirl velocity. The need for this arose from an unlikely source. Frank Harris (the 2006 Nikolsky Lecturer) had shown that the measured induced power of a rotor was far greater than the minimum possible induced power predicted by Glauert. The burning question was why we were not designing rotors any­where near this optimum power. Bob Ormiston suggested that dynamic wake models would be perfect to do such a study of optimization (due to their matrix form). Dynamic wake models, however, are actuator disk theories—which implies an assumption that the rotor lift is normal to the disk. Thus, no swirl energy is added to the wake. The kinetic energy lost to swirl is necessary if one is to do an adequate power optimization at high in.ow angles. 
+
+
+Since .nite-state dynamic wake models can be derived from Ritz– Galerkin methods, it seemed logical that one could add the kinetic energy due to swirl, then do the Galerkin analysis, and thereby generalize the model. Makinen (Ref. 30) took on this task and was able to derive a simple correction to the mass matrix of dynamic wake models based on swirl energy. Figures 17 and 18 show comparisons of the bound circula­tion for an optimum propeller at two climb rates µ0 =1/.. One is a very steep ascent µ0 =5 and the other is a slower climb µ0 =20. In these plots, µ=r/.and not the advance ratio. Also shown in the .gures are the exact result from Goldstein and the approximate optimum result from Prandtl. The addition of the Makinen swirl correction adequately captures the effect of the wake swirl and allows dynamic wake models to be used for 
+Q6 	power optimization. In partiche, results of a formal quadratic optimiza­tion (with swirl terms) gives the same optimum circulation distribution as in the classical theories. 
+
+Future re.nements 
+There is no doubt that, as time goes by, other re.nements will be made to dynamic wake models, and it is expected that these will simi­larly be driven by the need to model experimentally determined behavior of the rotor in.ow. However, such re.nements will never bring dynamic in.ow or dynamic wake models to the point at which they replace CFD or vortex–lattice codes. The niche for dynamic in.ow models will prob­ably remain that of handling qualities, aeroelasticity, real-time .ight simulation, and preliminary design optimization. These are the areas in which necessity of reasonable computer time and the need for physical insight dominate the user needs over requirements for comprehensive capabilities. 
+
+Summary and Conclusions 
+
+Through the years, dynamic in.ow and dynamic wake models have proven competitive and have thusly survived the emergence of more powerful tools such as CFD and vortex–lattice models. The reasons for this survival are fairly straightforward. 
+1) The models have been derived in response to experimental data. 
+2) They have enough texture to explain the critical phenomenon—but no more. 
+3) They are hierarchical so that previous models are always contained in later. 
+4) What they lack in detail, they make up in robust and speedy convergence. These factors have kept dynamic in.ow models at the forefront of rotor-craft analysis. 
+D. A. PETERS 
+Despite the inroads that other models will make as computers become more powerful, I do not believe that dynamic wake models (and other simpli.ed rotorcraft analysis tools) will over become obsolete. There are three reasons for this. First, no matter how fast computers become, they can never do everything, Thus, simpli.ed models will always .nd a place. Second, there will always be a need for real-time simulation. Thus, there will always be a need for simpli.ed models that can execute in reasonable CPU times. Third, simple models—such as dynamic in.ow—give direct intuitive connections among the equations, the physics, and the results. Thus, they are indispensable for gaining insight into rotorcraft behavior. Simpli.ed models will always be with us. 
+
+Acknowledgments 
+
+I would like, .rst of all, to thank Kurt Hohenemser, who introduced me to the ideas of helicopter dynamics and aerodynamics back in 1968. In doing the research for this paper, I came across a copy of the book by Alexander Nilolsky, Helicopter Analysis, John Wiley & Sons, New York, 1951. That book was given to me by Kurt shortly before his death, and it includes the following inscription from Nikolsky to Hohenemser: 
+To Dr. Kurt H. Hohenemser with recognition of his pioneering 
+in stability work on Helicopters from A. A. Nikolsky. 
+This autograph is a .tting connection as I acknowledge in this Nikolsky lecture the fundamental in.uence that Kurt had on my life. 
+I would also like to acknowledge Bob Ormiston, the best boss I ever had. When I .rst came to the Army Air Mobility Research and Development Laboratory in 1970, Bob told me, “Dave, some day you will bring me a curve that has a glitch in it. At that point, I’m going to say, ‘Dave, what is that glitch?’ If your answer to me is, ‘I don’t know; that’s the way it came out of the computer,’ you’re .red.” That was not the only great piece of advice that Bob gave me, but it was one of the best. 
+Third, I would like to thank Dewey Hodges, one of my greatest friends, who always kidded that structures and dynamics were the “exact sciences” whereas aerodynamics was an “inexact science.” Actually, the whole history of dynamic in.ow models can be characterized as models derived by we dynamicists looking at aerodynamics from our point of view. Dynamic wake models are in fact applied aerodynamics, not pure aerodynamics—and that has colored the way the theory has developed. 
+I would like to thank the U.S. Army Research Of.ce, the U.S. Army Aero.ightdynamics and Technology Directorate, NASA Ames Research Center, and the Georgia Tech Center of Excellence for Rotary-Wing Aircraft Technology for sponsoring the various aspects of this work through the years. 
+
+References 
+
+1Amer, K. B., “Theory of Helicopter Damping in Pitch or Roll and a Comparison with Flight Measurements,” NACA TN-2136, October 1950. 
+2Sissingh, G. J., “The Effect of Induced Velocity Variation on Heli­copter Rotor Damping in Pitch or Roll,” Aeronautical Research Council Paper No. 101, Technical Note No. Aero 2132, November 1952. 
+3Loewy, R. G., “A Two-Dimensional Approach to the Unsteady Aero­dynamics of Rotary Wings,” Journal of the Aerospace Sciences, Vol. 24, (2), February 1957, pp. 82–98. 
+4Miller, R. H., “Rotor Blade Harmonic Air Loading,” AIAA Journal, Vol. 2, (7), July 1964, pp. 1254–1269. 
+JOURNAL OF THE AMERICAN HELICOPTER SOCIETY 
+
+5Curtiss, H. C., Jr., and Shupe, N. K., “A Stability and Control Theory for Hingeless Rotors,” Preprint No. 541, American Helicopter Society 27th Annual National V/STOL Forum, Washington, DC, May 1971. Q7 
+6Anderson, W. D., Conner, F., Kretzinger, P., and Reaser, J. S., “REXOR Rotorcraft Simulation. Volume I: Theory Manual, Volume II: Computer Code, and Volume III: User’s Manual,” Lockheed Final Technical Report, Defense Technical Information Center, Accession No. ADA028417, July 1976; and “Appendix II, Rotor In.ow Calculation by Combined Momentum and Blade Element Lift Theory,” Lockheed Report LR 25987, 1969, pp. 63–70. 
+7Carpenter, P. J., and Fridovitch, B., “Effect of Rapid Blade Pitch Increase on the Thrust and Induced Velocity Response of a Full Scale helicopter Rotor,” NACA TN-3044, November 1953. 
+8Ormiston, R. A., and Peters, D. A., “Hingeless Helicopter Response with Nonuniform In.ow and Elastic Blade Bending, Journal of Aircraft, Vol. 9, (10), October 1972, pp. 730–736. 
+9Peters, D. A., “Hingeless Rotor Frequency Response with Unsteady In.ow,” NASA SP-352, Proceedings of the American Helicopter Society Dynamics Specialists’ Meeting, February 1974, pp. 1–12. 
+10Crews, S. T., Hohenemser, K. H., and Ormiston, R. A., “An Unsteady Wake Model for a Hingeless Rotor,” Journal of Aircraft, Vol. 10, (12), December 1973, pp. 758–760. 
+11Landgrebe, A. J., “An Analytic Method for Predicting Rotor Wake Geometry,” Journal of the American Helicopter Society, Vol. 14, (4), October 1969, pp. 20–32. 
+12Mangler, K. W., and Squire, H. B., “The Induced Field of a Rotor,” Reports & Memoranda No. 2642, Royal Aircraft Establishment, 1950. 
+13Kinner, W., “Die kriesf¨ache auf potentialtheorischer 
+ormige Trag.¨Grundlage,” Ingenier-Archive VIII, Band 1937, pp. 47–80. 14Stepniewski, W. Z., “Rotary-Wing Aerodynamics,” NASA CR­3082, 1979. 15Pitt, D. M., and Peters, D. A., “Theoretical Prediction of Dynamic-In.ow Derivatives,” Vertica, Vol. 5, (1), March 1981, pp. 21–34. 
+16Gaonkar, G. H., and Peters, D. A., “Effectiveness of Current Dynamic-In.ow Models in Hover and Forward Flight,” Journal of the American Helicopter Society, Vol. 31, (2), April 1986, pp. 47–57. 
+17Johnson, W., “In.uence of Unsteady Aerodynamics on Hingeless Rotor Ground Resonance,” Journal of Aircraft, Vol. 19, (8), August 1982, pp. 668–673. 
+18Friedmann, P. P., and Venkatesan, C., “Finite State Modelling of Un­steady Aerodynamics and Its Application to a Rotor Dynamic Problem,” Paper No. 72, 11th European Rotorcraft Forum, London, UK, September 10–13, 1985. 
+19Gray, R. B., and Nikolsky, A. A., “Determination of the Effective Axial Induced Flow Pattern through a Helicopter Rotor from Pressure Measurements,” Princeton University Aeronautical Engineering Depart­ment Report No. 279. Princeton, NJ, October 1954. 
+20Peters, D. A., Boyd, D. D., and He, C. J., “A Finite-State Induced-Flow Model for Rotors in Hover and Forward Flight,” Journal of the American Helicopter Society, Vol. 34,(4), October 1989, pp. 5–17. 
+21Peters, D. A., and He, C. J., “Correlation of Measured Induced Velocities with a Finite-State Wake Model,” Journal of the American Helicopter Society, Vol. 36, (3), July 1991, pp. 59–70. 
+22Su, A., Yoo, K. M., and Peters, D. A., “Extension and Validation of an Unsteady Wake Model for Rotors,” Journal of Aircraft, Vol. 29, (3), May–June 1992, pp. 374–383. 
+23Lewis, W. D., “An Aeroelastic Model Structure Investigation of a Manned Real-Time Rotorcraft Simulator,” Ph.D. Thesis, Georgia Insti­tute of Technology, September 1992. 
+24Rosen, A., and Isser, A., “A New Model of Rotor Dynamics dur­ing Pitch and Roll of a Hovering Helicopter,” Journal of the American Helicopter Society, Vol. 40, (5), July 1995, pp. 17–28. 
+25Keller, J. D., and Curtiss, H. C., Jr., “Modeling the Induced Velocity of a Maneuvering Helicopter,” American Helicopter Society 52nd An­nual Forum Proceedings, Washington, DC, June 4–6, 1996, pp. 841–851. 
+26Zhao, J., Prasad, J.V.R., and Peters, D. A., “Rotor Wake Distortion Model for Helicopter Maneuvering Flight,” Journal of the American Helicopter Society, Vol. 49, (4), October 2004, pp. 414–424. 
+27Morillo, J., and Peters, D. A., “Velocity Field above a Rotor Disk by a New Dynamic In.ow Model,” Journal of Aircraft, Vol. 39, (5), September–October 2002, pp. 731–738. 
+28Yu, Ke, and Peters, D. A., “Nonlinear Three-Dimensional State-Space Modeling of Ground Effect with a Dynamic Flow Field,” Journal of the American Helicopter Society, Vol. 50, (3), July 2005, pp. 259–268. 
+29Hsieh, A., “A Complete Finite-State Model for Rotors in Axial Flow,” Master of Science Thesis, Washington University in St. Louis, August 2006. 
+30Makinen, S. M., “Applying Dynamic Wake Models to Large Swirl Velocities for Optimal Propellers,” Doctor of Science Thesis, Washington University in St. Louis, May 2005. 
+
+Author’s queries: 
+Q1: 	Provide caption for Figure 2. 
+Q2: 	No appendix is given in the article. Is Appendix A a part of Ref. 6? 
+Q3: 	Con.rm whether Army Aeronautical Research Laboratory is abbreviated correctly. 
+Q4: 	Con.rm whether citation of Fig. 12 is OK here. If not, cite it at the appropriate place in the text. 
+Q5: 	At Ref. 26, Zhao et al. is cited in the References not Yu. Should Ref. 28 be cited in place of Ref. 26? 
+Q6: 	Check whether the term “particular” is meant here instead of “partiche.” 
+Q7: 	Provide inclusive dates of the proceedings. 
+
+

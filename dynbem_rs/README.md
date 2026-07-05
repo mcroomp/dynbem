@@ -72,7 +72,7 @@ swashplate commands reach the blade:
   feathering DOF (feathering + damper architecture); the solved feathering
   angle replaces the direct swashplate pitch path. The quasi-static harmonic
   solve is in `servoflap.rs`; the time-domain feathering ODE is in
-  `vpm_rotor.rs`. All `ServoFlapActuation` constants are physical and
+  `vpm/mod.rs`. All `ServoFlapActuation` constants are physical and
   measurable (pitch inertia, bearing damper, AC offset aero spring, blade
   camber moment) -- see [`../AGENTS.md`](../AGENTS.md) for the sign
   conventions and the two servo-flap architectures.
@@ -310,7 +310,7 @@ are equivalent.
     +-- trim.rs               solve_trim_cyclic<M>, relax_inflow<M> (generic over model)
     +-- vpm.rs                ParticleField + regularized Biot-Savart engine
     |                         (private; used only by vpm_rotor)
-    +-- vpm_rotor.rs          VpmRotor free-wake forward-flight coupling
+    +-- vpm/mod.rs          VpmRotor free-wake forward-flight coupling
                               (see docs/VPM_DESIGN.md)
 
     bin/

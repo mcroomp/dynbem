@@ -242,7 +242,7 @@ RotorInputs(collective_rad, tilt_lon, tilt_lat, R_hub,
 
 | Rust Field | Notes |
 |------------|-------|
-| *(TBD - VPM-specific)* | Not fully detailed in this analysis; consult `dynbem_rs/src/vpm_rotor.rs` |
+| *(TBD - VPM-specific)* | Not fully detailed in this analysis; consult `dynbem_rs/src/vpm/mod.rs` |
 
 **PyClass Name:** `_dynbem.VpmRotorState`
 

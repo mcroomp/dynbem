@@ -898,7 +898,7 @@ autorotation.
 
 The RAWES blades use a **Kaman-type trailing-edge servo flap** for pitch control
 (`PitchActuation::ServoFlap` in `dynbem_rs`). The VPM implements this path in
-`dynbem_rs/src/vpm_rotor.rs` as a per-blade feathering DOF integrated each
+`dynbem_rs/src/vpm/mod.rs` as a per-blade feathering DOF integrated each
 step. In servo mode, swashplate collective/cyclic are reinterpreted as
 flap-deflection commands and the solved feathering angle replaces direct
 swashplate pitch in the section AoA. The servo-flap path:

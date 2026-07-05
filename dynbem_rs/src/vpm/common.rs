@@ -68,7 +68,7 @@
 //      each azimuth step, and feed the induced velocity at the disk back into
 //      the blade-element loads.
 //
-// Done since first draft: the rotor coupling (see vpm_rotor.rs) and a
+// Done since first draft: the rotor coupling (this module's parent, `vpm`) and a
 // Barnes-Hut O(N log N) evaluator (`induced_at_points_bh` / `advect_rk2_bh`)
 // for when N outgrows the direct path.
 
@@ -593,29 +593,29 @@ pub fn advect_rk2_nan_check(field: &mut ParticleField, freestream: [f32; 3], dt:
 // for the walk to visit, and bigger SIMD leaf blocks (more work handed to the
 // cheap vector kernel); the build pays a little more to save the hot walk.
 const BH_LEAF_MAX: usize = 32;
-const BH_MIN_HALF: f32 = 1e-5;
+pub(crate) const BH_MIN_HALF: f32 = 1e-5;
 
 /// Transient node used only while building the tree recursively. It carries
 /// the |alpha|-weighting accumulators and a per-leaf index list; after the
 /// flatten pass these are discarded and only [`FlatNode`] + the packed source
 /// arrays survive.
-struct TmpNode {
-    half: f32,
+pub(crate) struct TmpNode {
+    pub(crate) half: f32,
     /// Strength-weighted expansion centre (falls back to the cube centre
     /// when the cell carries no net strength).
-    center: [f32; 3],
+    pub(crate) center: [f32; 3],
     /// Sum(alpha) over the cell -- the monopole used for far interactions.
-    sum_a: [f32; 3],
+    pub(crate) sum_a: [f32; 3],
     /// Representative core size (|alpha|-weighted mean sigma).
-    sigma_rep: f32,
+    pub(crate) sigma_rep: f32,
     /// |alpha|-weighting accumulators, kept so parents can combine children.
-    wsum: f32,
+    pub(crate) wsum: f32,
     wpos: [f32; 3],
     wsig: f32,
-    children: [i32; 8],
+    pub(crate) children: [i32; 8],
     /// Particle indices, populated only for leaves.
-    particles: Vec<u32>,
-    is_leaf: bool,
+    pub(crate) particles: Vec<u32>,
+    pub(crate) is_leaf: bool,
 }
 
 impl TmpNode {
@@ -838,7 +838,7 @@ impl FlatTree {
 
 /// Build a subtree over `idx` inside the cube (`cc`, `half`); returns the node
 /// index. Recursive; leaves hold up to `BH_LEAF_MAX` particles.
-fn build_node(
+pub(crate) fn build_node(
     nodes: &mut Vec<TmpNode>,
     field: &ParticleField,
     idx: Vec<u32>,
@@ -1027,7 +1027,7 @@ impl Scratch {
 
 /// Per-axis min/max of a coordinate array via eight-wide reductions, with a
 /// scalar tail for the final < 8 elements. Used for the octree bounding box.
-fn simd_min_max(v: &[f32]) -> (f32, f32) {
+pub(crate) fn simd_min_max(v: &[f32]) -> (f32, f32) {
     if v.is_empty() {
         return (0.0, 0.0);
     }
@@ -1288,6 +1288,9 @@ pub fn advect_rk2_bh_seq(field: &mut ParticleField, freestream: [f32; 3], dt: f3
 #[cfg(test)]
 mod tests {
     use super::*;
+    // The merge/aging tests below exercise the sibling submodules directly.
+    use crate::vpm::aging::{core_spread, strength_decay};
+    use crate::vpm::merge::{merge_particles, MergeOpts};
     use std::f64::consts::PI;
 
     /// Single particle with strength along +z induces velocity in +y at a
@@ -1464,6 +1467,108 @@ mod tests {
             );
         }
         f
+    }
+
+    /// Merging conserves total vector circulation exactly and reduces the
+    /// particle count. With a large kappa the far coherent cells collapse, so
+    /// the count must drop; `sum(alpha)` is invariant to f32 rounding.
+    #[test]
+    fn merge_conserves_circulation_and_shrinks() {
+        let f = random_cloud(2000);
+        let sum_before = [
+            f.ax.iter().map(|&v| v as f64).sum::<f64>(),
+            f.ay.iter().map(|&v| v as f64).sum::<f64>(),
+            f.az.iter().map(|&v| v as f64).sum::<f64>(),
+        ];
+        // Aggressive, coherence gate off, merge everywhere.
+        let opts = MergeOpts {
+            kappa: 100.0,
+            chi_min: 0.0,
+            region_dist: 0.0,
+            min_particles: 0,
+        };
+        let m = merge_particles(&f, &opts);
+        let sum_after = [
+            m.ax.iter().map(|&v| v as f64).sum::<f64>(),
+            m.ay.iter().map(|&v| v as f64).sum::<f64>(),
+            m.az.iter().map(|&v| v as f64).sum::<f64>(),
+        ];
+        assert!(
+            m.len() < f.len(),
+            "merge should reduce particle count: {} -> {}",
+            f.len(),
+            m.len()
+        );
+        for k in 0..3 {
+            let tol = 1e-3 * (1.0 + sum_before[k].abs());
+            assert!(
+                (sum_before[k] - sum_after[k]).abs() <= tol,
+                "circulation comp {} not conserved: {} -> {}",
+                k,
+                sum_before[k],
+                sum_after[k]
+            );
+        }
+    }
+
+    /// The coherence gate protects sheared cells: a cloud whose strengths
+    /// cancel (low |sum_a|/wsum) is left untouched when chi_min is high.
+    #[test]
+    fn merge_coherence_gate_preserves_sheared_wake() {
+        let f = random_cloud(1500);
+        // High coherence requirement + huge kappa: only near-aligned cells
+        // would merge, but random strengths cancel, so few/none collapse.
+        let opts = MergeOpts {
+            kappa: 100.0,
+            chi_min: 0.99,
+            region_dist: 0.0,
+            min_particles: 0,
+        };
+        let m = merge_particles(&f, &opts);
+        // Random-direction strengths rarely satisfy |sum_a| >= 0.99*wsum, so
+        // the field is essentially preserved.
+        assert!(
+            m.len() >= f.len() * 9 / 10,
+            "coherence gate should preserve most particles: {} -> {}",
+            f.len(),
+            m.len()
+        );
+    }
+
+    /// Core spreading grows every core (sigma^2 += 2*nu*dt) and leaves the
+    /// strengths (circulation) untouched.
+    #[test]
+    fn core_spread_grows_sigma_conserves_circulation() {
+        let mut f = random_cloud(500);
+        let sig_before: Vec<f32> = f.sigma.iter().copied().collect();
+        let sum_before: f64 = f.ax.iter().map(|&v| v as f64).sum();
+        let nu = 5.0;
+        let dt = 0.01;
+        core_spread(&mut f, nu, dt);
+        let expect = (2.0 * nu * dt) as f32;
+        for i in 0..f.len() {
+            let grown = (sig_before[i] * sig_before[i] + expect).sqrt();
+            assert!((f.sigma[i] - grown).abs() <= 1e-4 * (1.0 + grown));
+        }
+        let sum_after: f64 = f.ax.iter().map(|&v| v as f64).sum();
+        assert!((sum_before - sum_after).abs() <= 1e-6 * (1.0 + sum_before.abs()));
+    }
+
+    /// Strength fade scales every strength by the factor and leaves positions
+    /// and cores untouched.
+    #[test]
+    fn strength_decay_scales_alpha_only() {
+        let mut f = random_cloud(500);
+        let ax0: Vec<f32> = f.ax.iter().copied().collect();
+        let px0: Vec<f32> = f.px.iter().copied().collect();
+        let sig0: Vec<f32> = f.sigma.iter().copied().collect();
+        let factor = 0.9f32;
+        strength_decay(&mut f, factor);
+        for i in 0..f.len() {
+            assert!((f.ax[i] - ax0[i] * factor).abs() <= 1e-6 * (1.0 + ax0[i].abs()));
+            assert_eq!(f.px[i], px0[i]);
+            assert_eq!(f.sigma[i], sig0[i]);
+        }
     }
 
     /// The Barnes-Hut evaluator agrees with the direct O(N^2) sum to within

@@ -28,7 +28,7 @@ use dynbem_rs::polar::LinearPolar;
 use dynbem_rs::rotor_definition::{
     BladeGeometry, FlapProperties, LinearPolarParameters, PitchActuation, RotorDefinition,
 };
-use dynbem_rs::vpm_rotor::{FlightCondition, VpmRotor, VpmRotorConfig};
+use dynbem_rs::vpm::{FlightCondition, VpmRotor, VpmRotorConfig};
 use std::f64::consts::PI;
 
 const N_BLADES: usize = 2;

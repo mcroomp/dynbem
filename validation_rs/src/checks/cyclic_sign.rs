@@ -1,7 +1,7 @@
 // Directional checks for cyclic sign conventions and collective monotonicity.
 //
 // These replace the long-running unit tests that were formerly in
-// dynbem_rs/src/vpm_rotor.rs::tests. They exercise the same physics at
+// dynbem_rs/src/vpm/mod.rs::tests. They exercise the same physics at
 // the same tolerance level, but live here so the cargo test suite for
 // dynbem_rs stays fast.
 //

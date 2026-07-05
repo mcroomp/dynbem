@@ -1,6 +1,6 @@
 use crate::helpers::*;
 use crate::report::Report;
-use dynbem_rs::vpm_rotor::FlightCondition;
+use dynbem_rs::vpm::FlightCondition;
 
 pub fn check_wake_skew(r: &mut Report) {
     r.begin_module(

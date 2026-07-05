@@ -194,9 +194,9 @@ Servo-flap forcing is active through the servo-flap actuation path:
   `dynbem_rs/src/rotor_definition.rs`
 - Dynamics + solve: `dynbem_rs/src/servoflap.rs` (quasi-static BEM
   harmonic solve) and the time-domain feathering ODE in
-  `dynbem_rs/src/vpm_rotor.rs`
+  `dynbem_rs/src/vpm/mod.rs`
 - Call sites: `dynbem_rs/src/pitt_peters.rs`, `dynbem_rs/src/oye.rs`,
-  `dynbem_rs/src/quasi_static_bem.rs`, `dynbem_rs/src/vpm_rotor.rs`
+  `dynbem_rs/src/quasi_static_bem.rs`, `dynbem_rs/src/vpm/mod.rs`
 
 ### Architecture: feathering + damper (the one we model)
 
@@ -243,7 +243,7 @@ Nose-down pitching moment is **negative**, consistent throughout.
   increasing local AoA).
 
 If you change any of these signs, re-derive `k_aero`, the `M_camber` term
-in `servoflap.rs` / `vpm_rotor.rs`, and re-run `cyclic_phase_servo` and
+in `servoflap.rs` / `vpm/mod.rs`, and re-run `cyclic_phase_servo` and
 `servo_flap` in `validation_rs` (both encode the expected axis directions:
 direct-mechanical pitching My dominates; servo-flap rolling Mx dominates).
 

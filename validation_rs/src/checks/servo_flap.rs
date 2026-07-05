@@ -1,6 +1,6 @@
 // Directional checks for servo-flap (Kaman-style) feathering dynamics.
 //
-// Moved from dynbem_rs/src/vpm_rotor.rs::tests. Three checks:
+// Moved from dynbem_rs/src/vpm/mod.rs::tests. Three checks:
 //   1. Zero swashplate command -> zero feathering on all blades.
 //   2. Collective command drives feathering to a bounded, settled angle.
 //   3. Cyclic command raises hub moment relative to no-command baseline.
@@ -39,7 +39,7 @@ pub fn check_servo_flap(r: &mut Report) {
     let dt = 1.0 / (OMEGA * 2.0 / std::f64::consts::PI);
 
     // --- 1. Zero command -> zero feathering ---
-    use dynbem_rs::vpm_rotor::FlightCondition;
+    use dynbem_rs::vpm::FlightCondition;
     let fc_zero = FlightCondition {
         collective_rad: 0.0,
         tilt_lon: 0.0,

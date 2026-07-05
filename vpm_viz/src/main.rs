@@ -15,7 +15,7 @@
 use dynbem_rs::cyclic::ControlGains;
 use dynbem_rs::polar::LinearPolar;
 use dynbem_rs::rotor_definition::{BladeGeometry, LinearPolarParameters, PitchActuation, RotorDefinition};
-use dynbem_rs::vpm_rotor::{FlightCondition, VpmRotor, VpmRotorConfig, VpmRotorResult, VpmRotorState};
+use dynbem_rs::vpm::{FlightCondition, VpmRotor, VpmRotorConfig, VpmRotorResult, VpmRotorState};
 use eframe::egui::{self, Color32, FontId, Pos2, Rect, Sense, Stroke, Vec2};
 
 // ---------------------------------------------------------------------------
@@ -114,6 +114,7 @@ fn build_rotor() -> VpmRotor<LinearPolar> {
         bh_theta:        0.5,
         bh_min_particles: 2048,
         flap_dynamics:   true,
+        ..VpmRotorConfig::default()
     };
     VpmRotor::new(&defn, polar, ctrl, config)
 }

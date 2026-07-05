@@ -1,6 +1,6 @@
 // Directional checks for blade flap dynamics (coning and hub-moment relief).
 //
-// Moved from dynbem_rs/src/vpm_rotor.rs::tests. Two checks:
+// Moved from dynbem_rs/src/vpm/mod.rs::tests. Two checks:
 //   1. With flap dynamics on, blades cone up (beta > 0) in hover and the
 //      coning is equal across blades (axisymmetry).
 //   2. A freely-hinged blade transmits less hub moment under cyclic than a

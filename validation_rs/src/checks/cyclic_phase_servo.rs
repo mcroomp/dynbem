@@ -32,7 +32,7 @@ use dynbem_rs::rotor_definition::{
     BladeGeometry, LinearPolarParameters, PitchActuation, RotorDefinition, ServoFlapActuation,
     ServoFlapGeometry,
 };
-use dynbem_rs::vpm_rotor::{FlightCondition, VpmRotor, VpmRotorConfig};
+use dynbem_rs::vpm::{FlightCondition, VpmRotor, VpmRotorConfig};
 
 const B_OMEGA: f64 = 20.0; // rad/s, near measured equilibrium at V_wind=10 m/s
 const B_R: f64 = 2.5;
@@ -120,8 +120,8 @@ fn march_nan_debug(
     dt: f64,
     n_steps: usize,
     label: &str,
-) -> dynbem_rs::vpm_rotor::VpmRotorResult {
-    use dynbem_rs::vpm_rotor::VpmRotorState;
+) -> dynbem_rs::vpm::VpmRotorResult {
+    use dynbem_rs::vpm::VpmRotorState;
     let mut state: Option<VpmRotorState> = None;
     let avg_window = (n_steps / 2).max(1);
     let mut results = Vec::with_capacity(avg_window);
@@ -145,7 +145,7 @@ fn march_nan_debug(
 
     // Average over the window (mirrors march() behaviour)
     let n = results.len() as f64;
-    dynbem_rs::vpm_rotor::VpmRotorResult {
+    dynbem_rs::vpm::VpmRotorResult {
         thrust: results.iter().map(|r| r.thrust).sum::<f64>() / n,
         torque: results.iter().map(|r| r.torque).sum::<f64>() / n,
         mx_hub: results.iter().map(|r| r.mx_hub).sum::<f64>() / n,

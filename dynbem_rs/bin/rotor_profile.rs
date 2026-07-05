@@ -2,7 +2,7 @@
 //! Pitt-Peters, Øye, and quasi-static BEM models at varying particle counts.
 //!
 //! Usage:
-//!   cargo build --release -p dynbem_rs --features parallel
+//!   cargo build --release -p dynbem_rs
 //!   ./target/release/rotor_profile [MODELS] [OPTIONS]
 //!
 //! Models (comma-separated, case-insensitive):
@@ -45,7 +45,7 @@ use dynbem_rs::quasi_static_bem::QuasiStaticBEM;
 use dynbem_rs::rotor_definition::{
     BladeGeometry, ControlProperties, LinearPolarParameters, PitchActuation, RotorDefinition,
 };
-use dynbem_rs::vpm_rotor::{FlightCondition, VpmRotor, VpmRotorConfig, VpmRotorState};
+use dynbem_rs::vpm::{FlightCondition, VpmRotor, VpmRotorConfig, VpmRotorState};
 use std::env;
 use std::f64::consts::PI;
 use std::time::{Duration, Instant};
@@ -182,7 +182,7 @@ fn build_vpm_rotor(
         bh_min_particles: 200,
         flap_dynamics: false,
         use_rayon,
-        use_scalar_nan_check: false,
+        ..VpmRotorConfig::default()
     };
     VpmRotor::new(&defn, polar, ControlGains::default(), config)
 }

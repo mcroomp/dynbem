@@ -6,7 +6,7 @@ use dynbem_rs::rotor_definition::{
     BladeGeometry, FlapProperties, LinearPolarParameters, PitchActuation, RotorDefinition,
 };
 pub use dynbem_rs::rotor_definition::{ServoFlapActuation, ServoFlapGeometry};
-use dynbem_rs::vpm_rotor::{
+use dynbem_rs::vpm::{
     induced_velocities_at_points, FlightCondition, VpmRotor, VpmRotorConfig, VpmRotorResult,
     VpmRotorState,
 };

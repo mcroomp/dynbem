@@ -1256,13 +1256,13 @@ impl PyOyeBEMModelTabulated {
 
 #[pyclass(name = "VpmRotorState", module = "dynbem._dynbem")]
 #[derive(Clone, Debug)]
-pub struct PyVpmRotorState(pub core_::vpm_rotor::VpmRotorState);
+pub struct PyVpmRotorState(pub core_::vpm::VpmRotorState);
 
 #[pymethods]
 impl PyVpmRotorState {
     #[new]
     fn new() -> Self {
-        PyVpmRotorState(core_::vpm_rotor::VpmRotorState::default())
+        PyVpmRotorState(core_::vpm::VpmRotorState::default())
     }
 
     #[staticmethod]
@@ -1270,7 +1270,7 @@ impl PyVpmRotorState {
     fn zeros(n_elements: usize) -> Self {
         // VPM state has no scalar inflow DOFs sized by n; the wake starts empty.
         let _ = n_elements;
-        PyVpmRotorState(core_::vpm_rotor::VpmRotorState::default())
+        PyVpmRotorState(core_::vpm::VpmRotorState::default())
     }
 
     /// Number of wake particles currently carried (diagnostic).
@@ -1313,8 +1313,16 @@ fn build_vpm_config(
     barnes_hut: bool,
     bh_theta: f32,
     bh_min_particles: usize,
-) -> core_::vpm_rotor::VpmRotorConfig {
-    core_::vpm_rotor::VpmRotorConfig {
+    merge_wake: bool,
+    merge_every: usize,
+    merge_min_particles: usize,
+    merge_kappa: f32,
+    merge_chi_min: f32,
+    merge_region_dist: f32,
+    core_spread_nu: f64,
+    strength_decay_tau_rev: f64,
+) -> core_::vpm::VpmRotorConfig {
+    core_::vpm::VpmRotorConfig {
         max_particles,
         sigma,
         relax,
@@ -1327,12 +1335,21 @@ fn build_vpm_config(
         flap_dynamics: true,
         use_rayon: true,
         use_scalar_nan_check: false,
+        merge_wake,
+        merge_every,
+        merge_min_particles,
+        merge_kappa,
+        merge_chi_min,
+        merge_region_dist,
+        core_spread_nu,
+        strength_decay_tau_rev,
+        wake_engine: core_::vpm::WakeEngine::ClassicVpm,
     }
 }
 
 #[pyclass(name = "_VpmRotorLinear", module = "dynbem._dynbem", subclass)]
 #[derive(Clone)]
-pub struct PyVpmRotorLinear(pub Box<core_::vpm_rotor::VpmRotor<core_::polar::LinearPolar>>);
+pub struct PyVpmRotorLinear(pub Box<core_::vpm::VpmRotor<core_::polar::LinearPolar>>);
 
 #[pymethods]
 impl PyVpmRotorLinear {
@@ -1342,6 +1359,9 @@ impl PyVpmRotorLinear {
         max_particles=4800, sigma=0.18, relax=0.35,
         nonlinear_lifting_line=true, tip_clustering=true, local_core=true,
         barnes_hut=false, bh_theta=0.5, bh_min_particles=2048,
+        merge_wake=false, merge_every=0, merge_min_particles=0,
+        merge_kappa=0.7, merge_chi_min=0.9, merge_region_dist=0.0,
+        core_spread_nu=0.0, strength_decay_tau_rev=0.0,
     ))]
     #[allow(clippy::too_many_arguments)]
     fn new(
@@ -1356,6 +1376,14 @@ impl PyVpmRotorLinear {
         barnes_hut: bool,
         bh_theta: f32,
         bh_min_particles: usize,
+        merge_wake: bool,
+        merge_every: usize,
+        merge_min_particles: usize,
+        merge_kappa: f32,
+        merge_chi_min: f32,
+        merge_region_dist: f32,
+        core_spread_nu: f64,
+        strength_decay_tau_rev: f64,
     ) -> Self {
         let config = build_vpm_config(
             max_particles,
@@ -1367,9 +1395,17 @@ impl PyVpmRotorLinear {
             barnes_hut,
             bh_theta,
             bh_min_particles,
+            merge_wake,
+            merge_every,
+            merge_min_particles,
+            merge_kappa,
+            merge_chi_min,
+            merge_region_dist,
+            core_spread_nu,
+            strength_decay_tau_rev,
         );
         let ctrl = defn.0.control_gains();
-        PyVpmRotorLinear(Box::new(core_::vpm_rotor::VpmRotor::new(
+        PyVpmRotorLinear(Box::new(core_::vpm::VpmRotor::new(
             &defn.0, polar.0, ctrl, config,
         )))
     }
@@ -1406,7 +1442,7 @@ impl PyVpmRotorLinear {
 
 #[pyclass(name = "_VpmRotorTabulated", module = "dynbem._dynbem", subclass)]
 #[derive(Clone)]
-pub struct PyVpmRotorTabulated(pub Box<core_::vpm_rotor::VpmRotor<core_::polar::TabulatedPolar>>);
+pub struct PyVpmRotorTabulated(pub Box<core_::vpm::VpmRotor<core_::polar::TabulatedPolar>>);
 
 #[pymethods]
 impl PyVpmRotorTabulated {
@@ -1416,6 +1452,9 @@ impl PyVpmRotorTabulated {
         max_particles=4800, sigma=0.18, relax=0.35,
         nonlinear_lifting_line=true, tip_clustering=true, local_core=true,
         barnes_hut=false, bh_theta=0.5, bh_min_particles=2048,
+        merge_wake=false, merge_every=0, merge_min_particles=0,
+        merge_kappa=0.7, merge_chi_min=0.9, merge_region_dist=0.0,
+        core_spread_nu=0.0, strength_decay_tau_rev=0.0,
     ))]
     #[allow(clippy::too_many_arguments)]
     fn new(
@@ -1430,6 +1469,14 @@ impl PyVpmRotorTabulated {
         barnes_hut: bool,
         bh_theta: f32,
         bh_min_particles: usize,
+        merge_wake: bool,
+        merge_every: usize,
+        merge_min_particles: usize,
+        merge_kappa: f32,
+        merge_chi_min: f32,
+        merge_region_dist: f32,
+        core_spread_nu: f64,
+        strength_decay_tau_rev: f64,
     ) -> Self {
         let config = build_vpm_config(
             max_particles,
@@ -1441,9 +1488,17 @@ impl PyVpmRotorTabulated {
             barnes_hut,
             bh_theta,
             bh_min_particles,
+            merge_wake,
+            merge_every,
+            merge_min_particles,
+            merge_kappa,
+            merge_chi_min,
+            merge_region_dist,
+            core_spread_nu,
+            strength_decay_tau_rev,
         );
         let ctrl = defn.0.control_gains();
-        PyVpmRotorTabulated(Box::new(core_::vpm_rotor::VpmRotor::new(
+        PyVpmRotorTabulated(Box::new(core_::vpm::VpmRotor::new(
             &defn.0, polar.0, ctrl, config,
         )))
     }

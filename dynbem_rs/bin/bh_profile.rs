@@ -3,7 +3,7 @@
 // The release profile already builds with full debug symbols
 // (`debug = true`, `strip = "none"` in the workspace Cargo.toml), so:
 //
-//   Build: cargo build --release -p dynbem_rs --features parallel
+//   Build: cargo build --release -p dynbem_rs
 //   Run:   ./target/release/bh_profile.exe [N] [theta] [seconds] [seq|par]
 //
 // Then point VTune at target/release/bh_profile.exe (Hotspots analysis).
@@ -19,15 +19,15 @@
 // instead of the tree, for an apples-to-apples baseline on the same cloud.
 //
 // The optional 4th argument selects the execution path when the binary was
-// built with --features parallel:
+// built with default features:
 //   par  (default) -- Rayon parallel outer target loop
 //   seq            -- single-threaded path (for comparison)
 //
 // Defaults: N = 8000 particles, theta = 0.5, run for 10 seconds of wall clock.
 
 #[cfg(feature = "parallel")]
-use dynbem_rs::vpm_rotor::{induced_velocities_bh_seq, induced_velocities_seq};
-use dynbem_rs::vpm_rotor::{induced_velocities, induced_velocities_bh, ParticleField};
+use dynbem_rs::vpm::{induced_velocities_bh_seq, induced_velocities_seq};
+use dynbem_rs::vpm::{induced_velocities, induced_velocities_bh, ParticleField};
 use std::env;
 use std::time::{Duration, Instant};
 

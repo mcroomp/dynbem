@@ -15,6 +15,7 @@ mod hover_empirical;
 mod measured_companions;
 mod prandtl_tip_loss;
 mod servo_flap;
+mod vpm_aging_survey;
 mod vpm_empirical;
 mod wake_skew;
 
@@ -33,6 +34,7 @@ pub use hover_empirical::check_hover_empirical;
 pub use measured_companions::check_measured_companions;
 pub use prandtl_tip_loss::check_prandtl_tip_loss;
 pub use servo_flap::check_servo_flap;
+pub use vpm_aging_survey::check_vpm_aging_survey;
 pub use vpm_empirical::check_vpm_empirical;
 pub use wake_skew::check_wake_skew;
 
@@ -70,4 +72,11 @@ pub fn run_filtered_checks(report: &mut Report, filter: Option<&str>) {
     maybe!("hover_cq_empirical", check_hover_cq_empirical);
     maybe!("descent_empirical", check_descent_empirical);
     maybe!("vpm_empirical", check_vpm_empirical);
+
+    // Long opt-in survey: runs the VPM aging config across ALL empirical
+    // datasets. Excluded from run_all (filter=None) because it is slow; run it
+    // explicitly with `-- vpm_aging_survey`.
+    if filter == Some("vpm_aging_survey") {
+        check_vpm_aging_survey(report);
+    }
 }

@@ -82,7 +82,7 @@ Comprehensive single-reference table of all Rust struct fields and their Python 
 | | *(method)* | .to_array() | numpy (2n,) | ✓ | [W_int, W] flat |
 | | *(method)* | .from_array(arr) | Self | ✓ | validates len==2n |
 | | *(static)* | .zeros(n) | Self | ✓ | factory |
-| **VpmRotorState** | *(TBD)* | *(TBD)* | ? | ? | see vpm_rotor.rs |
+| **VpmRotorState** | *(TBD)* | *(TBD)* | ? | ? | see vpm/mod.rs |
 | **Model Classes** | defn | .defn | RotorDefinition | ✓ | r/o |
 | (all 6 variants) | n_psi_elements | .n_psi_elements | usize | ✓ | r/o |
 | | *(method)* | .initial_rotor_state() | State | ✓ | factory |
