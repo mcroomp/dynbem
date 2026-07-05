@@ -84,12 +84,22 @@ fn merge_ok(node: &TmpNode, opts: &MergeOpts) -> bool {
 /// satisfies [`merge_ok`] into a single equivalent particle. Cells that fail
 /// the test are descended; leaves that fail emit their original particles
 /// unchanged (exact).
-fn collapse(tmp: &[TmpNode], ti: usize, field: &ParticleField, opts: &MergeOpts, out: &mut ParticleField) {
+fn collapse(
+    tmp: &[TmpNode],
+    ti: usize,
+    field: &ParticleField,
+    opts: &MergeOpts,
+    out: &mut ParticleField,
+) {
     let node = &tmp[ti];
     if merge_ok(node, opts) {
         // One equivalent particle carrying the exact strength sum. sigma_rep
         // is always > 0 (build_node's finalize falls back to 1.0).
-        out.push(node.center, node.sum_a, node.sigma_rep.max(f32::MIN_POSITIVE));
+        out.push(
+            node.center,
+            node.sum_a,
+            node.sigma_rep.max(f32::MIN_POSITIVE),
+        );
         return;
     }
     if node.is_leaf {

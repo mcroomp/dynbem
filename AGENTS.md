@@ -402,6 +402,8 @@ This rule has bitten before — see [memory feedback-no-silent-reverts].
   --workspace` runs the Rust unit tests; the authoritative regression
   suite is `uv run pytest tests/ -q`, which exercises the full
   Rust-backed Python API.
+  - **Before any commit, always run `cargo fmt`.** Do this from the repo
+    root and fix formatting drift before staging/committing changes.
   - **VPM tests must be run in release mode.** The VPM rotor marches
     hundreds of steps per test case and is ~50-100x slower in debug.
     Always use `cargo test --release -p dynbem_rs -- vpm` (or

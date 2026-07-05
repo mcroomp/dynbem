@@ -158,8 +158,18 @@ impl<P: Polar> VpmRotor<P> {
         let mut u_rel = vec![vec![[0.0f64; 3]; n]; nb]; // per-station relative wind
 
         self.dbg_validate_setup(
-            &wake, omega, dt, dpsi, n, nb, total_steps, &gamma_prev, theta_1c, theta_1s,
-            servo_active, warm.is_some(),
+            &wake,
+            omega,
+            dt,
+            dpsi,
+            n,
+            nb,
+            total_steps,
+            &gamma_prev,
+            theta_1c,
+            theta_1s,
+            servo_active,
+            warm.is_some(),
         );
 
         for step in 0..total_steps {
@@ -634,7 +644,7 @@ impl<P: Polar> VpmRotor<P> {
             WakeEngine::ReformulatedVpm => {
                 // rVPM: strengths and cores evolve by vortex stretching.
                 // Direct O(N^2); Barnes-Hut / nan-check paths do not apply.
-                advect_rvpm(wake, freestream, dt as f32);
+                advect_rvpm(wake, freestream, dt as f32, cfg.rvpm_relax, cfg.rvpm_nu);
             }
             WakeEngine::ClassicVpm => {
                 if cfg.use_scalar_nan_check {
@@ -726,8 +736,17 @@ impl<P: Polar> VpmRotor<P> {
         if !self.config.use_scalar_nan_check {
             return;
         }
-        eprintln!("march_window: n={} nb={} omega={} dt={} dpsi={} total_steps={} wake_len={} warm={}",
-            n, nb, omega, dt, dpsi, total_steps, wake.len(), warm);
+        eprintln!(
+            "march_window: n={} nb={} omega={} dt={} dpsi={} total_steps={} wake_len={} warm={}",
+            n,
+            nb,
+            omega,
+            dt,
+            dpsi,
+            total_steps,
+            wake.len(),
+            warm
+        );
         eprintln!("  gamma_prev[0][..3]={:?}", &gamma_prev[0][..3.min(n)]);
         eprintln!(
             "  theta_1c={} theta_1s={} servo_active={}",
@@ -818,9 +837,17 @@ impl<P: Polar> VpmRotor<P> {
         let u_max = 500.0 * omega * r_tip; // 500x tip speed is absurd
         for i in 0..n {
             for k in 0..3 {
-                assert!(u_far[i][k].is_finite() && u_far[i][k].abs() < u_max,
+                assert!(
+                    u_far[i][k].is_finite() && u_far[i][k].abs() < u_max,
                     "u_far LARGE: step={} b={} i={} k={} u_far={:.3} (limit {:.1}) wake_len={}",
-                    step, b, i, k, u_far[i][k], u_max, wake_len);
+                    step,
+                    b,
+                    i,
+                    k,
+                    u_far[i][k],
+                    u_max,
+                    wake_len
+                );
             }
         }
         // Also eprintln the worst-case magnitude for tracing.
@@ -946,9 +973,19 @@ impl<P: Polar> VpmRotor<P> {
             cl,
             u_mag
         );
-        assert!(g_relaxed.is_finite() && g_relaxed.abs() < 1e8,
+        assert!(
+            g_relaxed.is_finite() && g_relaxed.abs() < 1e8,
             "kj nan: step={} b={} iter={} i={} g_new={} g_relaxed={} u_mag={} cl={} c={}",
-            step, b, iter, i, g_new, g_relaxed, u_mag, cl, c);
+            step,
+            b,
+            iter,
+            i,
+            g_new,
+            g_relaxed,
+            u_mag,
+            cl,
+            c
+        );
     }
 
     /// Debug-only converged-loads check (guard kept at the call site,
@@ -1094,8 +1131,17 @@ impl<P: Polar> VpmRotor<P> {
         seg: &[f64; 3],
         u_rel_b: &[[f64; 3]],
     ) {
-        assert!(pos[0].is_finite() && pos[1].is_finite() && pos[2].is_finite(),
-            "shed trail nan: step={} b={} j={} pos={:?} r_edge={} rh={:?} beta_b={}", step, b, j, pos, r_edge, rh, beta_b);
+        assert!(
+            pos[0].is_finite() && pos[1].is_finite() && pos[2].is_finite(),
+            "shed trail nan: step={} b={} j={} pos={:?} r_edge={} rh={:?} beta_b={}",
+            step,
+            b,
+            j,
+            pos,
+            r_edge,
+            rh,
+            beta_b
+        );
         assert!(
             a[0].is_finite() && a[1].is_finite() && a[2].is_finite(),
             "shed trail nan: step={} b={} j={} a={:?} g_trail={} seg={:?}",
@@ -1106,11 +1152,19 @@ impl<P: Polar> VpmRotor<P> {
             g_trail,
             seg
         );
-        let amag =
-            ((a[0] as f64).powi(2) + (a[1] as f64).powi(2) + (a[2] as f64).powi(2)).sqrt();
-        assert!(amag < 1e4,
+        let amag = ((a[0] as f64).powi(2) + (a[1] as f64).powi(2) + (a[2] as f64).powi(2)).sqrt();
+        assert!(
+            amag < 1e4,
             "shed trail LARGE: step={} b={} j={} |a|={} a={:?} g_trail={} seg={:?} u_rel_b0={:?}",
-            step, b, j, amag, a, g_trail, seg, &u_rel_b[..3.min(u_rel_b.len())]);
+            step,
+            b,
+            j,
+            amag,
+            a,
+            g_trail,
+            seg,
+            &u_rel_b[..3.min(u_rel_b.len())]
+        );
     }
 
     /// Debug-only shed-spanwise particle check (guard kept at call site): the
@@ -1154,11 +1208,19 @@ impl<P: Polar> VpmRotor<P> {
             d_gamma,
             self.dr[i]
         );
-        let amag =
-            ((a[0] as f64).powi(2) + (a[1] as f64).powi(2) + (a[2] as f64).powi(2)).sqrt();
-        assert!(amag < 1e4,
+        let amag = ((a[0] as f64).powi(2) + (a[1] as f64).powi(2) + (a[2] as f64).powi(2)).sqrt();
+        assert!(
+            amag < 1e4,
             "shed span LARGE: step={} b={} i={} |a|={} a={:?} mag={} d_gamma={} gamma={:?}",
-            step, b, i, amag, a, mag, d_gamma, gamma_b);
+            step,
+            b,
+            i,
+            amag,
+            a,
+            mag,
+            d_gamma,
+            gamma_b
+        );
     }
 
     /// Debug-only post-advection position check.

@@ -17,6 +17,7 @@ mod prandtl_tip_loss;
 mod servo_flap;
 mod vpm_aging_survey;
 mod vpm_empirical;
+mod vpm_engine_compare;
 mod wake_skew;
 
 pub use autorotation::check_autorotation;
@@ -36,6 +37,7 @@ pub use prandtl_tip_loss::check_prandtl_tip_loss;
 pub use servo_flap::check_servo_flap;
 pub use vpm_aging_survey::check_vpm_aging_survey;
 pub use vpm_empirical::check_vpm_empirical;
+pub use vpm_engine_compare::check_vpm_engine_compare;
 pub use wake_skew::check_wake_skew;
 
 use crate::report::Report;
@@ -78,5 +80,12 @@ pub fn run_filtered_checks(report: &mut Report, filter: Option<&str>) {
     // explicitly with `-- vpm_aging_survey`.
     if filter == Some("vpm_aging_survey") {
         check_vpm_aging_survey(report);
+    }
+
+    // Long opt-in survey: classic VPM vs reformulated VPM head-to-head across
+    // ALL empirical datasets. Excluded from run_all (rVPM advection is direct
+    // O(N^2)); run it explicitly with `-- vpm_engine_compare`.
+    if filter == Some("vpm_engine_compare") {
+        check_vpm_engine_compare(report);
     }
 }

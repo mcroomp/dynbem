@@ -54,12 +54,7 @@ fn build_vpm(
         strength_decay_tau_rev: tau_rev,
         ..VpmRotorConfig::default()
     };
-    VpmRotor::new(
-        defn,
-        polar_for(&defn.airfoil),
-        ControlGains::default(),
-        cfg,
-    )
+    VpmRotor::new(defn, polar_for(&defn.airfoil), ControlGains::default(), cfg)
 }
 
 /// March `total_revs` revolutions from a cold wake; return trailing-half-

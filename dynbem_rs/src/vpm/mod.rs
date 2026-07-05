@@ -147,6 +147,15 @@ pub struct VpmRotorConfig {
     /// Which wake-evolution engine to use (classic convection-only VPM or the
     /// reformulated VPM with strength/size evolution). Default `ClassicVpm`.
     pub wake_engine: WakeEngine,
+    /// Reformulated VPM only: Pedrizzetti relaxation factor in [0,1]. Each
+    /// sub-step realigns particle strengths with the local regularized
+    /// vorticity (magnitude-conserving), the primary stabilizer that keeps
+    /// inviscid rVPM from diverging. 0 disables. Ignored by `ClassicVpm`.
+    pub rvpm_relax: f64,
+    /// Reformulated VPM only: viscous / subfilter-scale (SFS) eddy viscosity
+    /// (m^2/s) applied as core spreading (sigma^2 += 2*nu*dt) inside the rVPM
+    /// step. Low-order SFS energy drain. 0 disables. Ignored by `ClassicVpm`.
+    pub rvpm_nu: f64,
 }
 
 impl Default for VpmRotorConfig {
@@ -173,6 +182,8 @@ impl Default for VpmRotorConfig {
             core_spread_nu: 0.0,
             strength_decay_tau_rev: 0.0,
             wake_engine: WakeEngine::ClassicVpm,
+            rvpm_relax: 0.3,
+            rvpm_nu: 0.0,
         }
     }
 }
@@ -202,6 +213,8 @@ impl VpmRotorConfig {
             core_spread_nu: 0.0,
             strength_decay_tau_rev: 0.0,
             wake_engine: WakeEngine::ClassicVpm,
+            rvpm_relax: 0.3,
+            rvpm_nu: 0.0,
         }
     }
 }
@@ -423,8 +436,6 @@ impl<P: Polar> VpmRotor<P> {
         let avg_window = (n_steps / 2).max(1);
         self.march_window(fc, warm, 0.0, dt, n_steps, avg_window)
     }
-
-
 }
 
 /// Persistent state for the VPM rotor, carried between `compute_forces` calls.
@@ -546,7 +557,6 @@ impl<P: Polar> AeroModel for VpmRotor<P> {
         (result, out_state)
     }
 }
-
 
 // ============================================================================
 // Public API for validation / analysis

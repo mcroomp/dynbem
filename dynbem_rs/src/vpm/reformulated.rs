@@ -29,10 +29,17 @@
 //!   dsigma_p/dt = -(1/5) sigma_p (S_p . Gamma_p) / |Gamma_p|^2
 //! ```
 //!
-//! The SFS/LES turbulence term and the Pedrizzetti relaxation of the FLOWVPM
-//! formulation are intentionally omitted from this first implementation; this
-//! is the "inviscid rVPM" that provides the strength/size evolution (and the
-//! conservation properties) without the turbulence closure.
+//! Two stabilizers from the FLOWVPM formulation are included on top of the bare
+//! strength/size evolution (bare inviscid rVPM diverges -- pure vortex
+//! stretching amplifies unboundedly):
+//! * Pedrizzetti relaxation -- realign each particle strength with the local
+//!   regularized vorticity omega (magnitude-conserving), suppressing the
+//!   spurious strength growth. See [`advect_rvpm`]'s `relax` argument.
+//! * Viscous / subfilter-scale (SFS) core spreading -- grow each core by the
+//!   viscous law d(sigma^2)/dt = 2*nu, a low-order SFS energy drain. See the
+//!   `nu` argument.
+//! The full DYNAMIC SFS closure of Alvarez & Ning 2022 (test-filter dynamic
+//! coefficient) is still not implemented; `nu` here is a fixed eddy viscosity.
 //!
 //! # Analytic gradient of the algebraic kernel
 //!
@@ -50,11 +57,17 @@
 //! The self term (`p` == target) vanishes: `d = 0` kills the first term and
 //! `alpha_p x Gamma = Gamma x Gamma = 0` kills the second.
 
+use super::aging::core_spread;
 use super::common::ParticleField;
 use rayon::prelude::*;
 
 /// 1 / (4 pi), the Biot-Savart prefactor (f64).
 const INV_4PI_F64: f64 = 0.079_577_471_545_947_67;
+
+/// 15 / (8 pi), the prefactor of the algebraic (Winckelmans) vorticity
+/// smoothing kernel zeta(rho) = (15/8pi)/(rho^2+1)^{7/2}, used to evaluate the
+/// regularized vorticity omega(x_p) for the Pedrizzetti relaxation.
+const C_OMEGA_F64: f64 = 0.596_831_036_594_607_5;
 
 /// Lower bound on `sigma` after a step (cores must stay positive; keeps
 /// `sigma^3` finite in the kernel).
@@ -65,11 +78,13 @@ const SIGMA_FLOOR: f64 = 1.0e-4;
 /// skipped and the raw stretching is used for `dGamma`.
 const GAMMA2_FLOOR: f64 = 1.0e-20;
 
-/// Induced velocity `u` and vortex stretching `S = (Gamma . grad) u` at every
-/// particle, evaluated pair-by-pair in double precision. `Gamma` at the target
-/// is that particle's own strength. Direct O(N^2); the outer (target) loop runs
-/// on the Rayon pool. Returns one `(u, S)` pair per particle, in field order.
-pub fn vel_and_stretch(field: &ParticleField) -> Vec<([f64; 3], [f64; 3])> {
+/// Induced velocity `u`, vortex stretching `S = (Gamma . grad) u`, and the
+/// regularized vorticity `omega` at every particle, evaluated pair-by-pair in
+/// double precision. `Gamma` at the target is that particle's own strength.
+/// Direct O(N^2); the outer (target) loop runs on the Rayon pool. Returns one
+/// `(u, S, omega)` triple per particle, in field order. `omega` feeds the
+/// Pedrizzetti relaxation (realigning each strength with the local vorticity).
+pub fn vel_and_stretch(field: &ParticleField) -> Vec<([f64; 3], [f64; 3], [f64; 3])> {
     let n = field.len();
     if n == 0 {
         return Vec::new();
@@ -91,6 +106,9 @@ pub fn vel_and_stretch(field: &ParticleField) -> Vec<([f64; 3], [f64; 3])> {
             let mut sx = 0.0;
             let mut sy = 0.0;
             let mut sz = 0.0;
+            let mut wx = 0.0;
+            let mut wy = 0.0;
+            let mut wz = 0.0;
 
             for p in 0..n {
                 let dx = xj - field.px[p] as f64;
@@ -130,11 +148,20 @@ pub fn vel_and_stretch(field: &ParticleField) -> Vec<([f64; 3], [f64; 3])> {
                 sx += coef * cadx + k * cagx;
                 sy += coef * cady + k * cagy;
                 sz += coef * cadz + k * cagz;
+
+                // Regularized vorticity at the target: omega += zeta_sigma * alpha_src
+                // with zeta_sigma(r) = (1/sigma^3) zeta(r/sigma) and
+                // zeta(rho) = (15/8pi)/(rho^2+1)^{7/2} (C_OMEGA folded in below).
+                let wfac = 1.0 / (sig3 * base35);
+                wx += wfac * apx;
+                wy += wfac * apy;
+                wz += wfac * apz;
             }
 
             (
                 [ux * INV_4PI_F64, uy * INV_4PI_F64, uz * INV_4PI_F64],
                 [sx * INV_4PI_F64, sy * INV_4PI_F64, sz * INV_4PI_F64],
+                [wx * C_OMEGA_F64, wy * C_OMEGA_F64, wz * C_OMEGA_F64],
             )
         })
         .collect()
@@ -154,7 +181,11 @@ fn rvpm_deriv(gamma: [f64; 3], sigma: f64, s: [f64; 3]) -> ([f64; 3], f64) {
     let sdotg = s[0] * gamma[0] + s[1] * gamma[1] + s[2] * gamma[2];
     // dGamma = S - (3/5)(S.Ghat)Ghat = S - (3/5)(S.G/|G|^2) G
     let c = 0.6 * sdotg / g2;
-    let dgamma = [s[0] - c * gamma[0], s[1] - c * gamma[1], s[2] - c * gamma[2]];
+    let dgamma = [
+        s[0] - c * gamma[0],
+        s[1] - c * gamma[1],
+        s[2] - c * gamma[2],
+    ];
     // dSigma = -(1/5) sigma (S.G) / |G|^2
     let dsigma = -0.2 * sigma * sdotg / g2;
     (dgamma, dsigma)
@@ -163,22 +194,34 @@ fn rvpm_deriv(gamma: [f64; 3], sigma: f64, s: [f64; 3]) -> ([f64; 3], f64) {
 /// Advance the free wake one step of size `dt` with the reformulated VPM:
 /// midpoint (RK2) integration of position (convection + freestream), vector
 /// strength (stretching + reorientation), and core size (mass-conserving
-/// evolution). Drop-in replacement for `vpm::advect_rk2` selected by
+/// evolution), followed by the two stabilizers the bare inviscid rVPM lacks:
+/// * Pedrizzetti relaxation (`relax` in [0,1]): realign each particle strength
+///   toward the local regularized vorticity `omega`, conserving |Gamma|.
+///   Suppresses the spurious strength growth that otherwise makes inviscid
+///   rVPM diverge. `relax = 0` disables it.
+/// * Viscous / subfilter-scale core spreading (`nu`, m^2/s): grow each core by
+///   `sigma^2 += 2*nu*dt`, draining energy from the smallest resolved scales
+///   (the low-order SFS closure). `nu = 0` disables it.
+/// Drop-in replacement for `vpm::advect_rk2` selected by
 /// `WakeEngine::ReformulatedVpm`.
-pub fn advect_rvpm(field: &mut ParticleField, freestream: [f32; 3], dt: f32) {
+pub fn advect_rvpm(field: &mut ParticleField, freestream: [f32; 3], dt: f32, relax: f64, nu: f64) {
     let n = field.len();
     if n == 0 {
         return;
     }
     let dt64 = dt as f64;
     let half = 0.5 * dt64;
-    let fs = [freestream[0] as f64, freestream[1] as f64, freestream[2] as f64];
+    let fs = [
+        freestream[0] as f64,
+        freestream[1] as f64,
+        freestream[2] as f64,
+    ];
 
     // ---- Stage 1: derivatives at the current state ----
     let k1 = vel_and_stretch(field);
     let mut mid = field.clone();
     for j in 0..n {
-        let (u, s) = k1[j];
+        let (u, s, _w) = k1[j];
         let gamma = [field.ax[j] as f64, field.ay[j] as f64, field.az[j] as f64];
         let sigma = field.sigma[j] as f64;
         let (dg, dsig) = rvpm_deriv(gamma, sigma, s);
@@ -194,7 +237,7 @@ pub fn advect_rvpm(field: &mut ParticleField, freestream: [f32; 3], dt: f32) {
     // ---- Stage 2: derivatives at the midpoint, applied over the full step ----
     let k2 = vel_and_stretch(&mid);
     for j in 0..n {
-        let (u, s) = k2[j];
+        let (u, s, _w) = k2[j];
         let gamma_mid = [mid.ax[j] as f64, mid.ay[j] as f64, mid.az[j] as f64];
         let sigma_mid = mid.sigma[j] as f64;
         let (dg, dsig) = rvpm_deriv(gamma_mid, sigma_mid, s);
@@ -206,6 +249,34 @@ pub fn advect_rvpm(field: &mut ParticleField, freestream: [f32; 3], dt: f32) {
         field.az[j] = (field.az[j] as f64 + dt64 * dg[2]) as f32;
         field.sigma[j] = (field.sigma[j] as f64 + dt64 * dsig).max(SIGMA_FLOOR) as f32;
     }
+
+    // ---- Stage 3: Pedrizzetti relaxation -- realign each strength with the
+    // local vorticity (magnitude-preserving), using the midpoint vorticity k2.
+    // alpha <- (1-f) alpha + f |alpha| omega_hat. This is the primary stabilizer
+    // that keeps inviscid rVPM from diverging.
+    if relax > 0.0 {
+        for j in 0..n {
+            let w = k2[j].2;
+            let wmag2 = w[0] * w[0] + w[1] * w[1] + w[2] * w[2];
+            if wmag2 < GAMMA2_FLOOR {
+                continue;
+            }
+            let gx = field.ax[j] as f64;
+            let gy = field.ay[j] as f64;
+            let gz = field.az[j] as f64;
+            let g2 = gx * gx + gy * gy + gz * gz;
+            if g2 < GAMMA2_FLOOR {
+                continue;
+            }
+            let scale = relax * (g2 / wmag2).sqrt();
+            field.ax[j] = ((1.0 - relax) * gx + scale * w[0]) as f32;
+            field.ay[j] = ((1.0 - relax) * gy + scale * w[1]) as f32;
+            field.az[j] = ((1.0 - relax) * gz + scale * w[2]) as f32;
+        }
+    }
+
+    // ---- Viscous / SFS core spreading (conserves circulation). ----
+    core_spread(field, nu, dt64);
 }
 
 #[inline(always)]
@@ -232,7 +303,7 @@ mod tests {
         let p0 = [f.px[0], f.py[0], f.pz[0]];
         let fs = [2.0f32, -1.0, 0.5];
         let dt = 0.01f32;
-        advect_rvpm(&mut f, fs, dt);
+        advect_rvpm(&mut f, fs, dt, 0.3, 0.0);
         // Position advanced by exactly freestream*dt (self-induction is zero).
         assert!((f.px[0] - (p0[0] + fs[0] * dt)).abs() < 1e-5);
         assert!((f.py[0] - (p0[1] + fs[1] * dt)).abs() < 1e-5);
@@ -261,7 +332,7 @@ mod tests {
                 0.15 + 0.1 * (rng() + 0.5).abs(),
             );
         }
-        advect_rvpm(&mut f, [1.0, 0.0, 0.0], 0.02);
+        advect_rvpm(&mut f, [1.0, 0.0, 0.0], 0.02, 0.3, 0.0);
         for i in 0..f.len() {
             assert!(f.px[i].is_finite() && f.py[i].is_finite() && f.pz[i].is_finite());
             assert!(f.ax[i].is_finite() && f.ay[i].is_finite() && f.az[i].is_finite());

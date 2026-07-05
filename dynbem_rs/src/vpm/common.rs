@@ -859,7 +859,15 @@ pub(crate) fn build_node(
         }
     };
 
-    if idx.len() <= BH_LEAF_MAX || half < BH_MIN_HALF {
+    // Leaf when the index set is small enough, the cell has shrunk to the
+    // minimum half-size, or the geometry is non-finite. The last guard matters
+    // for robustness: a diverged wake can carry Inf particle coordinates, which
+    // make the root `half` Inf (from Inf-minus-Inf bounds) and the center NaN.
+    // A NaN center sends every particle into the same octant while an Inf `half`
+    // never shrinks below BH_MIN_HALF, so without this guard the octant
+    // recursion never terminates and overflows the stack. Forcing a leaf lets
+    // the divergence surface as a clean NaN velocity instead of a crash.
+    if idx.len() <= BH_LEAF_MAX || half < BH_MIN_HALF || !half.is_finite() {
         let mut wsum = 0.0f32;
         let mut wpos = [0.0f32; 3];
         let mut wsig = 0.0f32;
@@ -1292,6 +1300,26 @@ mod tests {
     use crate::vpm::aging::{core_spread, strength_decay};
     use crate::vpm::merge::{merge_particles, MergeOpts};
     use std::f64::consts::PI;
+
+    /// A diverged wake with an infinite particle coordinate must NOT send the
+    /// Barnes-Hut tree build into unbounded recursion (previously a stack
+    /// overflow): Inf coordinates give an Inf root `half` that never shrinks
+    /// and a NaN center that funnels every particle into one octant. The build
+    /// must terminate; the induced velocities then come out non-finite, which
+    /// is the intended "clean NaN" signal rather than a crash. Reaching the
+    /// assertion at all is the real regression check.
+    #[test]
+    fn bh_tree_survives_nonfinite_coords() {
+        let mut f = ParticleField::new();
+        for i in 0..1000 {
+            f.push([i as f32 * 0.01, 0.0, 0.0], [1.0, 0.0, 0.0], 0.1);
+        }
+        // Poison a couple of coordinates the way a blown-up rVPM wake would.
+        f.px[10] = f32::INFINITY;
+        f.pz[20] = f32::NEG_INFINITY;
+        let u = induced_velocities_bh_seq(&f, 0.5);
+        assert_eq!(u.len(), f.len());
+    }
 
     /// Single particle with strength along +z induces velocity in +y at a
     /// point on the +x axis (right-hand rule), and in the far field

@@ -1344,6 +1344,8 @@ fn build_vpm_config(
         core_spread_nu,
         strength_decay_tau_rev,
         wake_engine: core_::vpm::WakeEngine::ClassicVpm,
+        rvpm_relax: 0.3,
+        rvpm_nu: 0.0,
     }
 }
 
