@@ -252,16 +252,36 @@ pub fn apply_flap_reduction(
     }
 }
 
+///
+/// `fx_hub, fy_hub` are the net in-plane (H-force) components in the hub
+/// frame -- the world-frame reaction of the blades' tangential aerodynamic
+/// force, summed over the disk (see `SweepCtx::run`'s `fx_acc`/`fy_acc`).
+/// This is zero whenever the tangential loading is azimuth-independent
+/// (pure axial flow / hover) and grows with edgewise flow (`v_edge`),
+/// vanishing again as the hub axis re-aligns with the relative wind.
+/// Pass `0.0, 0.0` for callers that don't yet compute it (e.g. VPM).
+///
+/// This captures only the profile/induced-drag contribution to H-force.
+/// Classical rotor theory has a second, often larger, contribution from
+/// blade flapping (the thrust vector tilts into the disk plane by the
+/// local flap angle beta(psi)); none of the models here track an
+/// azimuth-resolved beta(psi) (`FlapProperties::hub_moment_factor` is a
+/// static scalar that only reduces `mx_hub`/`my_hub`, never feeds Fx/Fy),
+/// so the flapping-tilt term is not represented and this will generally
+/// under-predict total H-force magnitude vs. a real rotor.
 #[inline]
 pub fn assemble_result(
     t_total: f64,
     q_total: f64,
     mx_hub: f64,
     my_hub: f64,
+    fx_hub: f64,
+    fy_hub: f64,
     hub_axis: Vec3,
     r_hub: &Mat3,
 ) -> AeroResult {
-    let f_world = hub_axis * (-t_total);
+    let f_hub = Vec3::new(fx_hub, fy_hub, -t_total);
+    let f_world = *r_hub * f_hub;
     let mxyz_hub = Vec3::new(mx_hub, my_hub, 0.0);
     let m_orbital = *r_hub * mxyz_hub;
     let m_spin = hub_axis * q_total;
@@ -361,17 +381,30 @@ pub struct SweepCtx<'a, P: Polar> {
 
 impl<'a, P: Polar> SweepCtx<'a, P> {
     /// Run one full psi x radial sweep with the given kernel. Returns the
-    /// azimuth-averaged (T, Q, Mx_hub, My_hub) over the rotor disk.
+    /// azimuth-averaged (T, Q, Mx_hub, My_hub, Fx_hub, Fy_hub) over the rotor
+    /// disk.
+    ///
+    /// `Fx_hub`/`Fy_hub` are the net in-plane hub force (H-force): each
+    /// element's tangential aerodynamic force is `dFt = dQ / r` (the same
+    /// force whose moment produces `dQ`; recovered by undoing the `* r`
+    /// weighting rather than recomputing it), projected onto the fixed hub
+    /// x/y axes with the same `(sin psi, cos psi)` pairing used everywhere
+    /// else in this sweep (`v_t_extra = v_in_hub_x*sin psi + v_in_hub_y*cos
+    /// psi`, `Mx_hub`/`My_hub` below). This is zero for azimuth-independent
+    /// (pure axial) loading and grows with edgewise flow -- see
+    /// `assemble_result`.
     ///
     /// `self.omega > 0` is assumed (caller filters out the not-spinning case
     /// before invoking). Reverse-flow region (`v_t <= 0`) is skipped
     /// per-element.
     #[inline(always)]
-    pub fn run<K: PsiKernel>(&self, kernel: &mut K) -> (f64, f64, f64, f64) {
+    pub fn run<K: PsiKernel>(&self, kernel: &mut K) -> (f64, f64, f64, f64, f64, f64) {
         let mut t_acc = 0.0;
         let mut q_acc = 0.0;
         let mut mx_acc = 0.0;
         let mut my_acc = 0.0;
+        let mut fx_acc = 0.0;
+        let mut fy_acc = 0.0;
         let inv_n_psi = self.n_psi_inv;
         let grid = self.grid;
         let n_r = grid.n_elements;
@@ -410,6 +443,9 @@ impl<'a, P: Polar> SweepCtx<'a, P> {
                 t_acc += dt;
                 q_acc += dq;
                 rdt_sum += r * dt;
+                let d_ft = dq / r;
+                fx_acc += d_ft * sin_psi;
+                fy_acc += d_ft * cos_psi;
             }
             mx_acc += rdt_sum * sin_psi;
             my_acc += rdt_sum * cos_psi;
@@ -419,6 +455,8 @@ impl<'a, P: Polar> SweepCtx<'a, P> {
             q_acc * inv_n_psi,
             mx_acc * inv_n_psi,
             my_acc * inv_n_psi,
+            fx_acc * inv_n_psi,
+            fy_acc * inv_n_psi,
         )
     }
 }

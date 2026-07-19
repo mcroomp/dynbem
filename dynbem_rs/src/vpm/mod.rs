@@ -546,11 +546,16 @@ impl<P: Polar> AeroModel for VpmRotor<P> {
         let (fc, kin) = self.flight_condition(inputs);
         // One sub-step per call; dt IS the sub-step duration.
         let (res, out_state) = self.march_window(&fc, Some(state), state.psi, dt, 1, 1);
+        // TODO: VPM's free-wake march doesn't yet accumulate the in-plane
+        // hub force (H-force) the BEM-family models compute in
+        // bem_common::SweepCtx::run -- pass 0.0, 0.0 until that's added here.
         let result = assemble_result(
             res.thrust,
             res.torque,
             res.mx_hub,
             res.my_hub,
+            0.0,
+            0.0,
             kin.hub_axis,
             &inputs.R_hub,
         );

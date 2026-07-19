@@ -251,7 +251,8 @@ impl<P: Polar + Clone> AeroModel for PittPetersModel<P> {
         // ------------------------------------------------------------------
         // Blade element forces
         // ------------------------------------------------------------------
-        let (mut t_total, mut q_total, mut mx_hub, mut my_hub) = (0.0, 0.0, 0.0, 0.0);
+        let (mut t_total, mut q_total, mut mx_hub, mut my_hub, mut fx_hub, mut fy_hub) =
+            (0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
         if omega_r > EPS_OMEGA_R && omega > 1.0 {
             let mut kernel = PpKernel {
                 lambda_total,
@@ -275,11 +276,13 @@ impl<P: Polar + Clone> AeroModel for PittPetersModel<P> {
                 theta_1c: loop_theta_1c,
                 theta_1s: loop_theta_1s,
             };
-            let (t, q, mx, my) = sweep.run(&mut kernel);
+            let (t, q, mx, my, fx, fy) = sweep.run(&mut kernel);
             t_total = t;
             q_total = q;
             mx_hub = mx;
             my_hub = my;
+            fx_hub = fx;
+            fy_hub = fy;
         }
 
         // ------------------------------------------------------------------
@@ -402,7 +405,16 @@ impl<P: Polar + Clone> AeroModel for PittPetersModel<P> {
         // wake), but the airframe only sees the fraction that passes through
         // the blade's flap stiffness.
         let (mx_out, my_out) = apply_flap_reduction(mx_hub, my_hub, self.defn.flap.as_ref(), omega);
-        let result = assemble_result(t_total, q_total, mx_out, my_out, hub_axis, &inputs.R_hub);
+        let result = assemble_result(
+            t_total,
+            q_total,
+            mx_out,
+            my_out,
+            fx_hub,
+            fy_hub,
+            hub_axis,
+            &inputs.R_hub,
+        );
         let derivative = PittPetersRotorState {
             lambda_0: d_lam0,
             lambda_c: d_lam_c,
