@@ -167,10 +167,10 @@ impl<'a, P: Polar> BEMElementGeometry<'a, P> {
 /// Helicopter momentum-BEM solver for one annulus.
 ///
 /// Fixed-point iteration on (lambda_r, a_prime) with 50% under-relaxation;
-/// the converged root of the quadratic is selected explicitly by sign of
-/// lambda_climb (climb -> positive root, descent -> negative). Reverse-flow
+/// the converged root of the quadratic is always the climb/hover branch
+/// (see the seeding comment in the function body for why). Reverse-flow
 /// region (v_t < 0) breaks out early and returns zero forces -- caller
-/// is responsible for the surrounding ψ-loop's reverse-flow skip.
+/// is responsible for the surrounding psi-loop's reverse-flow skip.
 pub fn solve_bem_element<P: Polar>(
     geom: &BEMElementGeometry<P>,
     collective_rad: f64,
@@ -183,22 +183,23 @@ pub fn solve_bem_element<P: Polar>(
     let theta = collective_rad + geom.twist_rad;
     let lambda_climb = v_climb * geom.inv_omega_r;
 
-    // Always seed from the climb/hover branch (small positive inflow ratio),
-    // never the descent branch. This function is only reached when the
-    // dedicated windmill solver (solve_bem_element_windmill) has declined to
-    // handle the station -- either lambda_climb >= 0 (no descent at all), or
-    // lambda_climb < 0 but too small in magnitude for the windmill solver's
-    // Brent bracket to exist (near-hover). In that near-hover band, hover is
-    // physically the v_climb -> 0 limit of the *climb* (propeller) momentum
-    // branch, not the windmill/autorotative branch -- the windmill branch
-    // only exists once there's enough upward axial flow to establish that
-    // distinct flow topology, which is exactly the regime the dedicated
-    // windmill solver already owns. Seeding (and, below, selecting) toward
-    // the descent-branch root here previously caused a large, spurious,
-    // discontinuous jump in thrust/torque right at lambda_climb == 0 (see
-    // tests/test_bem_windmill_boundary.py in the windpower-repo history for
-    // the original repro).
-    let mut lambda_r = (lambda_climb + 0.03).max(0.02);
+    // Seed from climb branch for hover/climb and for the near-hover descent
+    // band (|v_climb| < MIN_LAMBDA_CLIMB_WINDMILL * tip_speed). In that band
+    // the windmill solver has already declined (its Brent bracket doesn't
+    // exist), and hover is the v_climb -> 0 limit of the *climb* branch --
+    // seeding from the descent branch there previously caused a large
+    // spurious discontinuity right at lambda_climb == 0.
+    //
+    // For genuine deep descent (outside the windmill threshold) this function
+    // may be called as a fallback when the windmill solver found no bracket
+    // for a particular azimuth/element; in that regime the descent-branch
+    // root is physically correct and is used instead.
+    let near_hover = v_climb >= -MIN_LAMBDA_CLIMB_WINDMILL * geom.omega * geom.radius_m;
+    let mut lambda_r = if near_hover || lambda_climb >= 0.0 {
+        (lambda_climb + 0.03).max(0.02)
+    } else {
+        (lambda_climb * 0.85).min(-0.02)
+    };
     let mut a_prime: f64 = 0.0;
 
     for _ in 0..MAX_BEM_ITER {
@@ -235,12 +236,20 @@ pub fn solve_bem_element<P: Polar>(
             let denom = 2.0 * (k - 1.0);
             let r1 = (-lambda_climb + sq) / denom;
             let r2 = (-lambda_climb - sq) / denom;
-            // Climb/hover root: prefer the small positive root (see seed
-            // comment above for why this branch is used unconditionally).
-            if r2 > 0.0 {
-                r2
+            // Mirror the seeding choice: climb branch near hover, descent
+            // branch for genuine deep descent.
+            if near_hover || lambda_climb >= 0.0 {
+                if r2 > 0.0 {
+                    r2
+                } else {
+                    r1
+                }
             } else {
-                r1
+                if r1 < 0.0 {
+                    r1
+                } else {
+                    r2
+                }
             }
         } else if lambda_climb.abs() > 1e-8 {
             -k * geom.x * geom.x / lambda_climb
@@ -944,6 +953,81 @@ mod tests {
         assert!(
             minus_f_dot_bz > 0.0,
             "RAWES row122: force along +body_z: -F.body_z = {minus_f_dot_bz:+.6}"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Near-hover boundary: solve_bem_element must not jump across v_climb = 0
+    // -----------------------------------------------------------------------
+
+    fn hover_polar() -> crate::polar::LinearPolar {
+        crate::polar::LinearPolar::from_properties(&LinearPolarParameters {
+            CL0: 0.0,
+            CL_alpha_per_rad: 5.7,
+            CD0: 0.01,
+            alpha_stall_deg: 15.0,
+        })
+    }
+
+    /// lambda_r must be continuous across v_climb = 0 within the near-hover
+    /// band (|v_climb| < MIN_LAMBDA_CLIMB_WINDMILL * tip_speed). Previously,
+    /// the sign-based seeding caused a large jump right at v_climb = 0.
+    #[test]
+    fn test_hover_boundary_continuity() {
+        let polar = hover_polar();
+        let omega = 1250.0 * std::f64::consts::PI / 30.0;
+        let radius_m = 1.143;
+        let collective = f64::to_radians(8.0);
+        let eps = 1e-4; // tiny v_climb -- well inside near-hover band
+
+        let geom = BEMElementGeometry::new(
+            0.8 * radius_m,
+            0.05,
+            0.1905,
+            0.0,
+            omega,
+            1.225,
+            2,
+            radius_m,
+            &polar,
+            false,
+            0.0,
+        );
+        let above = solve_bem_element(&geom, collective, eps, 0.0);
+        let below = solve_bem_element(&geom, collective, -eps, 0.0);
+
+        let jump = (above.lambda_r - below.lambda_r).abs();
+        assert!(
+            jump < 0.01,
+            "lambda_r jumps {jump:.4} across v_climb = 0; near-hover continuity broken"
+        );
+    }
+
+    /// Deep descent (well outside windmill threshold) must return a negative
+    /// lambda_r (net upward inflow) -- the helicopter quadratic descent root.
+    #[test]
+    fn test_deep_descent_negative_lambda_r() {
+        let polar = hover_polar();
+        let omega = 50.0; // slow spin so v_climb dominates
+        let radius_m = 1.143;
+        let geom = BEMElementGeometry::new(
+            0.8 * radius_m,
+            0.05,
+            0.1905,
+            0.0,
+            omega,
+            1.225,
+            2,
+            radius_m,
+            &polar,
+            false,
+            0.0,
+        );
+        let elem = solve_bem_element(&geom, f64::to_radians(5.0), -15.0, 0.0);
+        assert!(
+            elem.lambda_r < 0.0,
+            "deep descent should give lambda_r < 0, got {:.4}",
+            elem.lambda_r
         );
     }
 }
