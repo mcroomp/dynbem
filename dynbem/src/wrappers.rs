@@ -470,11 +470,6 @@ impl PyFlapProperties {
     fn omega_nr_rad_s(&self) -> f64 {
         self.0.omega_nr_rad_s
     }
-
-    /// Compute the hub moment reduction factor at a given rotor speed.
-    fn hub_moment_factor(&self, omega_rad_s: f64) -> f64 {
-        self.0.hub_moment_factor(omega_rad_s)
-    }
 }
 
 #[pyclass(name = "RotorDefinition", module = "dynbem._dynbem")]

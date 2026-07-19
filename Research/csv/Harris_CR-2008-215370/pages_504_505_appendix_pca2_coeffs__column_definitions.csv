@@ -1,0 +1,13 @@
+Column,Meaning
+Advance Ratio,mu = V / (Omega*R)
+Shaft AoA (deg),rotor shaft angle of attack
+Airplane CL,airplane (test article) lift coefficient
+Airplane CD,airplane drag coefficient
+L/D,airplane lift-to-drag ratio
+RPM,rotor rotational speed
+Airplane Cl_roll,airplane rolling moment coefficient
+Airplane Cm_pitch,airplane pitching moment coefficient
+Airplane Cy_lat,airplane lateral force coefficient
+Rotor CT,rotor thrust coefficient
+Rotor CH,rotor in-plane (H-force) coefficient
+Rotor CY,rotor side-force coefficient

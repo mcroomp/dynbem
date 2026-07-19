@@ -232,23 +232,132 @@ pub fn vrs_regime(t_total: f64, v_climb: f64, rho: f64, area: f64) -> VrsRegime 
 // world-frame outputs for every model.
 // ---------------------------------------------------------------------------
 
-/// Apply quasi-static flap reduction to hub moments.
+/// Result of the 1/rev blade-flapping solve.
 ///
-/// Returns (mx_hub_reduced, my_hub_reduced). If `flap` is None, moments
-/// pass through unchanged (rigid-blade assumption).
+/// `mx_out`/`my_out` are the hub moments that reach the airframe (the flap
+/// deflection redistributes the aerodynamic reaction between blade
+/// centrifugal restoring and hub structure). `dfx_hub`/`dfy_hub` are the
+/// additional in-plane hub force (the flapping-tilt contribution to
+/// H-force): as the blade flaps by beta(psi) the thrust vector tilts into
+/// the disk plane. Both are in the hub frame and are added to the
+/// profile-drag H-force before `assemble_result`.
+pub struct FlapOutput {
+    pub mx_out: f64,
+    pub my_out: f64,
+    pub dfx_hub: f64,
+    pub dfy_hub: f64,
+}
+
+/// Phase-correct quasi-static blade-flapping solve (1/rev harmonic balance
+/// with aerodynamic flap damping).
+///
+/// The flap DOF responds to the RAW aerodynamic hub moment (the caller must
+/// pass the un-reduced `mx_hub`/`my_hub`; the inflow ODE still uses those
+/// full moments because the wake responds to disk loading, not to what the
+/// airframe sees). The solve returns both the reduced hub moments and the
+/// flapping-tilt H-force.
+///
+/// ## Convention (see AGENTS.md "blade flapping" section)
+///
+/// - Azimuth psi=0 at +X, CCW from above; blade flap `beta > 0` = tip up
+///   (toward -z, the thrust direction). `beta(psi) = beta_0 + beta_1c cos
+///   psi + beta_1s sin psi`.
+/// - The sweep's azimuth-averaged hub moments are the 1/rev aerodynamic
+///   flap-moment harmonics: `mx_hub = N_b M1s / 2`, `my_hub = N_b M1c / 2`.
+/// - Flap equation (per rev, ' = d/dpsi):
+///   `I_b Omega^2 (beta'' + d beta' + nu^2 beta) = M_beta(psi)` with
+///   aerodynamic damping `d = gamma/8`, Lock number `gamma = rho a c R^4 /
+///   I_b`. Computed here from the actual radial geometry to allow taper:
+///   `d = 0.5 rho a S3 / I_b`, `S3 = sum c(r) r^3 dr` (Omega cancels).
+/// - 1/rev balance gives the damped transfer
+///   `[[a, d],[-d, a]] [beta_1c; beta_1s] = (1/(I_b Omega^2)) [M1c; M1s]`,
+///   `a = nu^2 - 1`. At `nu ~ 1` the damping dominates and produces the
+///   classical ~90 deg flap lag (flapback) rather than an in-phase response.
+/// - Transmitted hub moment (Johnson): `M_hub = (N_b/2) I_b Omega^2 (nu^2-1)
+///   beta_1`. With no damping this reduces to the full aero moment.
+/// - Flapping-tilt H-force: `Fx = -<T beta cos psi> = -T beta_1c/2`,
+///   `Fy = +<T beta sin psi> = +T beta_1s/2` (T = mean disk thrust).
+///
+/// The H-force sign is pinned by `validation_rs/src/checks/h_force.rs`
+/// (forward flight with collective must give a rearward, flow-opposing
+/// force that adds to the profile-drag term).
 #[inline]
-pub fn apply_flap_reduction(
+pub fn apply_flap_dynamics(
+    t_total: f64,
     mx_hub: f64,
     my_hub: f64,
     flap: Option<&crate::rotor_definition::FlapProperties>,
+    grid: &RadialGrid,
+    cl_alpha: f64,
+    rho: f64,
+    n_b: usize,
     omega: f64,
-) -> (f64, f64) {
-    match flap {
-        Some(fp) => {
-            let f = fp.hub_moment_factor(omega);
-            (mx_hub * f, my_hub * f)
+) -> FlapOutput {
+    let fp = match flap {
+        Some(fp) => fp,
+        None => {
+            return FlapOutput {
+                mx_out: mx_hub,
+                my_out: my_hub,
+                dfx_hub: 0.0,
+                dfy_hub: 0.0,
+            }
         }
-        None => (mx_hub, my_hub),
+    };
+
+    let i_b = fp.I_blade_flap_kgm2;
+    if !(i_b > 0.0) || omega.abs() < 1e-6 {
+        // Degenerate: no inertia or not spinning -> no meaningful flap solve.
+        return FlapOutput {
+            mx_out: mx_hub,
+            my_out: my_hub,
+            dfx_hub: 0.0,
+            dfy_hub: 0.0,
+        };
+    }
+
+    let nu2 = fp.nu_beta_sq(omega);
+    let a_stiff = nu2 - 1.0;
+
+    // Aerodynamic flap damping (nondimensional, = gamma/8). Integrated over
+    // the radial grid so taper is handled: C_beta = 0.5 rho a Omega * S3,
+    // S3 = sum c(r) r^3 dr, and gamma/8 = C_beta/(I_b Omega) = 0.5 rho a
+    // S3 / I_b (Omega cancels).
+    let mut s3 = 0.0;
+    for i in 0..grid.n_elements {
+        let r = grid.r_mid[i];
+        s3 += grid.chord[i] * r * r * r * grid.dr;
+    }
+    let d_damp = 0.5 * rho * cl_alpha * s3 / i_b;
+
+    // 1/rev aerodynamic flap-moment harmonics (per blade).
+    let n_bf = n_b as f64;
+    let m1c = 2.0 * my_hub / n_bf;
+    let m1s = 2.0 * mx_hub / n_bf;
+
+    // Damped 1/rev flap response:
+    //   [[a, d],[-d, a]] [b1c; b1s] = (1/(I_b Omega^2)) [M1c; M1s]
+    // => [b1c; b1s] = (1/(I_b Omega^2 D)) [[a, -d],[d, a]] [M1c; M1s]
+    let om2 = omega * omega;
+    let det = a_stiff * a_stiff + d_damp * d_damp;
+    let inv = 1.0 / (i_b * om2 * det);
+    let b1c = inv * (a_stiff * m1c - d_damp * m1s);
+    let b1s = inv * (d_damp * m1c + a_stiff * m1s);
+
+    // Transmitted hub moment (Johnson): M_hub = (N_b/2) I_b Omega^2 (nu^2-1) beta1.
+    let k = 0.5 * n_bf * i_b * om2 * a_stiff;
+    let my_out = k * b1c;
+    let mx_out = k * b1s;
+
+    // Flapping-tilt H-force from the thrust vector tilting with beta(psi).
+    let dfx_hub = -0.5 * t_total * b1c;
+    let dfy_hub = 0.5 * t_total * b1s;
+
+    FlapOutput {
+        mx_out,
+        my_out,
+        dfx_hub,
+        dfy_hub,
     }
 }
 
@@ -261,14 +370,10 @@ pub fn apply_flap_reduction(
 /// vanishing again as the hub axis re-aligns with the relative wind.
 /// Pass `0.0, 0.0` for callers that don't yet compute it (e.g. VPM).
 ///
-/// This captures only the profile/induced-drag contribution to H-force.
-/// Classical rotor theory has a second, often larger, contribution from
-/// blade flapping (the thrust vector tilts into the disk plane by the
-/// local flap angle beta(psi)); none of the models here track an
-/// azimuth-resolved beta(psi) (`FlapProperties::hub_moment_factor` is a
-/// static scalar that only reduces `mx_hub`/`my_hub`, never feeds Fx/Fy),
-/// so the flapping-tilt term is not represented and this will generally
-/// under-predict total H-force magnitude vs. a real rotor.
+/// The caller is expected to have already folded in the flapping-tilt
+/// contribution to H-force (`FlapOutput::dfx_hub`/`dfy_hub` from
+/// `apply_flap_dynamics`) when a `FlapProperties` is configured; the
+/// profile/induced-drag part comes from `SweepCtx::run`.
 #[inline]
 pub fn assemble_result(
     t_total: f64,

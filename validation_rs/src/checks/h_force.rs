@@ -221,4 +221,87 @@ pub fn check_h_force(r: &mut Report) {
             f_ff[0]
         ),
     );
+
+    // --- flapping-tilt H-force: flapback drag ---
+    //
+    // Classical rotor theory's second (usually larger) H-force term comes
+    // from blade flapping: in forward flight the advancing/retreating lift
+    // asymmetry drives a 1/rev flap response that, with the ~90 deg
+    // aerodynamic-damping phase lag, tilts the disk AFT (flapback). The
+    // thrust vector tilting rearward is an extra rearward in-plane force.
+    //
+    // Model it directly with a freely-hinged flap blade (omega_NR=0, so no
+    // hub moment is transmitted -- this isolates the flapping-tilt H-force
+    // from the transmitted-moment path) at a realistic Lock number, in
+    // forward flight with real thrust (nonzero collective). Compare against
+    // the identical rigid-blade rotor: enabling flap must make the H-force
+    // MORE rearward, and the flapping contribution should dominate the
+    // small profile-drag term.
+    let i_beta = 0.03; // -> Lock number ~8 (see info below)
+    let defn_flap = theory_rotor_flap(8, i_beta);
+    let rotor_flap = QuasiStaticBEM::build(defn_flap, 36, theory_polar());
+    let rotor_rigid = QuasiStaticBEM::build(theory_rotor(8, 0.0), 36, theory_polar());
+
+    let collective = 8.0_f64.to_radians();
+    let ff = |c: f64| RotorInputs {
+        collective_rad: c,
+        tilt_lon: 0.0,
+        tilt_lat: 0.0,
+        R_hub: Mat3::eye(),
+        v_hub_world: Vec3::new(8.0, 0.0, 0.0), // forward flight +X, still air
+        wind_world: Vec3::zero(),
+        rho_kg_m3: RHO,
+        omega_rad_s: OMEGA,
+    };
+
+    let (res_flap, _) = rotor_flap.compute_forces(&ff(collective), &rotor_flap.initial_state());
+    let (res_rigid, _) = rotor_rigid.compute_forces(&ff(collective), &rotor_rigid.initial_state());
+    let f_flap = res_flap.F_world.0;
+    let f_rigid = res_rigid.F_world.0;
+
+    r.info("flapback", "lock_number", lock_number(i_beta), f64::NAN);
+    r.info("flapback", "thrust_z_N", -f_flap[2], f64::NAN);
+    r.info("flapback", "f_north_flap_N", f_flap[0], f64::NAN);
+    r.info("flapback", "f_north_rigid_N", f_rigid[0], f64::NAN);
+
+    // Flapback must be rearward (-X).
+    r.assert_bool(
+        "flapback",
+        "flapping_h_force_is_rearward",
+        f_flap[0],
+        0.0,
+        f_flap[0] < -0.05,
+        &format!(
+            "flapping in forward flight (+X) should tilt the disk aft -> rearward (-X) H-force, got F_north={:.3} N",
+            f_flap[0]
+        ),
+    );
+    // Flapping adds to (dominates) the rigid-blade profile-drag H-force.
+    r.assert_bool(
+        "flapback",
+        "flapping_adds_rearward_drag",
+        f_flap[0],
+        f_rigid[0],
+        f_flap[0] < f_rigid[0] - 0.05,
+        &format!(
+            "enabling flap should make the H-force more rearward: flap F_north={:.3} N vs rigid {:.3} N",
+            f_flap[0], f_rigid[0]
+        ),
+    );
+    // A freely-hinged blade transmits no hub moment: the flapping shows up
+    // in the H-force, not as an airframe roll/pitch moment.
+    let m_flap = res_flap.M_hub_world.0;
+    r.info("flapback", "hub_moment_x_N_m", m_flap[0], f64::NAN);
+    r.info("flapback", "hub_moment_y_N_m", m_flap[1], f64::NAN);
+    r.assert_bool(
+        "flapback",
+        "free_hinge_transmits_no_moment",
+        m_flap[0].hypot(m_flap[1]),
+        0.0,
+        m_flap[0].hypot(m_flap[1]) < 1e-6,
+        &format!(
+            "freely-hinged flap should transmit ~zero hub moment, got |M|={:.3e} N*m",
+            m_flap[0].hypot(m_flap[1])
+        ),
+    );
 }

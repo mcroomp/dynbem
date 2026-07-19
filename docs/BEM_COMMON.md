@@ -561,27 +561,29 @@ hub-frame aero moment rotated to world frame (hub rolling/pitching moments);
 `M_spin` is the reaction torque about the hub axis; `Q_spin` is the scalar
 shaft torque.
 
-When blade flapping is configured (Section 14a), the hub moments are reduced
-before rotation to world frame:
+When blade flapping is configured (Section 14a), the phase-correct 1/rev
+flap solve sets the hub moments transmitted to the airframe and adds a
+flapping-tilt contribution to the in-plane hub force before rotation to
+world frame:
 
-$$M_{x,\text{out}} = f_\text{hub}\,M_{x,\text{hub}}, \qquad M_{y,\text{out}} = f_\text{hub}\,M_{y,\text{hub}}$$
+$$[M_{x,\text{out}},\;M_{y,\text{out}}] = \tfrac{N_b}{2}\,I_b\,\Omega^2\,(\nu_\beta^2-1)\,[\beta_{1s},\;\beta_{1c}]$$
 
-Otherwise $M_{x,\text{out}} = M_{x,\text{hub}}$ (rigid blade, backward
-compatible).
+Otherwise $M_{x,\text{out}} = M_{x,\text{hub}}$ (rigid blade, no flap
+solve).
 
 ---
 
-## 14a. Quasi-Static Blade Flapping (Hub Moment Reduction)
+## 14a. Quasi-Static Blade Flapping (Hub Moment + Flapback H-force)
 
 Source: `FlapProperties` in `dynbem_rs/src/rotor_definition.rs`,
-`apply_flap_reduction` in `dynbem_rs/src/bem_common.rs`.
+`apply_flap_dynamics` in `dynbem_rs/src/bem_common.rs`.
 
-A flexible blade (or one with a flap hinge) absorbs most of the
-aerodynamic pitching/rolling moment via out-of-plane deflection. Only the
-fraction determined by the blade's flap frequency ratio reaches the
-airframe hub. This is modelled as a quasi-static (algebraic) moment
-reduction applied after the psi-loop integration and before output
-assembly.
+A flexible blade (or one with a flap hinge) responds to the 1/rev cyclic
+aerodynamic moment with an out-of-plane flap `beta(psi)`. Only the
+fraction set by the blade's centrifugal flap stiffness reaches the
+airframe as a hub moment; the tilted disk also contributes an in-plane
+hub force (the flapping-tilt "H-force"). Both are solved phase-correctly
+after the psi-loop integration and before output assembly.
 
 ### Equivalent Spring-Hinge Model
 
@@ -595,40 +597,63 @@ natural frequency (from root bending stiffness $K_\beta = I_b\,\omega_\text{NR}^
 and $\Omega$ is the rotor speed. The "1" comes from centrifugal
 stiffening at the rotating speed.
 
-### Hub Moment Reduction Factor
+### Phase-Correct 1/rev Harmonic Solve
 
-$$f_\text{hub} = \frac{\nu_\beta^2 - 1}{\nu_\beta^2}$$
+Near $\nu_\beta \approx 1$ the 1/rev forcing is near resonance, so the
+flap response is set by aerodynamic damping and lags the forcing by
+~90 deg. A magnitude-only scaling cannot reproduce this, so the flap DOF
+is solved as a damped 1/rev harmonic balance ($' = d/d\psi$):
 
-| Configuration | $`\omega_\text{NR}`$ | $`\nu_\beta`$ | $`f_\text{hub}`$ | Physical meaning |
+$$I_b\,\Omega^2\,(\beta'' + d\,\beta' + \nu_\beta^2\,\beta) = M_\beta(\psi)$$
+
+with aerodynamic flap damping (Lock number over 8), integrated over the
+radial grid to allow taper:
+
+$$d = \frac{\gamma}{8} = \frac{\tfrac{1}{2}\,\rho\,a\,S_3}{I_b}, \qquad S_3 = \int c(r)\,r^3\,dr$$
+
+($\Omega$ cancels). The azimuth-averaged hub moments from the sweep ARE
+the 1/rev aero flap-moment harmonics, `mx_hub = N_b*M1s/2`,
+`my_hub = N_b*M1c/2`, and at 1/rev ($\beta'' = -\beta$) the balance is the
+linear system
+
+$$\begin{bmatrix} a & d \\ -d & a \end{bmatrix} \begin{bmatrix} \beta_{1c} \\ \beta_{1s} \end{bmatrix} = \frac{1}{I_b\,\Omega^2} \begin{bmatrix} M_{1c} \\ M_{1s} \end{bmatrix}, \qquad a = \nu_\beta^2 - 1$$
+
+### Transmitted Hub Moment and Flapback H-force
+
+Transmitted hub moment (Johnson):
+
+$$[M_{x,\text{out}},\;M_{y,\text{out}}] = \tfrac{N_b}{2}\,I_b\,\Omega^2\,(\nu_\beta^2-1)\,[\beta_{1s},\;\beta_{1c}]$$
+
+Flapping-tilt H-force (hub frame, $T$ = mean disk thrust), added to the
+profile-drag H-force before assembly:
+
+$$F_{x,\text{flap}} = -\tfrac{1}{2}\,T\,\beta_{1c}, \qquad F_{y,\text{flap}} = +\tfrac{1}{2}\,T\,\beta_{1s}$$
+
+| Configuration | $`\omega_\text{NR}`$ | $`\nu_\beta`$ | Transmitted moment | Flapback H-force |
 |---|---|---|---|---|
-| Freely hinged (teetering) | 0 | 1.0 | 0 | No moment transfer to airframe |
-| Typical hingeless | $`0.2{-}0.4\,\Omega`$ | 1.02-1.08 | 0.04-0.14 | Blade absorbs 86-96% of moment |
-| Very stiff / rigid | $`\gg \Omega`$ | $`\gg 1`$ | $`\to 1`$ | Full moment transfer (legacy behaviour) |
+| Freely hinged (teetering) | 0 | 1.0 | 0 (a=0) | present (pure 90 deg lag) |
+| Typical hingeless | $`0.2{-}0.4\,\Omega`$ | 1.02-1.08 | small fraction of aero moment | present |
+| Very stiff / rigid | $`\gg \Omega`$ | $`\gg 1`$ | $`\to`$ full aero moment | $`\to 0`$ |
 
-### Where the Reduction is Applied
+Note the flapback H-force is nonzero even for a freely hinged blade that
+transmits **zero** hub moment: aerodynamic damping alone gives $\beta_1$ a
+pure 90 deg lag. Its direction is validated (forward flight along +X gives
+a rearward, flow-opposing force) by the `flapback` case in
+`validation_rs/src/checks/h_force.rs`.
 
-The reduction acts **only on the output to the airframe**. The Pitt-Peters
+### Where the Solve is Applied
+
+The flap solve acts **only on the output to the airframe**. The Pitt-Peters
 inflow ODE (Section 10) still uses the *full* aerodynamic moments
 $`(M_{x,\text{hub}}, M_{y,\text{hub}})`$ because the wake responds to disk
 loading, not to what the airframe sees. Thrust and torque are unaffected.
+The profile-drag H-force is computed in the sweep regardless of flapping;
+absent a `flap:` section only the flapping-tilt term is omitted.
 
-This is physically correct: the blade flaps to a new equilibrium angle
-that redistributes the aerodynamic reaction between blade inertia
-(centrifugal restoring) and hub structure (root bending), but the total
-aerodynamic moment on the disk -- which drives the wake -- is unchanged.
-
-### Relation to Attitude Damping
-
-On a rigid-blade rotor, when the airframe pitches at rate $q$, the hub
-moment is proportional to the rate (aerodynamic damping from the
-asymmetric thrust distribution). With flapping, the blade absorbs most
-of this moment -- the effective aerodynamic damping derivative seen by the
-airframe is multiplied by $f_\text{hub}$. However, for an articulated or
-flexible rotor the *cyclic inflow feedback* (Pitt-Peters $\lambda_c$,
-$\lambda_s$) provides additional dynamic damping that is not captured
-by this quasi-static factor. The two effects are complementary: the
-flap reduces the instantaneous moment transfer while the inflow lag
-provides the dynamic (rate-dependent) component.
+This is physically correct: the blade flaps to redistribute the
+aerodynamic reaction between blade inertia (centrifugal restoring) and
+hub structure, but the total aerodynamic moment on the disk -- which
+drives the wake -- is unchanged.
 
 ---
 

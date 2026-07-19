@@ -167,7 +167,6 @@ RotorInputs(collective_rad, tilt_lon, tilt_lat, R_hub,
 |------------|-----------------|--------|------|-------|
 | `I_blade_flap_kgm2` | `.I_blade_flap_kgm2` | Y | f64 | Flap inertia [kg⋅m²] |
 | `omega_nr_rad_s` | `.omega_nr_rad_s` | Y | f64 | Natural frequency [rad/s] |
-| **Method:** | `.hub_moment_factor(omega_rad_s)` | Y | f64 | Compute reduction factor |
 
 **PyClass Name:** `_dynbem.FlapProperties`
 

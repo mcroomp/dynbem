@@ -10,6 +10,7 @@ mod flap_directional;
 mod flapping_harmonics;
 mod glauert_forward_inflow;
 mod h_force;
+mod harris_hforce_empirical;
 mod hover_castles_gray;
 mod hover_cq_empirical;
 mod hover_empirical;
@@ -31,6 +32,7 @@ pub use flap_directional::check_flap_directional;
 pub use flapping_harmonics::check_flapping_harmonics;
 pub use glauert_forward_inflow::check_glauert_forward_inflow;
 pub use h_force::check_h_force;
+pub use harris_hforce_empirical::check_harris_hforce;
 pub use hover_castles_gray::check_hover_castles_gray;
 pub use hover_cq_empirical::check_hover_cq_empirical;
 pub use hover_empirical::check_hover_empirical;
@@ -44,7 +46,7 @@ pub use wake_skew::check_wake_skew;
 
 use crate::report::Report;
 
-/// Run all 17 validation checks in order.
+/// Run all 18 validation checks in order.
 pub fn run_all_checks(report: &mut Report) {
     run_filtered_checks(report, None);
 }
@@ -70,6 +72,7 @@ pub fn run_filtered_checks(report: &mut Report, filter: Option<&str>) {
     maybe!("measured_companions", check_measured_companions);
     maybe!("cyclic_sign", check_cyclic_sign);
     maybe!("h_force", check_h_force);
+    maybe!("harris_hforce", check_harris_hforce);
     maybe!("servo_flap", check_servo_flap);
     maybe!("cyclic_phase_servo", check_cyclic_phase_servo);
     maybe!("flap_directional", check_flap_directional);

@@ -1,13 +1,12 @@
 """Tests for quasi-static blade flapping (hub moment reduction).
 
 Covers:
-  1. FlapProperties hub_moment_factor correctness at known omega.
-  2. With flap configured, hub moments are reduced vs rigid blade.
-  3. Thrust is unchanged (flapping only affects moments, not axial force).
-  4. Zero omega_nr (freely hinged) gives near-zero hub moment.
-  5. Large omega_nr (stiff blade) gives nearly unchanged hub moment.
-  6. YAML round-trip for flap section.
-  7. All three models (pitt_peters, oye, bem) support flap.
+  1. With flap configured, hub moments are reduced vs rigid blade.
+  2. Thrust is unchanged (flapping only affects moments, not axial force).
+  3. Zero omega_nr (freely hinged) gives near-zero hub moment.
+  4. Large omega_nr (stiff blade) gives nearly unchanged hub moment.
+  5. YAML round-trip for flap section.
+  6. All three models (pitt_peters, oye, bem) support flap.
 """
 
 import math
@@ -53,33 +52,6 @@ def thrust_N(result):
     return -float(result.F_world[2])
 
 
-# ---------------------------------------------------------------------------
-# 1. FlapProperties.hub_moment_factor correctness
-# ---------------------------------------------------------------------------
-
-def test_hub_moment_factor_math():
-    """Verify the reduction factor formula directly."""
-    fp = _RustFlapProperties(I_blade_flap_kgm2=0.01, omega_nr_rad_s=10.0)
-    omega = 30.0
-    # nu_beta^2 = 1 + (10/30)^2 = 1 + 1/9 = 10/9
-    # factor = (10/9 - 1) / (10/9) = (1/9) / (10/9) = 1/10
-    expected = 1.0 / 10.0
-    assert fp.hub_moment_factor(omega) == pytest.approx(expected, rel=1e-10)
-
-
-def test_hub_moment_factor_zero_stiffness():
-    """Freely-hinged blade: factor should be 0 (no moment transfer)."""
-    fp = _RustFlapProperties(I_blade_flap_kgm2=0.01, omega_nr_rad_s=0.0)
-    assert fp.hub_moment_factor(30.0) == pytest.approx(0.0, abs=1e-15)
-
-
-def test_hub_moment_factor_stiff():
-    """Very stiff blade: factor approaches 1."""
-    fp = _RustFlapProperties(I_blade_flap_kgm2=0.01, omega_nr_rad_s=1000.0)
-    # nu^2 = 1 + (1000/30)^2 ~ 1112; factor = 1111/1112 ~ 0.9991
-    f = fp.hub_moment_factor(30.0)
-    assert f > 0.99
-    assert f < 1.0
 
 
 # ---------------------------------------------------------------------------
@@ -245,12 +217,19 @@ control:
 # ---------------------------------------------------------------------------
 
 def test_moment_reduction_matches_factor():
-    """The ratio of flap/rigid moments should match hub_moment_factor."""
+    """Phase-correct 1/rev flap solve reduces and rotates the hub moment.
+
+    The model no longer scales the transmitted hub moment by the scalar
+    hub_moment_factor = (nu^2-1)/nu^2. The phase-correct harmonic solve adds
+    aerodynamic flap damping, which (a) reduces the transmitted-moment
+    magnitude below the rigid-blade value and (b) rotates the moment between
+    axes (the ~90 deg flap lag) -- something a scalar factor cannot do. So
+    the flap moment is NOT a simple positive multiple of the rigid moment.
+    """
+    import math
+
     omega = 25.0
     omega_nr = 8.0
-    # factor = (omega_nr/omega)^2 / (1 + (omega_nr/omega)^2)
-    nu2 = 1.0 + (omega_nr / omega) ** 2
-    expected_factor = (nu2 - 1.0) / nu2
 
     flap = FlapProperties(I_blade_flap_kgm2=0.01, omega_nr_rad_s=omega_nr)
     defn_rigid = make_defn(flap=None)
@@ -265,8 +244,19 @@ def test_moment_reduction_matches_factor():
     res_flap, _ = model_flap.compute_forces(inputs, model_flap.initial_rotor_state())
 
     mx_rigid = float(res_rigid.m_hub_world[0])
+    my_rigid = float(res_rigid.m_hub_world[1])
     mx_flap = float(res_flap.m_hub_world[0])
+    my_flap = float(res_flap.m_hub_world[1])
 
-    if abs(mx_rigid) > 1e-10:
-        actual_ratio = mx_flap / mx_rigid
-        assert actual_ratio == pytest.approx(expected_factor, rel=1e-6)
+    mag_rigid = math.hypot(mx_rigid, my_rigid)
+    mag_flap = math.hypot(mx_flap, my_flap)
+
+    # Flap must strictly reduce the transmitted-moment magnitude.
+    assert mag_rigid > 1e-10
+    assert mag_flap < mag_rigid
+
+    # The transmitted moment is rotated relative to the rigid one (phase lag),
+    # so the two vectors are not parallel: the cross product is non-negligible
+    # relative to the product of magnitudes.
+    cross = mx_rigid * my_flap - my_rigid * mx_flap
+    assert abs(cross) > 0.05 * mag_rigid * mag_flap

@@ -6,7 +6,7 @@ use std::f64::consts::PI;
 use crate::aero_io::{AeroResult, RotorInputs};
 use crate::aero_model::{AeroModel, RotorStateExt};
 use crate::bem_common::{
-    apply_flap_reduction, assemble_result, build_psi_trig_table, kinematics, ElementCtx, PsiKernel,
+    apply_flap_dynamics, assemble_result, build_psi_trig_table, kinematics, ElementCtx, PsiKernel,
     RadialGrid, SweepCtx,
 };
 use crate::common::{EPS_DENOM, EPS_OMEGA_R, MIN_LOSS_FACTOR};
@@ -802,15 +802,24 @@ impl<P: Polar + Clone> AeroModel for QuasiStaticBEM<P> {
             }
         }
 
-        let (mx_out, my_out) =
-            apply_flap_reduction(mx_hub, my_hub, self.defn.flap.as_ref(), inputs.omega_rad_s);
+        let flap = apply_flap_dynamics(
+            t_total,
+            mx_hub,
+            my_hub,
+            self.defn.flap.as_ref(),
+            grid,
+            self.defn.airfoil.CL_alpha_per_rad,
+            rho,
+            n_blades,
+            omega,
+        );
         let result = assemble_result(
             t_total,
             q_total,
-            mx_out,
-            my_out,
-            fx_hub,
-            fy_hub,
+            flap.mx_out,
+            flap.my_out,
+            fx_hub + flap.dfx_hub,
+            fy_hub + flap.dfy_hub,
             hub_axis,
             &inputs.R_hub,
         );

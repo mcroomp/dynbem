@@ -297,7 +297,7 @@ are equivalent.
     +-- aero_model.rs         AeroModel trait + RotorStateExt trait + IntegrationMethod
     +-- bem_common.rs         RadialGrid, PolarTable, kinematics(), element_force(),
     |                         run_psi_loop<K: PsiKernel>, assemble_result(),
-    |                         apply_flap_reduction()
+    |                         apply_flap_dynamics()
     +-- common.rs             numerical floors (EPS_*), vrs_lambda1 VRS polynomial
     +-- cyclic.rs             swashplate -> theta_1c, theta_1s mapping
     +-- mechanical.rs         omega_derivative(), step_omega() -- single canonical
