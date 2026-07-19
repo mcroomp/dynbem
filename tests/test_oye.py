@@ -287,7 +287,7 @@ class TestOyeEnvelopeStability:
             tether_hat, _build_r_hub, G,
         )
 
-        from dynbem.mechanical import omega_derivative
+        from dynbem.mechanical import step_omega
 
         m = create_aero(defn, model="oye")
         # Use the beaupoil rotor -- the one that exhibited the regression.
@@ -324,8 +324,8 @@ class TestOyeEnvelopeStability:
             arr = _step_state_semi_implicit(m, state, dst, dt, inp)
             arr = _clip_state(arr)
             state = state.from_array(arr)
-            omega = max(0.5, min(300.0,
-                                 omega + dt * omega_derivative(aero_r.Q_spin, 0.0, I_ode)))
+            omega_new, _ = step_omega(omega, 0.0, aero_r.Q_spin, 0.0, I_ode, dt)
+            omega = max(0.5, min(300.0, omega_new))
             f_thrust = float(np.dot(aero_r.F_world, t_hat))
             f_along = f_thrust + mass * G * float(t_hat[2]) + T_tether
             v_along = max(-30.0, min(30.0, v_along + dt / mass * f_along))

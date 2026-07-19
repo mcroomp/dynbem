@@ -38,7 +38,7 @@ from typing import Optional
 import numpy as np
 
 from dynbem import RotorInputs, create_aero
-from dynbem.mechanical import omega_derivative
+from dynbem.mechanical import step_omega
 from dynbem.rotor_definition import RotorDefinition
 
 G = 9.81  # m/s²
@@ -222,8 +222,8 @@ def simulate_point(
         # Clip dynamic-inflow states (guards against divergence at very
         # short time constants or model start-up transients).
         state = state.from_array(_clip_state(arr))
-        omega = max(0.5, min(300.0,
-                             omega + dt * omega_derivative(aero.Q_spin, 0.0, I_ode)))
+        omega_new, _ = step_omega(omega, 0.0, aero.Q_spin, 0.0, I_ode, dt)
+        omega = max(0.5, min(300.0, omega_new))
 
         # 1-D force integration along tether (explicit Euler).  The previous
         # semi-implicit form used a finite-difference probe of ∂F/∂v_along
@@ -395,7 +395,7 @@ def ramp_column_worker(args: dict) -> dict:
         if not np.array_equal(arr_raw, arr_clipped):
             aero_clamped = True
         state = state.from_array(arr_clipped)
-        omega_new = omega + dt_in * omega_derivative(aero.Q_spin, 0.0, I_ode)
+        omega_new, _ = step_omega(omega, 0.0, aero.Q_spin, 0.0, I_ode, dt_in)
         omega_clipped = max(0.5, min(300.0, omega_new))
         if omega_clipped != omega_new:
             aero_clamped = True

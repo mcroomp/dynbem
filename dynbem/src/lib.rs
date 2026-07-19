@@ -30,9 +30,55 @@ fn cyclic_coeffs(tilt_lon: f64, tilt_lat: f64, control: Option<PyControlProperti
     dynbem_rs::cyclic::cyclic_coeffs(tilt_lon, tilt_lat, gains)
 }
 
+/// Rigid-body rotor spin ODE derivative. See dynbem_rs::mechanical for the
+/// full physics (Coulomb bearing friction is always a parameter; pass
+/// bearing_friction_nm=0.0 for a frictionless bearing).
+#[pyfunction]
+#[pyo3(signature = (omega, q_aero, motor_torque_nm, i_ode_kgm2, bearing_friction_nm = 0.0))]
+fn omega_derivative(
+    omega: f64,
+    q_aero: f64,
+    motor_torque_nm: f64,
+    i_ode_kgm2: f64,
+    bearing_friction_nm: f64,
+) -> f64 {
+    dynbem_rs::mechanical::omega_derivative(
+        omega,
+        q_aero,
+        motor_torque_nm,
+        i_ode_kgm2,
+        bearing_friction_nm,
+    )
+}
+
+/// Semi-implicit (locally-frozen relaxation) step for the rigid-body spin
+/// ODE. This is the single canonical, recommended integrator -- see
+/// dynbem_rs::mechanical for the full derivation and stability properties.
+#[pyfunction]
+#[pyo3(signature = (omega, q_aero, motor_torque_nm, i_ode_kgm2, dt, bearing_friction_nm = 0.0))]
+fn step_omega(
+    omega: f64,
+    q_aero: f64,
+    motor_torque_nm: f64,
+    i_ode_kgm2: f64,
+    dt: f64,
+    bearing_friction_nm: f64,
+) -> f64 {
+    dynbem_rs::mechanical::step_omega(
+        omega,
+        q_aero,
+        motor_torque_nm,
+        i_ode_kgm2,
+        dt,
+        bearing_friction_nm,
+    )
+}
+
 #[pymodule]
 fn _dynbem(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(cyclic_coeffs, m)?)?;
+    m.add_function(wrap_pyfunction!(omega_derivative, m)?)?;
+    m.add_function(wrap_pyfunction!(step_omega, m)?)?;
     m.add_class::<PyLinearPolar>()?;
     m.add_class::<PyTabulatedPolar>()?;
     m.add_class::<PyBladeGeometry>()?;

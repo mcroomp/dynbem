@@ -34,7 +34,7 @@ from .rotor_definition import (  # noqa: F401
 )
 from .factory import create_aero, build_polar, load_tabulated_polar, _build_polar_from_defn  # noqa: F401
 from .trim import solve_trim_cyclic, relax_inflow  # noqa: F401
-from .mechanical import omega_derivative, euler_step_omega  # noqa: F401
+from .mechanical import omega_derivative, step_omega  # noqa: F401
 
 
 def cyclic_coeffs(tilt_lon, tilt_lat, control=None):  # noqa: F401
