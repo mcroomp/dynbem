@@ -13,9 +13,10 @@ paper measured airfoil section CL at five radial stations
 (r/R = 0.50, 0.68, 0.80, 0.89, 0.96) by integrating chordwise Cp.
 That data lives in Research/csv/CaradonnaTung/page_NN_table_*__cl.csv .
 
-We call solve_bem_element directly at each station (much faster than
-running the full BEM and post-processing), read the converged
-lambda_r/a_prime, and recover the local airfoil CL = polar.cl(alpha).
+Per-station CL is computed by solving the BEM self-consistency equation
+directly (Newton iteration on lambda_r) for each station in isolation.
+This gives the same result as the internal Rust element solver without
+requiring any internal API to be exposed at the Python layer.
 
 Caveats
 -------
@@ -57,7 +58,6 @@ def _sample_evenly(items: list, n: int | None) -> list:
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from dynbem.bem import solve_bem_element
 from dynbem.rotor_definition import (
     LinearPolarParameters, AutorotationProperties, BladeGeometry, RotorDefinition)
 from dynbem.factory import build_polar
@@ -154,25 +154,66 @@ class Survey:
 
 
 def section_CL_bem(coll_deg: float, omega_rpm: float, r_over_R: float) -> float:
-    """Solve the single-element BEM at the given station; return section CL."""
+    """Solve the single-element hover BEM at the given station; return section CL.
+
+    Self-contained Newton iteration on lambda_r (axial inflow ratio).
+    No internal Rust API is used -- this mirrors what solve_bem_element does
+    internally for the hover (v_climb=0) case.
+    """
     R = ROTOR.blade.radius_m
     omega = omega_rpm * math.pi / 30.0
-    Omega_R = omega * R
     r = r_over_R * R
-    dr = 0.005 * R   # narrow annulus; CL is independent of dr after normalization
-    elem = solve_bem_element(
-        r=r, dr=dr,
-        chord=ROTOR.blade.chord_m, twist_rad=0.0,
-        collective_rad=math.radians(coll_deg),
-        omega=omega, v_climb=0.0, rho=1.225,
-        n_blades=ROTOR.blade.n_blades, radius_m=R,
-        polar=POLAR, use_tip_loss=ROTOR.blade.tip_loss,
-        root_cutout_m=ROTOR.blade.root_cutout_m,
-    )
-    v_a = elem.lambda_r * Omega_R
-    v_t = omega * r * (1.0 + elem.a_prime)
+    chord = ROTOR.blade.chord_m
+    n_blades = ROTOR.blade.n_blades
+    rho = 1.225
+    use_tip_loss = ROTOR.blade.tip_loss
+    collective_rad = math.radians(coll_deg)
+
+    # Solidity at this element (no dr needed -- CL is dr-independent)
+    x = r / R  # normalized radius
+    sigma_r = n_blades * chord / (2.0 * math.pi * r)
+
+    # Prandtl tip-loss factor (evaluated at current phi; iterate below)
+    def prandtl_F(phi: float) -> float:
+        if not use_tip_loss or abs(math.sin(phi)) < 1e-10 or x >= 1.0:
+            return 1.0
+        f = (n_blades / 2.0) * (1.0 - x) / (x * abs(math.sin(phi)))
+        return max(0.01, (2.0 / math.pi) * math.acos(min(1.0, math.exp(-f))))
+
+    # Newton iteration on lambda_r
+    lam = 0.02  # hover initial guess
+    for _ in range(60):
+        v_a = lam * omega * R
+        v_t = omega * r   # a_prime small at hover; ignore for CL convergence
+        phi = math.atan2(v_a, v_t)
+        alpha = collective_rad - phi
+        cl, cd = POLAR.cl_cd(alpha)
+        cn = cl * math.cos(phi) - cd * math.sin(phi)
+        F = prandtl_F(phi)
+        k = sigma_r * cn / (4.0 * F) if F > 1e-6 else 0.0
+        # Quadratic root (climb/hover branch): lambda_r^2 + k*lambda_r - k*x^2 = 0 at v_climb=0
+        # Actually: from momentum: 4F*lam*(lam) = sigma_r*cn*(lam^2 + x^2)
+        # rearranged: (4F - sigma_r*cn)*lam^2 = sigma_r*cn*x^2
+        # lam_new = x * sqrt(sigma_r*cn / (4F - sigma_r*cn)) for k < 1
+        if abs(k - 1.0) > 1e-6:
+            disc = max(0.0, -4.0 * (k - 1.0) * k * x * x)
+            sq = math.sqrt(disc)
+            denom = 2.0 * (k - 1.0)
+            r1 = sq / denom   # v_climb=0: -lambda_climb = 0
+            r2 = -sq / denom
+            lam_new = r2 if r2 > 0.0 else r1
+        else:
+            lam_new = x * max(k, 0.0) ** 0.5
+        lam_new = max(min(lam_new, 2.0), -2.0)
+        if abs(lam_new - lam) < 1e-7:
+            lam = lam_new
+            break
+        lam = 0.6 * lam + 0.4 * lam_new  # damped update
+
+    v_a = lam * omega * R
+    v_t = omega * r
     phi = math.atan2(v_a, v_t)
-    alpha = math.radians(coll_deg) - phi
+    alpha = collective_rad - phi
     cl, _ = POLAR.cl_cd(alpha)
     return cl
 

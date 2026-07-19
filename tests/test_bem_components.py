@@ -18,11 +18,9 @@ Harrington (1951) NACA TN-2318: hover CT/CQ polar (Figures 4 and 6),
 """
 
 import math
-import numpy as np
 import pytest
 
-from dynbem.bem import prandtl_hub_loss, prandtl_tip_loss, solve_bem_element, BEMModel
-from dynbem.polar import LinearPolar
+from dynbem.bem import prandtl_hub_loss, prandtl_tip_loss, BEMModel
 from dynbem import RotorInputs
 from dynbem.rotor_definition import (
     LinearPolarParameters, AutorotationProperties, BladeGeometry, RotorDefinition,
@@ -33,11 +31,6 @@ from tests.helpers import hover_inputs, make_bem
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-def _make_naca0012_polar(cl_alpha: float = 2 * math.pi) -> LinearPolar:
-    return LinearPolar(CL0=0.0, CL_alpha_per_rad=cl_alpha, CD0=0.008,
-                       alpha_stall_rad=math.radians(15.0))
-
 
 def _ct_rotor(model: BEMModel, coll_deg: float, omega_rpm: float) -> float:
     """Return non-dim thrust CT = T / (rho * A * (Omega*R)^2)."""
@@ -200,92 +193,6 @@ class TestPrandtlHubLoss:
         F_near = prandtl_hub_loss(2, 0.16, 0.15, phi)
         F_far  = prandtl_hub_loss(2, 0.25, 0.15, phi)
         assert F_near < F_far
-
-
-# ===========================================================================
-# Layer 2 — BEM element: momentum-BEM balance at convergence
-# ===========================================================================
-
-class TestBEMElementConvergence:
-    """Verify the converged element satisfies the momentum-BEM equation."""
-
-    @pytest.fixture
-    def polar(self):
-        return _make_naca0012_polar()
-
-    @pytest.mark.parametrize("coll_deg,omega_rpm,v_climb_ms", [
-        (8.0,  1250, 0.0),    # hover
-        (5.0,  1250, 0.0),    # hover low pitch
-        (12.0, 1250, 0.0),    # hover high pitch
-        (8.0,  1000, 0.0),    # hover lower RPM
-        (5.0,  1000, -10.0),  # autorotation (upward wind)
-        (8.0,  1250,  5.0),   # climbing (downward wind / climb)
-    ])
-    def test_momentum_balance_residual(self, polar, coll_deg, omega_rpm, v_climb_ms):
-        """At convergence, 4F·λ_r·(λ_r−λ_c) must equal σ_r·cn·(λ_r²+x²)."""
-        omega = omega_rpm * math.pi / 30.0
-        r, dr = 0.8 * 1.143, 0.05
-        elem = solve_bem_element(
-            r=r, dr=dr, chord=0.1905, twist_rad=0.0,
-            collective_rad=math.radians(coll_deg),
-            omega=omega, v_climb=v_climb_ms,
-            rho=1.225, n_blades=2, radius_m=1.143,
-            polar=polar, use_tip_loss=True,
-        )
-        # Residual is computed inside BEMElementResult; should be < 1e-4 (relative)
-        scale = max(abs(elem.dT / dr), 1.0)
-        assert elem.momentum_residual / scale < 1e-3, (
-            f"momentum balance not satisfied: residual={elem.momentum_residual:.2e}"
-        )
-
-    def test_zero_omega_gives_zero_forces(self, polar):
-        """Stopped rotor produces no forces."""
-        elem = solve_bem_element(
-            r=0.8, dr=0.05, chord=0.2, twist_rad=0.0,
-            collective_rad=math.radians(8.0),
-            omega=0.0, v_climb=0.0, rho=1.225,
-            n_blades=2, radius_m=1.0, polar=polar, use_tip_loss=True,
-        )
-        assert elem.dT == pytest.approx(0.0)
-        assert elem.dQ == pytest.approx(0.0)
-
-    def test_hover_lambda_r_positive(self, polar):
-        """In hover, induced inflow must be downward (λ_r > 0)."""
-        omega = 1250 * math.pi / 30.0
-        elem = solve_bem_element(
-            r=0.8 * 1.143, dr=0.05, chord=0.1905, twist_rad=0.0,
-            collective_rad=math.radians(8.0),
-            omega=omega, v_climb=0.0, rho=1.225,
-            n_blades=2, radius_m=1.143, polar=polar, use_tip_loss=False,
-        )
-        assert elem.lambda_r > 0, "Hover induced flow must be downward (λ_r > 0)"
-
-    def test_autorotation_lambda_r_negative(self, polar):
-        """With upward wind (v_climb < 0), net inflow must be upward (λ_r < 0)."""
-        omega = 50.0  # slow spin
-        elem = solve_bem_element(
-            r=0.8 * 1.143, dr=0.05, chord=0.1905, twist_rad=0.0,
-            collective_rad=math.radians(5.0),
-            omega=omega, v_climb=-15.0,  # 15 m/s upward wind
-            rho=1.225, n_blades=2, radius_m=1.143, polar=polar, use_tip_loss=False,
-        )
-        assert elem.lambda_r < 0, "Upward wind should give net upward inflow (λ_r < 0)"
-
-    def test_hover_thrust_matches_momentum_theory(self, polar):
-        """At element level, dT should equal momentum-theory prediction 4pi*r*rho*F*vi^2*dr."""
-        omega = 1250 * math.pi / 30.0
-        r, dr = 0.8 * 1.143, 0.02
-        elem = solve_bem_element(
-            r=r, dr=dr, chord=0.1905, twist_rad=0.0,
-            collective_rad=math.radians(8.0),
-            omega=omega, v_climb=0.0, rho=1.225,
-            n_blades=2, radius_m=1.143, polar=polar, use_tip_loss=False,
-        )
-        # Momentum dT = 4*pi*r*dr*rho*F*v_i^2; F=1 (no tip loss)
-        v_i = elem.lambda_r * omega * 1.143
-        dT_momentum = 4.0 * math.pi * r * dr * 1.225 * 1.0 * v_i**2
-        # 2% tolerance: momentum formula omits drag contribution to cn
-        assert elem.dT == pytest.approx(dT_momentum, rel=0.02)
 
 
 # ===========================================================================

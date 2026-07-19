@@ -1030,4 +1030,140 @@ mod tests {
             elem.lambda_r
         );
     }
+
+    // -----------------------------------------------------------------------
+    // Element-level physics (ported from Python TestBEMElementConvergence)
+    // -----------------------------------------------------------------------
+
+    fn ct_polar() -> crate::polar::LinearPolar {
+        crate::polar::LinearPolar::from_properties(&LinearPolarParameters {
+            CL0: 0.0,
+            CL_alpha_per_rad: 2.0 * std::f64::consts::PI,
+            CD0: 0.008,
+            alpha_stall_deg: 15.0,
+        })
+    }
+
+    fn ct_geom<'a>(
+        omega: f64,
+        v_climb: f64,
+        polar: &'a crate::polar::LinearPolar,
+        use_tip_loss: bool,
+    ) -> (BEMElementGeometry<'a, crate::polar::LinearPolar>, f64) {
+        let radius_m = 1.143_f64;
+        let r = 0.8 * radius_m;
+        let dr = 0.05;
+        let geom = BEMElementGeometry::new(
+            r,
+            dr,
+            0.1905,
+            0.0,
+            omega,
+            1.225,
+            2,
+            radius_m,
+            polar,
+            use_tip_loss,
+            0.0,
+        );
+        let _ = v_climb; // consumed by caller
+        (geom, dr)
+    }
+
+    /// Momentum balance residual must be near zero at convergence for all
+    /// conditions: hover, autorotation (upward wind), and climb.
+    #[test]
+    fn test_momentum_balance_residual_hover_and_climb() {
+        let polar = ct_polar();
+        let cases: &[(f64, f64, f64)] = &[
+            (8.0, 1250.0, 0.0),   // hover
+            (5.0, 1250.0, 0.0),   // hover low pitch
+            (12.0, 1250.0, 0.0),  // hover high pitch
+            (8.0, 1000.0, 0.0),   // hover lower RPM
+            (5.0, 1000.0, -10.0), // autorotation (upward wind)
+            (8.0, 1250.0, 5.0),   // climbing
+        ];
+        for &(coll_deg, omega_rpm, v_climb) in cases {
+            let omega = omega_rpm * std::f64::consts::PI / 30.0;
+            let radius_m = 1.143_f64;
+            let r = 0.8 * radius_m;
+            let dr = 0.05_f64;
+            let geom = BEMElementGeometry::new(
+                r, dr, 0.1905, 0.0, omega, 1.225, 2, radius_m, &polar, true, 0.0,
+            );
+            let elem = solve_bem_element(&geom, f64::to_radians(coll_deg), v_climb, 0.0);
+            let scale = (elem.d_t / dr).abs().max(1.0);
+            assert!(
+                elem.momentum_residual / scale < 1e-3,
+                "coll={coll_deg} rpm={omega_rpm} v_climb={v_climb}: \
+                 momentum residual {:.2e} / scale {:.2e} = {:.2e}",
+                elem.momentum_residual,
+                scale,
+                elem.momentum_residual / scale
+            );
+        }
+    }
+
+    /// Stopped rotor (omega=0) must produce zero forces.
+    #[test]
+    fn test_zero_omega_gives_zero_forces() {
+        let polar = ct_polar();
+        let geom =
+            BEMElementGeometry::new(0.8, 0.05, 0.2, 0.0, 0.0, 1.225, 2, 1.0, &polar, true, 0.0);
+        let elem = solve_bem_element(&geom, f64::to_radians(8.0), 0.0, 0.0);
+        assert_eq!(elem.d_t, 0.0, "stopped rotor: dT must be zero");
+        assert_eq!(elem.d_q, 0.0, "stopped rotor: dQ must be zero");
+    }
+
+    /// Hover must produce downward induction (lambda_r > 0).
+    #[test]
+    fn test_hover_lambda_r_positive() {
+        let polar = ct_polar();
+        let omega = 1250.0 * std::f64::consts::PI / 30.0;
+        let radius_m = 1.143_f64;
+        let geom = BEMElementGeometry::new(
+            0.8 * radius_m,
+            0.05,
+            0.1905,
+            0.0,
+            omega,
+            1.225,
+            2,
+            radius_m,
+            &polar,
+            false,
+            0.0,
+        );
+        let elem = solve_bem_element(&geom, f64::to_radians(8.0), 0.0, 0.0);
+        assert!(
+            elem.lambda_r > 0.0,
+            "hover induced flow must be downward (lambda_r > 0), got {:.4}",
+            elem.lambda_r
+        );
+    }
+
+    /// At hover, dT must match momentum theory: dT = 4*pi*r*dr*rho*vi^2 (F=1, no tip loss).
+    #[test]
+    fn test_hover_thrust_matches_momentum_theory() {
+        let polar = ct_polar();
+        let omega = 1250.0 * std::f64::consts::PI / 30.0;
+        let radius_m = 1.143_f64;
+        let r = 0.8 * radius_m;
+        let dr = 0.02_f64;
+        let rho = 1.225_f64;
+        let geom = BEMElementGeometry::new(
+            r, dr, 0.1905, 0.0, omega, rho, 2, radius_m, &polar, false, 0.0,
+        );
+        let elem = solve_bem_element(&geom, f64::to_radians(8.0), 0.0, 0.0);
+        let v_i = elem.lambda_r * omega * radius_m;
+        let dt_momentum = 4.0 * std::f64::consts::PI * r * dr * rho * v_i * v_i;
+        let rel_err = (elem.d_t - dt_momentum).abs() / dt_momentum;
+        assert!(
+            rel_err < 0.02,
+            "hover dT {:.4e} vs momentum {:.4e}: rel_err {:.2}% > 2%",
+            elem.d_t,
+            dt_momentum,
+            rel_err * 100.0
+        );
+    }
 }
