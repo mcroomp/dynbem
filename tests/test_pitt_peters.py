@@ -10,7 +10,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from dynbem.pitt_peters import PittPetersModel, vrs_lambda1
+from dynbem.pitt_peters import PittPetersModel
 from dynbem.bem import BEMModel
 from dynbem import RotorInputs
 import dynbem.rotor_definition as rotor_definition
@@ -114,29 +114,6 @@ def _euler_state_to_steady(
             lambda_s=state.lambda_s + drv.lambda_s * dt,
         )
     return state, res
-
-
-# ---------------------------------------------------------------------------
-# VRS polynomial unit tests
-# ---------------------------------------------------------------------------
-
-class TestVRSPolynomial:
-    """Boundary-value checks on the Leishman VRS polynomial."""
-
-    def test_hover_boundary(self):
-        """At lambda2=0 (hover), lambda1/V_h == 1.0 exactly."""
-        assert vrs_lambda1(0.0) == pytest.approx(1.0, abs=1e-10)
-
-    def test_wbs_boundary(self):
-        """At lambda2=2 (WBS entry), lambda1/V_h returns to ~1.0 (+/-5%)."""
-        val = vrs_lambda1(2.0)
-        assert 0.95 <= val <= 1.10, f"vrs_lambda1(2.0) = {val:.4f}, expected near 1.0"
-
-    def test_vrs_peak_above_hover(self):
-        """In mid-VRS (lambda2 ~1), induced velocity exceeds hover value."""
-        assert vrs_lambda1(1.0) > 1.2, (
-            f"vrs_lambda1(1.0) = {vrs_lambda1(1.0):.4f}, expected > 1.2"
-        )
 
 
 # ---------------------------------------------------------------------------

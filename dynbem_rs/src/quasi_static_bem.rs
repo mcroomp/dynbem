@@ -18,6 +18,21 @@ use crate::servoflap::{solve_feathering, FeatheringState};
 const MAX_BEM_ITER: usize = 60;
 const BEM_TOL: f64 = 1e-7;
 
+/// Minimum |lambda_climb| (tip-referenced axial inflow ratio, v_climb /
+/// (omega*radius_m)) required before the dedicated windmill Brent solver is
+/// even attempted. Below this, the local axial flow is too small relative
+/// to blade speed for the windmill solver's assumptions to hold reliably
+/// (its `lam_local = omega*r/u_up` term grows large and the solved root
+/// becomes numerically noisy/inconsistent from one element or azimuth to
+/// the next -- see tests/test_bem_windmill_boundary.py in the
+/// windpower-repo history). Typical hover/climb induced inflow ratios are
+/// O(0.02-0.08), so this threshold sits at the low end of that range: well
+/// above numerical noise, comfortably below where genuine windmill-brake
+/// descent physics take over. Below this threshold, all
+/// elements/azimuths uniformly fall back to solve_bem_element (helicopter
+/// momentum quadratic), which is continuous through lambda_climb == 0.
+const MIN_LAMBDA_CLIMB_WINDMILL: f64 = 0.02;
+
 #[derive(Clone, Debug, Default)]
 pub struct QuasiStaticRotorState;
 
@@ -152,10 +167,10 @@ impl<'a, P: Polar> BEMElementGeometry<'a, P> {
 /// Helicopter momentum-BEM solver for one annulus.
 ///
 /// Fixed-point iteration on (lambda_r, a_prime) with 50% under-relaxation;
-/// the converged root of the quadratic is selected explicitly by sign of
-/// lambda_climb (climb -> positive root, descent -> negative). Reverse-flow
+/// the converged root of the quadratic is always the climb/hover branch
+/// (see the seeding comment in the function body for why). Reverse-flow
 /// region (v_t < 0) breaks out early and returns zero forces -- caller
-/// is responsible for the surrounding ψ-loop's reverse-flow skip.
+/// is responsible for the surrounding psi-loop's reverse-flow skip.
 pub fn solve_bem_element<P: Polar>(
     geom: &BEMElementGeometry<P>,
     collective_rad: f64,
@@ -168,7 +183,19 @@ pub fn solve_bem_element<P: Polar>(
     let theta = collective_rad + geom.twist_rad;
     let lambda_climb = v_climb * geom.inv_omega_r;
 
-    let mut lambda_r = if lambda_climb >= 0.0 {
+    // Seed from climb branch for hover/climb and for the near-hover descent
+    // band (|v_climb| < MIN_LAMBDA_CLIMB_WINDMILL * tip_speed). In that band
+    // the windmill solver has already declined (its Brent bracket doesn't
+    // exist), and hover is the v_climb -> 0 limit of the *climb* branch --
+    // seeding from the descent branch there previously caused a large
+    // spurious discontinuity right at lambda_climb == 0.
+    //
+    // For genuine deep descent (outside the windmill threshold) this function
+    // may be called as a fallback when the windmill solver found no bracket
+    // for a particular azimuth/element; in that regime the descent-branch
+    // root is physically correct and is used instead.
+    let near_hover = v_climb >= -MIN_LAMBDA_CLIMB_WINDMILL * geom.omega * geom.radius_m;
+    let mut lambda_r = if near_hover || lambda_climb >= 0.0 {
         (lambda_climb + 0.03).max(0.02)
     } else {
         (lambda_climb * 0.85).min(-0.02)
@@ -209,7 +236,9 @@ pub fn solve_bem_element<P: Polar>(
             let denom = 2.0 * (k - 1.0);
             let r1 = (-lambda_climb + sq) / denom;
             let r2 = (-lambda_climb - sq) / denom;
-            if lambda_climb >= 0.0 {
+            // Mirror the seeding choice: climb branch near hover, descent
+            // branch for genuine deep descent.
+            if near_hover || lambda_climb >= 0.0 {
                 if r2 > 0.0 {
                     r2
                 } else {
@@ -469,13 +498,22 @@ fn solve_bem_element_windmill<P: Polar>(
     v_climb: f64,
     v_t_extra: f64,
 ) -> Option<BEMElementResult> {
-    if v_climb >= -EPS_DENOM {
-        return None;
-    }
-    let u_up = -v_climb;
     if geom.omega_r < EPS_OMEGA_R {
         return None;
     }
+    // Rotor-level normalized threshold (see MIN_LAMBDA_CLIMB_WINDMILL doc
+    // comment): reject when the *tip*-referenced inflow ratio is too small
+    // for the windmill solver's assumptions to hold. Deliberately uses the
+    // tip speed (geom.omega * geom.radius_m), not this element's own local
+    // omega*r, so every element/azimuth in a given call switches branch
+    // together -- gating per-element would let inboard and outboard
+    // stations disagree on which solver to use at the same rotor-level
+    // v_climb, producing element-to-element inconsistency across the
+    // integrated blade.
+    if v_climb >= -MIN_LAMBDA_CLIMB_WINDMILL * geom.omega * geom.radius_m {
+        return None;
+    }
+    let u_up = -v_climb;
     let inv_u_up = 1.0 / u_up;
     let theta = collective_rad + geom.twist_rad;
     let lam_local = geom.omega * geom.r * inv_u_up;
@@ -915,6 +953,308 @@ mod tests {
         assert!(
             minus_f_dot_bz > 0.0,
             "RAWES row122: force along +body_z: -F.body_z = {minus_f_dot_bz:+.6}"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Prandtl tip/hub loss formula verification
+    // -----------------------------------------------------------------------
+
+    fn prandtl_expected_tip(n: usize, x: f64, phi: f64) -> f64 {
+        let f = (n as f64 / 2.0) * (1.0 - x) / (x * phi.sin().abs());
+        (2.0 / PI) * f64::acos(f64::exp(-f).min(1.0))
+    }
+
+    fn prandtl_expected_hub(n: usize, x: f64, x_hub: f64, phi: f64) -> f64 {
+        if x_hub <= 0.0 || (x - x_hub).abs() < 1e-12 {
+            return 1.0;
+        }
+        let f = (n as f64 / 2.0) * (x - x_hub) / (x_hub * phi.sin().abs());
+        (2.0 / PI) * f64::acos(f64::exp(-f).min(1.0))
+    }
+
+    #[test]
+    fn test_prandtl_tip_loss_matches_formula() {
+        let cases = [
+            (2usize, 0.90_f64, 5.0_f64),
+            (2, 0.95, 3.0),
+            (4, 0.90, 5.0),
+            (2, 0.80, 8.0),
+            (3, 0.95, 4.0),
+        ];
+        for (n, x, phi_deg) in cases {
+            let phi = phi_deg.to_radians();
+            let expected = prandtl_expected_tip(n, x, phi);
+            let got = prandtl_tip_loss(n, x, phi);
+            assert!(
+                (got - expected).abs() < 1e-12,
+                "tip n={n} x={x} phi={phi_deg}deg: got {got:.10} expected {expected:.10}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_prandtl_tip_loss_boundary_cases() {
+        // Far from tip: F -> 1
+        assert!((prandtl_tip_loss(2, 0.3, 5_f64.to_radians()) - 1.0).abs() < 1e-4);
+        // phi = 0: F = 1
+        assert_eq!(prandtl_tip_loss(2, 0.9, 0.0), 1.0);
+        // x = 1 (at tip): F = 1
+        assert_eq!(prandtl_tip_loss(2, 1.0, 5_f64.to_radians()), 1.0);
+        // More blades -> less tip loss
+        let phi = 5_f64.to_radians();
+        assert!(prandtl_tip_loss(4, 0.95, phi) > prandtl_tip_loss(2, 0.95, phi));
+        // Larger phi -> more loss
+        assert!(
+            prandtl_tip_loss(2, 0.95, 8_f64.to_radians())
+                < prandtl_tip_loss(2, 0.95, 2_f64.to_radians())
+        );
+    }
+
+    #[test]
+    fn test_prandtl_hub_loss_matches_formula() {
+        let cases = [
+            (2usize, 0.25_f64, 0.15_f64, 5.0_f64),
+            (3, 0.20, 0.17, 4.0),
+            (2, 0.30, 0.10, 8.0),
+            (4, 0.18, 0.15, 5.0),
+        ];
+        for (n, x, x_hub, phi_deg) in cases {
+            let phi = phi_deg.to_radians();
+            let expected = prandtl_expected_hub(n, x, x_hub, phi);
+            let got = prandtl_hub_loss(n, x, x_hub, phi);
+            assert!(
+                (got - expected).abs() < 1e-12,
+                "hub n={n} x={x} x_hub={x_hub} phi={phi_deg}deg: got {got:.10} expected {expected:.10}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_prandtl_hub_loss_boundary_cases() {
+        // Far from hub: F -> 1
+        assert!((prandtl_hub_loss(2, 0.8, 0.1, 5_f64.to_radians()) - 1.0).abs() < 1e-4);
+        // At hub: F = 1 (degenerate guard)
+        assert_eq!(prandtl_hub_loss(2, 0.15, 0.15, 5_f64.to_radians()), 1.0);
+        // phi = 0: F = 1
+        assert_eq!(prandtl_hub_loss(2, 0.3, 0.15, 0.0), 1.0);
+        // x_hub = 0: F = 1 (no hub cutout)
+        assert_eq!(prandtl_hub_loss(2, 0.3, 0.0, 5_f64.to_radians()), 1.0);
+        // More blades -> less hub loss
+        let phi = 5_f64.to_radians();
+        assert!(prandtl_hub_loss(4, 0.18, 0.15, phi) > prandtl_hub_loss(2, 0.18, 0.15, phi));
+        // Closer to hub -> more loss
+        assert!(prandtl_hub_loss(2, 0.16, 0.15, phi) < prandtl_hub_loss(2, 0.25, 0.15, phi));
+    }
+
+    // -----------------------------------------------------------------------
+    // Near-hover boundary: solve_bem_element must not jump across v_climb = 0
+    // -----------------------------------------------------------------------
+
+    fn hover_polar() -> crate::polar::LinearPolar {
+        crate::polar::LinearPolar::from_properties(&LinearPolarParameters {
+            CL0: 0.0,
+            CL_alpha_per_rad: 5.7,
+            CD0: 0.01,
+            alpha_stall_deg: 15.0,
+        })
+    }
+
+    /// lambda_r must be continuous across v_climb = 0 within the near-hover
+    /// band (|v_climb| < MIN_LAMBDA_CLIMB_WINDMILL * tip_speed). Previously,
+    /// the sign-based seeding caused a large jump right at v_climb = 0.
+    #[test]
+    fn test_hover_boundary_continuity() {
+        let polar = hover_polar();
+        let omega = 1250.0 * std::f64::consts::PI / 30.0;
+        let radius_m = 1.143;
+        let collective = f64::to_radians(8.0);
+        let eps = 1e-4; // tiny v_climb -- well inside near-hover band
+
+        let geom = BEMElementGeometry::new(
+            0.8 * radius_m,
+            0.05,
+            0.1905,
+            0.0,
+            omega,
+            1.225,
+            2,
+            radius_m,
+            &polar,
+            false,
+            0.0,
+        );
+        let above = solve_bem_element(&geom, collective, eps, 0.0);
+        let below = solve_bem_element(&geom, collective, -eps, 0.0);
+
+        let jump = (above.lambda_r - below.lambda_r).abs();
+        assert!(
+            jump < 0.01,
+            "lambda_r jumps {jump:.4} across v_climb = 0; near-hover continuity broken"
+        );
+    }
+
+    /// Deep descent (well outside windmill threshold) must return a negative
+    /// lambda_r (net upward inflow) -- the helicopter quadratic descent root.
+    #[test]
+    fn test_deep_descent_negative_lambda_r() {
+        let polar = hover_polar();
+        let omega = 50.0; // slow spin so v_climb dominates
+        let radius_m = 1.143;
+        let geom = BEMElementGeometry::new(
+            0.8 * radius_m,
+            0.05,
+            0.1905,
+            0.0,
+            omega,
+            1.225,
+            2,
+            radius_m,
+            &polar,
+            false,
+            0.0,
+        );
+        let elem = solve_bem_element(&geom, f64::to_radians(5.0), -15.0, 0.0);
+        assert!(
+            elem.lambda_r < 0.0,
+            "deep descent should give lambda_r < 0, got {:.4}",
+            elem.lambda_r
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Element-level physics (ported from Python TestBEMElementConvergence)
+    // -----------------------------------------------------------------------
+
+    fn ct_polar() -> crate::polar::LinearPolar {
+        crate::polar::LinearPolar::from_properties(&LinearPolarParameters {
+            CL0: 0.0,
+            CL_alpha_per_rad: 2.0 * std::f64::consts::PI,
+            CD0: 0.008,
+            alpha_stall_deg: 15.0,
+        })
+    }
+
+    fn ct_geom<'a>(
+        omega: f64,
+        v_climb: f64,
+        polar: &'a crate::polar::LinearPolar,
+        use_tip_loss: bool,
+    ) -> (BEMElementGeometry<'a, crate::polar::LinearPolar>, f64) {
+        let radius_m = 1.143_f64;
+        let r = 0.8 * radius_m;
+        let dr = 0.05;
+        let geom = BEMElementGeometry::new(
+            r,
+            dr,
+            0.1905,
+            0.0,
+            omega,
+            1.225,
+            2,
+            radius_m,
+            polar,
+            use_tip_loss,
+            0.0,
+        );
+        let _ = v_climb; // consumed by caller
+        (geom, dr)
+    }
+
+    /// Momentum balance residual must be near zero at convergence for all
+    /// conditions: hover, autorotation (upward wind), and climb.
+    #[test]
+    fn test_momentum_balance_residual_hover_and_climb() {
+        let polar = ct_polar();
+        let cases: &[(f64, f64, f64)] = &[
+            (8.0, 1250.0, 0.0),   // hover
+            (5.0, 1250.0, 0.0),   // hover low pitch
+            (12.0, 1250.0, 0.0),  // hover high pitch
+            (8.0, 1000.0, 0.0),   // hover lower RPM
+            (5.0, 1000.0, -10.0), // autorotation (upward wind)
+            (8.0, 1250.0, 5.0),   // climbing
+        ];
+        for &(coll_deg, omega_rpm, v_climb) in cases {
+            let omega = omega_rpm * std::f64::consts::PI / 30.0;
+            let radius_m = 1.143_f64;
+            let r = 0.8 * radius_m;
+            let dr = 0.05_f64;
+            let geom = BEMElementGeometry::new(
+                r, dr, 0.1905, 0.0, omega, 1.225, 2, radius_m, &polar, true, 0.0,
+            );
+            let elem = solve_bem_element(&geom, f64::to_radians(coll_deg), v_climb, 0.0);
+            let scale = (elem.d_t / dr).abs().max(1.0);
+            assert!(
+                elem.momentum_residual / scale < 1e-3,
+                "coll={coll_deg} rpm={omega_rpm} v_climb={v_climb}: \
+                 momentum residual {:.2e} / scale {:.2e} = {:.2e}",
+                elem.momentum_residual,
+                scale,
+                elem.momentum_residual / scale
+            );
+        }
+    }
+
+    /// Stopped rotor (omega=0) must produce zero forces.
+    #[test]
+    fn test_zero_omega_gives_zero_forces() {
+        let polar = ct_polar();
+        let geom =
+            BEMElementGeometry::new(0.8, 0.05, 0.2, 0.0, 0.0, 1.225, 2, 1.0, &polar, true, 0.0);
+        let elem = solve_bem_element(&geom, f64::to_radians(8.0), 0.0, 0.0);
+        assert_eq!(elem.d_t, 0.0, "stopped rotor: dT must be zero");
+        assert_eq!(elem.d_q, 0.0, "stopped rotor: dQ must be zero");
+    }
+
+    /// Hover must produce downward induction (lambda_r > 0).
+    #[test]
+    fn test_hover_lambda_r_positive() {
+        let polar = ct_polar();
+        let omega = 1250.0 * std::f64::consts::PI / 30.0;
+        let radius_m = 1.143_f64;
+        let geom = BEMElementGeometry::new(
+            0.8 * radius_m,
+            0.05,
+            0.1905,
+            0.0,
+            omega,
+            1.225,
+            2,
+            radius_m,
+            &polar,
+            false,
+            0.0,
+        );
+        let elem = solve_bem_element(&geom, f64::to_radians(8.0), 0.0, 0.0);
+        assert!(
+            elem.lambda_r > 0.0,
+            "hover induced flow must be downward (lambda_r > 0), got {:.4}",
+            elem.lambda_r
+        );
+    }
+
+    /// At hover, dT must match momentum theory: dT = 4*pi*r*dr*rho*vi^2 (F=1, no tip loss).
+    #[test]
+    fn test_hover_thrust_matches_momentum_theory() {
+        let polar = ct_polar();
+        let omega = 1250.0 * std::f64::consts::PI / 30.0;
+        let radius_m = 1.143_f64;
+        let r = 0.8 * radius_m;
+        let dr = 0.02_f64;
+        let rho = 1.225_f64;
+        let geom = BEMElementGeometry::new(
+            r, dr, 0.1905, 0.0, omega, rho, 2, radius_m, &polar, false, 0.0,
+        );
+        let elem = solve_bem_element(&geom, f64::to_radians(8.0), 0.0, 0.0);
+        let v_i = elem.lambda_r * omega * radius_m;
+        let dt_momentum = 4.0 * std::f64::consts::PI * r * dr * rho * v_i * v_i;
+        let rel_err = (elem.d_t - dt_momentum).abs() / dt_momentum;
+        assert!(
+            rel_err < 0.02,
+            "hover dT {:.4e} vs momentum {:.4e}: rel_err {:.2}% > 2%",
+            elem.d_t,
+            dt_momentum,
+            rel_err * 100.0
         );
     }
 }

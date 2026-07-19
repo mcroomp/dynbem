@@ -677,13 +677,13 @@ a reasonable wake size (N=5,000) evaluated with the Barnes-Hut tree, parallel.
 
 | Model | ms/step | x Oye |
 |---|---:|---:|
-| Oye (2-stage annular filter) | 0.105 | 1x |
-| Pitt-Peters (3-state L-matrix) | 0.107 | 1x |
-| Quasi-static BEM | 10.95 | 104x |
-| VPM (Barnes-Hut, parallel, N=5,000) | 54 | 514x |
+| Oye (2-stage annular filter) | 0.016 | 1x |
+| Pitt-Peters (3-state L-matrix) | 0.016 | 1x |
+| Quasi-static BEM | 2.49 | 156x |
+| VPM (Barnes-Hut, parallel, N=5,000) | 4.1 | 256x |
 
 Oye and Pitt-Peters are algebraic inflow relations (near-free). The BEM is
-~100x slower from its per-station Brent root-find. The VPM is not an inflow
+~150x slower from its per-station Brent root-find. The VPM is not an inflow
 model but a wake-resolving tool: its cost is dominated by the Biot-Savart
 evaluation and scales with the particle count N.
 
@@ -692,18 +692,18 @@ evaluation and scales with the particle count N.
 
 | N | direct seq | direct par | BH seq | BH par |
 |---:|---:|---:|---:|---:|
-| 2,000 | 21 | 11 | 39 | 15 |
-| 5,000 | 198 | 59 | 113 | 53 |
-| 10,000 | 778 | 227 | 197 | 108 |
-| 16,000 | 2,633 | 428 | 708 | 139 |
-| 32,000 | 8,750 | 2,265 | 1,058 | 337 |
+| 2,000 | 4 | 1 | 4 | 2 |
+| 5,000 | 25 | 4 | 12 | 4 |
+| 10,000 | 97 | 14 | 32 | 7 |
+| 16,000 | 297 | 33 | 59 | 12 |
+| 32,000 | 1,075 | 134 | 121 | 30 |
 
 The direct sum is O(N^2) (cost quadruples per doubling of N); the Barnes-Hut
 tree (`VpmRotorConfig::barnes_hut`, off by default) lumps distant particle
 clusters into single equivalent vortices and grows O(N log N), so it overtakes
 the direct sum as the wake grows -- comparable at N=5k, ~3x faster at N=16k,
-~7x at N=32k. Rayon parallelism (default) gives ~2-4x over sequential for the
-direct sum and ~2x for the tree (`--seq`/`--par` isolate it). Absolute ms are
+~4x at N=32k. Rayon parallelism (default) gives ~4-8x over sequential for the
+direct sum and ~2-4x for the tree (`--seq`/`--par` isolate it). Absolute ms are
 machine-dependent; the ratios are the point.
 
 ### 7.1 Barnes-Hut tree (O(N log N))
@@ -744,9 +744,9 @@ vs direct ($<5\%$ of peak at $\theta = 0.5$).
 
 | Validation (`validation_rs`) | Reference | What it checks | Result |
 |---|---|---|---|
-| `blade_element_hover` | Combined BEMT, hover (Leishman ch. 3) | Hover thrust coefficient vs closed form | within ~15-25% |
+| `blade_element_hover` | Combined BEMT, hover (Leishman ch. 3) | Hover thrust coefficient vs closed form | within ~14-18% |
 | `climb_momentum` | Axial-climb momentum theory | `C_T` ~ 2 lam_i (lam_i + lam_c); loads fall with climb | PASS (monotone) |
-| `glauert_forward_inflow` | Glauert forward-flight inflow | Disk inflow + wake-skew angle | skew <1.2%; inflow <26% |
+| `glauert_forward_inflow` | Glauert forward-flight inflow | Disk inflow + wake-skew angle | skew <1.2%; inflow ~26% |
 | `wake_skew` | Wake-skew geometry | Skew grows with mu; covariant under X/Y rotation | PASS |
 | `prandtl_tip_loss` | Directional | Tip-loss flag reduces global loads | PASS |
 | `autorotation` | Directional | Negative-torque branch reached in descent + edgewise | PASS |
@@ -756,7 +756,7 @@ vs direct ($<5\%$ of peak at $\theta = 0.5$).
 | `servo_flap` | Directional | Kaman servo-flap feathering (zero / collective / cyclic) | PASS |
 | `cyclic_phase_servo` | Directional | Direct-mech pitching `My` vs servo-flap rolling `Mx` | PASS |
 
-Hover thrust tracks BEMT to within ~15-25%; coning `a0` and longitudinal
+Hover thrust tracks BEMT to within ~14-18%; coning `a0` and longitudinal
 flapping `a1` match the closed forms to ~14% (the disk tilts back by the right
 amount). Lateral flapping `b1` is currently under-predicted -- see the TODO.
 
