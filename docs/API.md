@@ -78,8 +78,10 @@ state = state.from_array(arr)
 
 # Advance rotor speed (caller owns the mechanical ODE). bearing_friction_Nm
 # is always a parameter (Coulomb friction); pass 0.0 for a frictionless
-# bearing. Prefer semi_implicit_step_omega for fixed-timestep production use.
-omega += dt * omega_derivative(omega, result.Q_spin, motor_torque_Nm, I_kgm2)
+# bearing. step_omega is the single canonical, recommended integrator
+# (semi-implicit, unconditionally stable in the aero term). spin_angle is
+# caller-owned state, advanced alongside omega.
+omega, spin_angle = step_omega(omega, spin_angle, result.Q_spin, motor_torque_Nm, I_kgm2, dt)
 inputs = RotorInputs(..., omega_rad_s=omega, ...)
 ```
 
@@ -111,7 +113,7 @@ Returned by `compute_forces`.
 |---|---|---|
 | `F_world` | ndarray (3,) | Total rotor force in NED world frame [N]. `F_world[2] < 0` for upward lift |
 | `m_hub_world` | ndarray (3,) | Hub moments in NED world frame [N*m]. Roll about X, pitch about Y |
-| `Q_spin` | float | Aerodynamic reaction torque on the shaft [N*m]. Positive opposes rotation. Feed directly to `omega_derivative` |
+| `Q_spin` | float | Aerodynamic reaction torque on the shaft [N*m]. Positive opposes rotation. Feed directly to `omega_derivative`/`step_omega` as `Q_aero` |
 | `M_spin` | ndarray (3,) | Full spin moment vector in NED world frame [N*m] |
 
 ---
@@ -282,6 +284,7 @@ model = dynbem.create_aero(defn, model="pitt_peters")
 state = model.initial_rotor_state()
 
 omega = 28.0           # rad/s
+spin_angle = 0.0       # rad
 dt    = 0.005          # s
 I     = 0.08           # kg*m^2 (rotor inertia)
 
@@ -304,7 +307,7 @@ for step in range(500):
     state = state.from_array(arr)
 
     # advance rotor speed (free-spin, no motor torque, no bearing friction)
-    omega   += dt * dynbem.omega_derivative(omega, result.Q_spin, 0.0, I)
+    omega, spin_angle = dynbem.step_omega(omega, spin_angle, result.Q_spin, 0.0, I, dt)
     inputs   = dynbem.RotorInputs(
         collective_rad=0.14, tilt_lon=0.0, tilt_lat=0.0,
         R_hub=np.eye(3), v_hub_world=np.zeros(3), wind_world=np.zeros(3),
