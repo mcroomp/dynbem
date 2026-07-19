@@ -6,10 +6,7 @@ legacy pure-Python implementation.)
 """
 
 from ._dynbem import (  # noqa: F401
-    vrs_lambda1,
     cyclic_coeffs as _cyclic_coeffs_rust,
-    prandtl_tip_loss,
-    prandtl_hub_loss,
     LinearPolar,
     TabulatedPolar,
     QuasiStaticRotorState,
@@ -109,8 +106,7 @@ AirfoilPolar = (LinearPolar, TabulatedPolar)
 
 __all__ = [
     # functions
-    "vrs_lambda1", "cyclic_coeffs",
-    "prandtl_tip_loss", "prandtl_hub_loss",
+    "cyclic_coeffs",
     "create_aero", "build_polar", "load_tabulated_polar",
     "solve_trim_cyclic", "relax_inflow",
     # types

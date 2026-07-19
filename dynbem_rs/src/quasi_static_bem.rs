@@ -957,6 +957,97 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
+    // Prandtl tip/hub loss formula verification
+    // -----------------------------------------------------------------------
+
+    fn prandtl_expected_tip(n: usize, x: f64, phi: f64) -> f64 {
+        let f = (n as f64 / 2.0) * (1.0 - x) / (x * phi.sin().abs());
+        (2.0 / PI) * f64::acos(f64::exp(-f).min(1.0))
+    }
+
+    fn prandtl_expected_hub(n: usize, x: f64, x_hub: f64, phi: f64) -> f64 {
+        if x_hub <= 0.0 || (x - x_hub).abs() < 1e-12 {
+            return 1.0;
+        }
+        let f = (n as f64 / 2.0) * (x - x_hub) / (x_hub * phi.sin().abs());
+        (2.0 / PI) * f64::acos(f64::exp(-f).min(1.0))
+    }
+
+    #[test]
+    fn test_prandtl_tip_loss_matches_formula() {
+        let cases = [
+            (2usize, 0.90_f64, 5.0_f64),
+            (2, 0.95, 3.0),
+            (4, 0.90, 5.0),
+            (2, 0.80, 8.0),
+            (3, 0.95, 4.0),
+        ];
+        for (n, x, phi_deg) in cases {
+            let phi = phi_deg.to_radians();
+            let expected = prandtl_expected_tip(n, x, phi);
+            let got = prandtl_tip_loss(n, x, phi);
+            assert!(
+                (got - expected).abs() < 1e-12,
+                "tip n={n} x={x} phi={phi_deg}deg: got {got:.10} expected {expected:.10}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_prandtl_tip_loss_boundary_cases() {
+        // Far from tip: F -> 1
+        assert!((prandtl_tip_loss(2, 0.3, 5_f64.to_radians()) - 1.0).abs() < 1e-4);
+        // phi = 0: F = 1
+        assert_eq!(prandtl_tip_loss(2, 0.9, 0.0), 1.0);
+        // x = 1 (at tip): F = 1
+        assert_eq!(prandtl_tip_loss(2, 1.0, 5_f64.to_radians()), 1.0);
+        // More blades -> less tip loss
+        let phi = 5_f64.to_radians();
+        assert!(prandtl_tip_loss(4, 0.95, phi) > prandtl_tip_loss(2, 0.95, phi));
+        // Larger phi -> more loss
+        assert!(
+            prandtl_tip_loss(2, 0.95, 8_f64.to_radians())
+                < prandtl_tip_loss(2, 0.95, 2_f64.to_radians())
+        );
+    }
+
+    #[test]
+    fn test_prandtl_hub_loss_matches_formula() {
+        let cases = [
+            (2usize, 0.25_f64, 0.15_f64, 5.0_f64),
+            (3, 0.20, 0.17, 4.0),
+            (2, 0.30, 0.10, 8.0),
+            (4, 0.18, 0.15, 5.0),
+        ];
+        for (n, x, x_hub, phi_deg) in cases {
+            let phi = phi_deg.to_radians();
+            let expected = prandtl_expected_hub(n, x, x_hub, phi);
+            let got = prandtl_hub_loss(n, x, x_hub, phi);
+            assert!(
+                (got - expected).abs() < 1e-12,
+                "hub n={n} x={x} x_hub={x_hub} phi={phi_deg}deg: got {got:.10} expected {expected:.10}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_prandtl_hub_loss_boundary_cases() {
+        // Far from hub: F -> 1
+        assert!((prandtl_hub_loss(2, 0.8, 0.1, 5_f64.to_radians()) - 1.0).abs() < 1e-4);
+        // At hub: F = 1 (degenerate guard)
+        assert_eq!(prandtl_hub_loss(2, 0.15, 0.15, 5_f64.to_radians()), 1.0);
+        // phi = 0: F = 1
+        assert_eq!(prandtl_hub_loss(2, 0.3, 0.15, 0.0), 1.0);
+        // x_hub = 0: F = 1 (no hub cutout)
+        assert_eq!(prandtl_hub_loss(2, 0.3, 0.0, 5_f64.to_radians()), 1.0);
+        // More blades -> less hub loss
+        let phi = 5_f64.to_radians();
+        assert!(prandtl_hub_loss(4, 0.18, 0.15, phi) > prandtl_hub_loss(2, 0.18, 0.15, phi));
+        // Closer to hub -> more loss
+        assert!(prandtl_hub_loss(2, 0.16, 0.15, phi) < prandtl_hub_loss(2, 0.25, 0.15, phi));
+    }
+
+    // -----------------------------------------------------------------------
     // Near-hover boundary: solve_bem_element must not jump across v_climb = 0
     // -----------------------------------------------------------------------
 

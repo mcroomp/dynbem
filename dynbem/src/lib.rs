@@ -15,11 +15,6 @@ use trim_py::{relax_inflow_py, solve_trim_cyclic_py, PyTrimResult};
 use wrappers::*;
 
 #[pyfunction]
-fn vrs_lambda1(lambda2: f64) -> f64 {
-    dynbem_rs::common::vrs_lambda1(lambda2)
-}
-
-#[pyfunction]
 #[pyo3(signature = (tilt_lon, tilt_lat, control = None))]
 fn cyclic_coeffs(tilt_lon: f64, tilt_lat: f64, control: Option<PyControlProperties>) -> (f64, f64) {
     let gains = match control {
@@ -35,22 +30,9 @@ fn cyclic_coeffs(tilt_lon: f64, tilt_lat: f64, control: Option<PyControlProperti
     dynbem_rs::cyclic::cyclic_coeffs(tilt_lon, tilt_lat, gains)
 }
 
-#[pyfunction]
-fn prandtl_tip_loss(n_blades: usize, x: f64, phi_rad: f64) -> f64 {
-    dynbem_rs::quasi_static_bem::prandtl_tip_loss(n_blades, x, phi_rad)
-}
-
-#[pyfunction]
-fn prandtl_hub_loss(n_blades: usize, x: f64, x_hub: f64, phi_rad: f64) -> f64 {
-    dynbem_rs::quasi_static_bem::prandtl_hub_loss(n_blades, x, x_hub, phi_rad)
-}
-
 #[pymodule]
 fn _dynbem(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    m.add_function(wrap_pyfunction!(vrs_lambda1, m)?)?;
     m.add_function(wrap_pyfunction!(cyclic_coeffs, m)?)?;
-    m.add_function(wrap_pyfunction!(prandtl_tip_loss, m)?)?;
-    m.add_function(wrap_pyfunction!(prandtl_hub_loss, m)?)?;
     m.add_class::<PyLinearPolar>()?;
     m.add_class::<PyTabulatedPolar>()?;
     m.add_class::<PyBladeGeometry>()?;
