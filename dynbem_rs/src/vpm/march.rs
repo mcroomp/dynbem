@@ -152,6 +152,8 @@ impl<P: Polar> VpmRotor<P> {
         let mut q_acc = 0.0;
         let mut mx_acc = 0.0;
         let mut my_acc = 0.0;
+        let mut fx_acc = 0.0;
+        let mut fy_acc = 0.0;
         let mut avg_count = 0usize;
 
         // Scratch reused each step.
@@ -179,6 +181,10 @@ impl<P: Polar> VpmRotor<P> {
             let mut torque_step = 0.0;
             let mut mx_step = 0.0;
             let mut my_step = 0.0;
+            // In-plane hub force (H-force) accumulators, projected onto the
+            // fixed hub axes each element below.
+            let mut fx_step = 0.0;
+            let mut fy_step = 0.0;
 
             // Aerodynamic flap moment about the hinge, per blade, accumulated
             // in the loads loop below (M = sum r * dF_z). Drives the flap ODE.
@@ -386,11 +392,31 @@ impl<P: Polar> VpmRotor<P> {
                     let dl = q_dyn * c * cl * self.dr[i];
                     let dd = q_dyn * c * cd * self.dr[i];
                     let d_thrust = dl * phi.cos() - dd * phi.sin(); // up (-Z)
+                                                                    // In-plane tangential aero force (the same force whose
+                                                                    // moment gives the torque, opposing blade motion).
+                    let d_ft = dl * phi.sin() + dd * phi.cos();
                     thrust_step += d_thrust;
-                    torque_step += (dl * phi.sin() + dd * phi.cos()) * r;
+                    torque_step += d_ft * r;
                     // Hub moments (AGENTS.md): Mx = r dT sin psi, My = r dT cos psi.
                     mx_step += r * d_thrust * spsi;
                     my_step += r * d_thrust * cpsi;
+                    // In-plane hub force (H-force), two physical contributions
+                    // summed per element (same convention as
+                    // bem_common::SweepCtx::run and the flapping-tilt term in
+                    // apply_flap_dynamics):
+                    //   1. profile/induced-drag: the tangential force d_ft acts
+                    //      along -t_hat = [sin psi, cos psi, 0], so it projects
+                    //      as (d_ft*sin psi, d_ft*cos psi).
+                    //   2. flapping-tilt: when the blade is flapped up by beta_b
+                    //      the normal (thrust) force tilts by beta about t_hat,
+                    //      giving an in-plane component -d_thrust*sin(beta)*r_hat
+                    //      with r_hat = [cos psi, -sin psi, 0]. This term is zero
+                    //      when flap is inactive (beta_b = 0). Unlike the BEM
+                    //      harmonic solve this is resolved instantaneously from
+                    //      the real flap DOF, so it needs no b1c/b1s harmonics.
+                    let tilt = d_thrust * beta_b.sin();
+                    fx_step += d_ft * spsi - tilt * cpsi;
+                    fy_step += d_ft * cpsi + tilt * spsi;
                     // Aero flap moment about the hinge: out-of-plane force
                     // (d_thrust, up) at arm r. Positive -> flaps blade up.
                     m_flap[b] += r * d_thrust;
@@ -518,6 +544,8 @@ impl<P: Polar> VpmRotor<P> {
                 q_acc += torque_step;
                 mx_acc += mx_step;
                 my_acc += my_step;
+                fx_acc += fx_step;
+                fy_acc += fy_step;
                 avg_count += 1;
             }
         }
@@ -529,6 +557,8 @@ impl<P: Polar> VpmRotor<P> {
             torque: q_acc * inv,
             mx_hub: mx_acc * inv,
             my_hub: my_acc * inv,
+            fx_hub: fx_acc * inv,
+            fy_hub: fy_acc * inv,
             n_particles: wake.len(),
             wake_centroid: centroid,
         };

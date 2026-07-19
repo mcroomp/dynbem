@@ -20,6 +20,7 @@ mod servo_flap;
 mod vpm_aging_survey;
 mod vpm_empirical;
 mod vpm_engine_compare;
+mod vpm_hforce_directional;
 mod wake_skew;
 
 pub use autorotation::check_autorotation;
@@ -42,11 +43,12 @@ pub use servo_flap::check_servo_flap;
 pub use vpm_aging_survey::check_vpm_aging_survey;
 pub use vpm_empirical::check_vpm_empirical;
 pub use vpm_engine_compare::check_vpm_engine_compare;
+pub use vpm_hforce_directional::check_vpm_hforce_directional;
 pub use wake_skew::check_wake_skew;
 
 use crate::report::Report;
 
-/// Run all 18 validation checks in order.
+/// Run all 19 validation checks in order.
 pub fn run_all_checks(report: &mut Report) {
     run_filtered_checks(report, None);
 }
@@ -76,6 +78,7 @@ pub fn run_filtered_checks(report: &mut Report, filter: Option<&str>) {
     maybe!("servo_flap", check_servo_flap);
     maybe!("cyclic_phase_servo", check_cyclic_phase_servo);
     maybe!("flap_directional", check_flap_directional);
+    maybe!("vpm_hforce_directional", check_vpm_hforce_directional);
     maybe!("hover_empirical", check_hover_empirical);
     maybe!("hover_cq_empirical", check_hover_cq_empirical);
     maybe!("descent_empirical", check_descent_empirical);

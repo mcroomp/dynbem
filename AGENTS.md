@@ -166,6 +166,25 @@ into the disk plane by the local flap angle beta(psi) -- and its sign
 convention are documented in the blade-flapping section below, since it
 shares the flap-angle sign convention and the harmonic flap solve.
 
+### VPM in-plane H-force
+
+`VpmRotor` assembles the same in-plane hub force directly in its
+time-domain loads loop (`dynbem_rs/src/vpm/march.rs`), NOT via
+`apply_flap_dynamics`. Per element it accumulates
+`fx += dF_t*sin(psi) - dT*sin(beta_b)*cos(psi)` and
+`fy += dF_t*cos(psi) + dT*sin(beta_b)*sin(psi)`, where `dF_t` is the
+tangential force (same one whose moment is the torque) and `beta_b` is
+the instantaneous per-blade flap angle. The first term is the
+profile/induced-drag H-force (identical pairing to `SweepCtx::run`); the
+second is the flapping-tilt term, resolved instantaneously from the real
+flap DOF (so it needs no b1c/b1s harmonics and is exactly zero for a
+rigid rotor). Note `FlightCondition::v_hub` is the freestream air
+velocity in the hub frame, so a `+X` freestream yields a downwind `+X`
+in-plane force -- matching the level-disk crosswind direction validated
+in `validation_rs/src/checks/h_force.rs`. The VPM direction is validated
+by `validation_rs/src/checks/vpm_hforce_directional.rs`; if you flip any
+of these signs re-run both checks.
+
 ## Pitt-Peters inflow model
 
 Implementation: `dynbem_rs/src/pitt_peters.rs`.

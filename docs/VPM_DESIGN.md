@@ -523,12 +523,25 @@ revolution (AGENTS.md hub-frame convention, thrust along $-Z$):
 ```math
 \begin{aligned}
 dT &= dL\cos\phi - dD\sin\phi \\
+dF_t &= dL\sin\phi + dD\cos\phi \\
 T &= \sum dT \\
-Q &= \sum r\,(dL\sin\phi + dD\cos\phi) \\
+Q &= \sum r\,dF_t \\
 M_x &= \sum r\,dT\,\sin\psi \quad (\text{roll-right positive}) \\
-M_y &= \sum r\,dT\,\cos\psi \quad (\text{pitch-up positive})
+M_y &= \sum r\,dT\,\cos\psi \quad (\text{pitch-up positive}) \\
+F_x &= \sum \big(dF_t\,\sin\psi - dT\,\sin\beta_b\,\cos\psi\big) \\
+F_y &= \sum \big(dF_t\,\cos\psi + dT\,\sin\beta_b\,\sin\psi\big)
 \end{aligned}
 ```
+
+`F_x`, `F_y` are the in-plane hub force (the "H-force"), summed with the same
+convention as the BEM-family models (`bem_common::SweepCtx::run` and
+`apply_flap_dynamics`). Two physical contributions add per element: the
+profile/induced-drag term projects the tangential force `dF_t` onto the fixed
+hub axes, and the flapping-tilt term projects the thrust that leans in-plane
+when the blade is flapped up by `beta_b`. Because the VPM marches the flap DOF
+in the time domain (Section 5.6), the tilt term is resolved instantaneously
+from the real disk geometry -- no separate harmonic flap solve is needed, and
+it is exactly zero for a rigid rotor (`beta_b = 0`).
 
 Blade flapping and servo-flap feathering are modeled as optional per-blade
 time-domain DOFs (Section 5.6). The rigid-blade path remains the default when
@@ -753,6 +766,7 @@ vs direct ($<5\%$ of peak at $\theta = 0.5$).
 | `flapping_harmonics` | Bramwell / Seddon flap theory | Coning `a0`, longitudinal flap `a1` vs closed form | `a0`, `a1` within ~14% |
 | `cyclic_sign` | Directional (AGENTS.md) | Collective monotone; cyclic tilt signs | PASS |
 | `flap_directional` | Directional | Flap coning in hover; hub-moment relief under cyclic | PASS |
+| `vpm_hforce_directional` | Directional | In-plane hub force (H-force) downwind in edgewise flow; ~0 in hover | PASS |
 | `servo_flap` | Directional | Kaman servo-flap feathering (zero / collective / cyclic) | PASS |
 | `cyclic_phase_servo` | Directional | Direct-mech pitching `My` vs servo-flap rolling `Mx` | PASS |
 
