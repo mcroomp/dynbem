@@ -153,6 +153,26 @@ pub fn pca2_rotor(n_elements: usize) -> RotorDefinition {
     }
 }
 
+/// PCA-2 rotor with a freely-hinged flap DOF (omega_NR = 0), used by the
+/// Harris H-force check. `i_beta` is the blade flap inertia [kg*m^2].
+///
+/// NOTE: for a freely-hinged blade (omega_NR = 0, so nu_beta = 1 exactly),
+/// the 1/rev flap response is a damping-limited resonance whose amplitude is
+/// forcing/damping -- INDEPENDENT of the blade inertia (see
+/// bem_common::apply_flap_dynamics: i_beta cancels out of b1c/b1s when
+/// a_stiff = 0). So the flapping-tilt H-force this produces does not depend on
+/// the exact `i_beta` value; it is set here to a physically plausible number
+/// (Lock ~5 for the 6.85 m PCA-2 blade) only because the field is required.
+pub fn pca2_rotor_flap(n_elements: usize, i_beta: f64) -> RotorDefinition {
+    let mut defn = pca2_rotor(n_elements);
+    defn.flap = Some(FlapProperties {
+        I_blade_flap_kgm2: i_beta,
+        omega_nr_rad_s: 0.0,
+    });
+    defn.name = "pca2_harris_flap".to_string();
+    defn
+}
+
 // ---------------------------------------------------------------------------
 // VPM rotor creation
 // ---------------------------------------------------------------------------
@@ -402,6 +422,34 @@ pub fn bem_ct(thrust_n: f64, rpm: f64) -> f64 {
 pub fn bem_cq(q_spin: f64, rpm: f64) -> f64 {
     let omega = omega_from_rpm(rpm);
     q_spin / (RHO * PI * R_TIP * R_TIP * (omega * R_TIP).powi(2) * R_TIP)
+}
+
+/// PCA-2 forward-flight RotorInputs at a given shaft angle of attack, mirroring
+/// `wheatley_fc` but for the quasi-static BEM (RotorInputs) path. Disk held
+/// level (R_hub = identity); the freestream is applied as the hub velocity so
+/// the relative wind carries both the edgewise (mu) and axial (shaft-tilt)
+/// components. Used by the Harris CH check.
+pub fn harris_pca2_inputs(pitch_deg: f64, mu: f64, alpha_deg: f64, n_rpm: f64) -> RotorInputs {
+    let omega = omega_from_rpm(n_rpm);
+    let a = alpha_deg.to_radians();
+    let v = omega * PCA2_R * mu / a.cos();
+    RotorInputs {
+        collective_rad: pitch_deg.to_radians(),
+        tilt_lon: 0.0,
+        tilt_lat: 0.0,
+        R_hub: Mat3::eye(),
+        v_hub_world: Vec3::new(v * a.cos(), 0.0, -v * a.sin()),
+        wind_world: Vec3::zero(),
+        rho_kg_m3: RHO,
+        omega_rad_s: omega,
+    }
+}
+
+/// Harris/American normalization divisor for PCA-2 coefficients:
+/// `C = force / (rho * pi * R^2 * (Omega*R)^2)`.
+pub fn pca2_coeff_norm(n_rpm: f64) -> f64 {
+    let omega = omega_from_rpm(n_rpm);
+    RHO * PI * PCA2_R * PCA2_R * (omega * PCA2_R).powi(2)
 }
 
 /// Run a BEM model for n_steps with ExplicitEuler and return the final CT.

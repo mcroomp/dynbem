@@ -264,6 +264,32 @@ the TR 515 wind-tunnel data into rotor-axis (CT, CH, CY) figures
 (§5.3 pp. 87–89), which are easier to compare with BEM output than the
 airplane-axes CL/CD form in the original tables.
 
+**Primary tabulated coefficients (H-force).** Beyond the §5.3 figures,
+the report tabulates the rotor-axis coefficients directly. Printed pages
+504-505 give a 48-row appendix (Advance Ratio, Shaft AoA, airplane
+CL/CD/L-over-D, RPM, airplane roll/pitch/lateral coeffs, and Rotor CT /
+CH / CY) for four RPM series (98.63, 118.7, 137.6, 147.9) across
+mu ~ 0.14-0.70. These were extracted straight from the PDF text layer
+(not a figure digitization, so HIGH confidence) into
+[`Research/Harris_CR-2008-215370/pages_504_505_appendix_pca2_coeffs.md`](../Research/Harris_CR-2008-215370/pages_504_505_appendix_pca2_coeffs.md).
+Rotor CH is the in-plane hub-force coefficient and is the primary
+empirical anchor for the model's H-force.
+
+**H-force validation check.**
+[`validation_rs/src/checks/harris_hforce_empirical.rs`](../validation_rs/src/checks/harris_hforce_empirical.rs)
+(module `harris_hforce_empirical`) runs the quasi-static BEM against the
+137.6 RPM series (12 points). Since the PCA-2 autorotates and blade pitch
+is not tabulated, each point trims collective so the BEM matches the
+tabulated Rotor CT, then compares the resulting Rotor CH. The blade is
+modelled freely hinged so the flapping-tilt H-force is included. CT trims
+exactly (<0.01%); CH agreement is best in the mid-range (mu 0.30-0.45,
+0.5-18%) and degrades at the extremes (low-mu over-predicts ~80%, high-mu
+under-predicts ~40-49%) -- the expected simple-BEM bias at high advance
+ratio (reverse flow, radial flow, real polars). Per-case ceilings live in
+`harris_hforce_empirical.csv`; re-baseline with
+`REWRITE_EMPIRICAL_CSV=1 cargo run --release -p validation_rs -- harris_hforce`.
+
+
 **Rotor (Pitcairn PCA-2).** 4 blades, untwisted, mixed airfoils (symmetric
 outer 22-3/4 in chord + cambered inner 14-25/32 in). Diameter 45 ft.
 Tested at four nominal RPMs (98.6, 118.7, 137.6, 147.9), three pitch

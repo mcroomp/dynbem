@@ -58,7 +58,6 @@ Comprehensive single-reference table of all Rust struct fields and their Python 
 | | flap | .flap | ServoFlapGeometry | ✓ | r/o; nested |
 | **FlapProperties** | I_blade_flap_kgm2 | .I_blade_flap_kgm2 | f64 | ✓ | r/o |
 | | omega_nr_rad_s | .omega_nr_rad_s | f64 | ✓ | r/o |
-| | *(method)* | .hub_moment_factor(ω) | f64 | ✓ | computed |
 | **RotorDefinition** | blade | .blade | BladeGeometry | ✓ | r/o; nested |
 | | airfoil | .airfoil | LinearPolarParameters | ✓ | r/o; nested |
 | | control | .control | Option<ControlProperties> | ✓ | r/o |

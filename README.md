@@ -181,7 +181,7 @@ enabled in the release profile for symbol resolution).
 
 | Document | Content |
 |---|---|
-| [BEM_COMMON.md](docs/BEM_COMMON.md) | Coordinate system, kinematics, force kernel, QS BEM, VRS, servo-flap, output assembly, model comparison |
+| [BEM_COMMON.md](docs/BEM_COMMON.md) | Coordinate system, kinematics, force kernel, QS BEM, VRS, servo-flap, blade flapping, in-plane hub force (H-force), output assembly, model comparison |
 | [PITT_PETERS_DESIGN.md](docs/PITT_PETERS_DESIGN.md) | Pitt-Peters 3-state dynamic inflow (formal math + implementation notes) |
 | [OYE_DESIGN.md](docs/OYE_DESIGN.md) | Oye 2-stage annular dynamic inflow |
 | [VPM_DESIGN.md](docs/VPM_DESIGN.md) | VPM free-wake solver |

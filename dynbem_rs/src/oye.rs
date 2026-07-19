@@ -6,7 +6,7 @@ use std::f64::consts::PI;
 use crate::aero_io::{AeroResult, RotorInputs};
 use crate::aero_model::{AeroModel, RotorStateExt};
 use crate::bem_common::{
-    apply_flap_reduction, assemble_result, build_psi_trig_table, element_force, kinematics,
+    apply_flap_dynamics, assemble_result, build_psi_trig_table, element_force, kinematics,
     v_mass_flow_disk, vrs_regime, ElementCtx, PsiKernel, RadialGrid, SweepCtx,
 };
 use crate::common::{
@@ -281,32 +281,33 @@ impl<P: Polar + Clone> AeroModel for OyeBEMModel<P> {
             0.0
         };
         let mut dt_avg = vec![0.0; n];
-        let (t_total, q_total, mx_hub, my_hub) = if omega_r > EPS_OMEGA_R && omega > 1.0 {
-            let mut kernel = OyeKernel {
-                lambda_climb,
-                w: state.w_slice(),
-                dt_avg: &mut dt_avg,
+        let (t_total, q_total, mx_hub, my_hub, fx_hub, fy_hub) =
+            if omega_r > EPS_OMEGA_R && omega > 1.0 {
+                let mut kernel = OyeKernel {
+                    lambda_climb,
+                    w: state.w_slice(),
+                    dt_avg: &mut dt_avg,
+                };
+                let sweep = SweepCtx {
+                    grid: &self.grid,
+                    polar: &self.polar,
+                    col: loop_collective,
+                    omega,
+                    omega_r,
+                    rho,
+                    n_b: blade.n_blades,
+                    n_psi: self.n_psi_elements,
+                    n_psi_inv: 1.0 / (self.n_psi_elements as f64),
+                    psi_trig: &self.psi_trig,
+                    v_in_hub_x: v_inplane_hub[0],
+                    v_in_hub_y: v_inplane_hub[1],
+                    theta_1c: loop_theta_1c,
+                    theta_1s: loop_theta_1s,
+                };
+                sweep.run(&mut kernel)
+            } else {
+                (0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
             };
-            let sweep = SweepCtx {
-                grid: &self.grid,
-                polar: &self.polar,
-                col: loop_collective,
-                omega,
-                omega_r,
-                rho,
-                n_b: blade.n_blades,
-                n_psi: self.n_psi_elements,
-                n_psi_inv: 1.0 / (self.n_psi_elements as f64),
-                psi_trig: &self.psi_trig,
-                v_in_hub_x: v_inplane_hub[0],
-                v_in_hub_y: v_inplane_hub[1],
-                theta_1c: loop_theta_1c,
-                theta_1s: loop_theta_1s,
-            };
-            sweep.run(&mut kernel)
-        } else {
-            (0.0, 0.0, 0.0, 0.0)
-        };
 
         let w_mean: f64 = if n > 0 {
             state.w_slice().iter().sum::<f64>() / (n as f64)
@@ -374,9 +375,27 @@ impl<P: Polar + Clone> AeroModel for OyeBEMModel<P> {
             n,
         );
 
-        let (mx_out, my_out) =
-            apply_flap_reduction(mx_hub, my_hub, self.defn.flap.as_ref(), inputs.omega_rad_s);
-        let result = assemble_result(t_total, q_total, mx_out, my_out, hub_axis, &inputs.R_hub);
+        let flap = apply_flap_dynamics(
+            t_total,
+            mx_hub,
+            my_hub,
+            self.defn.flap.as_ref(),
+            &self.grid,
+            self.defn.airfoil.CL_alpha_per_rad,
+            rho,
+            self.defn.blade.n_blades,
+            omega,
+        );
+        let result = assemble_result(
+            t_total,
+            q_total,
+            flap.mx_out,
+            flap.my_out,
+            fx_hub + flap.dfx_hub,
+            fy_hub + flap.dfy_hub,
+            hub_axis,
+            &inputs.R_hub,
+        );
         let derivative = OyeRotorState {
             n_elements: n,
             W_int: d_w_int,

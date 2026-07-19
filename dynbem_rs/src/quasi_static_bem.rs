@@ -6,7 +6,7 @@ use std::f64::consts::PI;
 use crate::aero_io::{AeroResult, RotorInputs};
 use crate::aero_model::{AeroModel, RotorStateExt};
 use crate::bem_common::{
-    apply_flap_reduction, assemble_result, build_psi_trig_table, kinematics, ElementCtx, PsiKernel,
+    apply_flap_dynamics, assemble_result, build_psi_trig_table, kinematics, ElementCtx, PsiKernel,
     RadialGrid, SweepCtx,
 };
 use crate::common::{EPS_DENOM, EPS_OMEGA_R, MIN_LOSS_FACTOR};
@@ -738,6 +738,8 @@ impl<P: Polar + Clone> AeroModel for QuasiStaticBEM<P> {
         let mut q_total: f64 = 0.0;
         let mut mx_hub: f64 = 0.0;
         let mut my_hub: f64 = 0.0;
+        let mut fx_hub: f64 = 0.0;
+        let mut fy_hub: f64 = 0.0;
 
         if (mu > 0.01 || has_cyclic || has_feathering_cyclic) && omega > 1.0 {
             let mut kernel = BemKernel {
@@ -762,14 +764,18 @@ impl<P: Polar + Clone> AeroModel for QuasiStaticBEM<P> {
                 theta_1c: loop_theta_1c,
                 theta_1s: loop_theta_1s,
             };
-            let (t, q, mx, my) = sweep.run(&mut kernel);
+            let (t, q, mx, my, fx, fy) = sweep.run(&mut kernel);
             t_total = t;
             q_total = q;
             mx_hub = mx;
             my_hub = my;
+            fx_hub = fx;
+            fy_hub = fy;
         } else {
             // Axial: try wind-turbine windmill solver first when v_climb < 0,
             // fall back to helicopter quadratic per element.
+            // (Fx_hub/Fy_hub stay 0: azimuth-symmetric loading has no net
+            // in-plane force.)
             for i_r in 0..n {
                 let r = r_arr[i_r];
                 let geom = BEMElementGeometry::new(
@@ -796,9 +802,27 @@ impl<P: Polar + Clone> AeroModel for QuasiStaticBEM<P> {
             }
         }
 
-        let (mx_out, my_out) =
-            apply_flap_reduction(mx_hub, my_hub, self.defn.flap.as_ref(), inputs.omega_rad_s);
-        let result = assemble_result(t_total, q_total, mx_out, my_out, hub_axis, &inputs.R_hub);
+        let flap = apply_flap_dynamics(
+            t_total,
+            mx_hub,
+            my_hub,
+            self.defn.flap.as_ref(),
+            grid,
+            self.defn.airfoil.CL_alpha_per_rad,
+            rho,
+            n_blades,
+            omega,
+        );
+        let result = assemble_result(
+            t_total,
+            q_total,
+            flap.mx_out,
+            flap.my_out,
+            fx_hub + flap.dfx_hub,
+            fy_hub + flap.dfy_hub,
+            hub_axis,
+            &inputs.R_hub,
+        );
 
         let derivative = QuasiStaticRotorState;
         // suppress unused warning (use_tip_loss read inside windmill helper).

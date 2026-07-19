@@ -206,10 +206,6 @@ class FlapProperties:
             omega_nr_rad_s=float(self.omega_nr_rad_s),
         )
 
-    def hub_moment_factor(self, omega_rad_s):
-        """Fraction of aero hub moment that passes to airframe at given omega."""
-        return self._to_rust().hub_moment_factor(omega_rad_s)
-
 
 class InertiaProperties:
     """Rotor inertia data (Python-only, not used in Rust math)."""

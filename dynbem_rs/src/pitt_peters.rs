@@ -74,10 +74,10 @@
 //      the MU_T_FLOOR clamp). Recomputing v_mf from mu_t_eff would re-impose
 //      the MU_T_FLOOR clamp -- inflating v_mf whenever v_mf/omega_r <
 //      MU_T_FLOOR -- and corrupt the coefficients (see the inline note).
-//   F. Quasi-static blade flap reduction (`apply_flap_reduction`) scales the
-//      hub moments the AIRFRAME sees, but the inflow ODE uses the FULL
-//      aerodynamic moments (the wake responds to disk loading, not to what
-//      the flapping blade passes to the hub).
+//   F. Quasi-static blade flap dynamics (`apply_flap_dynamics`) set the
+//      hub moments the AIRFRAME sees (and the flapping-tilt H-force), but
+//      the inflow ODE uses the FULL aerodynamic moments (the wake responds
+//      to disk loading, not to what the flapping blade passes to the hub).
 //   G. Servo-flap feathering pre-pass (Kaman path): in ServoFlap mode the
 //      swashplate collective AND cyclic are reinterpreted as flap commands
 //      and the feathering response replaces the direct blade-pitch path.
@@ -87,7 +87,7 @@ use std::f64::consts::PI;
 use crate::aero_io::{AeroResult, RotorInputs};
 use crate::aero_model::{AeroModel, RotorStateExt};
 use crate::bem_common::{
-    apply_flap_reduction, assemble_result, build_psi_trig_table, element_force, kinematics,
+    apply_flap_dynamics, assemble_result, build_psi_trig_table, element_force, kinematics,
     v_mass_flow_disk, vrs_regime, ElementCtx, PsiKernel, RadialGrid, SweepCtx,
 };
 use crate::common::{vrs_lambda1, EPS_DENOM, EPS_OMEGA_R, MU_T_FLOOR};
@@ -251,7 +251,8 @@ impl<P: Polar + Clone> AeroModel for PittPetersModel<P> {
         // ------------------------------------------------------------------
         // Blade element forces
         // ------------------------------------------------------------------
-        let (mut t_total, mut q_total, mut mx_hub, mut my_hub) = (0.0, 0.0, 0.0, 0.0);
+        let (mut t_total, mut q_total, mut mx_hub, mut my_hub, mut fx_hub, mut fy_hub) =
+            (0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
         if omega_r > EPS_OMEGA_R && omega > 1.0 {
             let mut kernel = PpKernel {
                 lambda_total,
@@ -275,11 +276,13 @@ impl<P: Polar + Clone> AeroModel for PittPetersModel<P> {
                 theta_1c: loop_theta_1c,
                 theta_1s: loop_theta_1s,
             };
-            let (t, q, mx, my) = sweep.run(&mut kernel);
+            let (t, q, mx, my, fx, fy) = sweep.run(&mut kernel);
             t_total = t;
             q_total = q;
             mx_hub = mx;
             my_hub = my;
+            fx_hub = fx;
+            fy_hub = fy;
         }
 
         // ------------------------------------------------------------------
@@ -396,13 +399,33 @@ impl<P: Polar + Clone> AeroModel for PittPetersModel<P> {
         let d_lam_c = beta_c * d_lam_c_wind - beta_s * d_lam_s_wind;
         let d_lam_s = beta_s * d_lam_c_wind + beta_c * d_lam_s_wind;
 
-        // Outputs -- NON-STANDARD (flag F): apply quasi-static flap reduction
-        // to the hub moments before assembling the world-frame result. The
+        // Outputs -- NON-STANDARD (flag F): apply the 1/rev blade-flapping
+        // solve to the hub moments before assembling the world-frame result,
+        // and fold its flapping-tilt H-force into the in-plane hub force. The
         // inflow ODE above uses the FULL aerodynamic moments (they drive the
         // wake), but the airframe only sees the fraction that passes through
-        // the blade's flap stiffness.
-        let (mx_out, my_out) = apply_flap_reduction(mx_hub, my_hub, self.defn.flap.as_ref(), omega);
-        let result = assemble_result(t_total, q_total, mx_out, my_out, hub_axis, &inputs.R_hub);
+        // the blade's flap dynamics.
+        let flap = apply_flap_dynamics(
+            t_total,
+            mx_hub,
+            my_hub,
+            self.defn.flap.as_ref(),
+            &self.grid,
+            self.defn.airfoil.CL_alpha_per_rad,
+            rho,
+            blade.n_blades,
+            omega,
+        );
+        let result = assemble_result(
+            t_total,
+            q_total,
+            flap.mx_out,
+            flap.my_out,
+            fx_hub + flap.dfx_hub,
+            fy_hub + flap.dfy_hub,
+            hub_axis,
+            &inputs.R_hub,
+        );
         let derivative = PittPetersRotorState {
             lambda_0: d_lam0,
             lambda_c: d_lam_c,

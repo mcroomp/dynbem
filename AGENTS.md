@@ -23,6 +23,10 @@ coefficients.
 This file holds only directives that are specifically for you (the AI
 assistant) and would be noise in the README.
 
+## Critical: Sign conventions
+
+If you realize you need to make the decision about a sign convention, first validate what Ardupilot uses and prefer that, then stick with helicopter convention, then wind turbine convention. Once you decide, document the decision in this AGENTS.md so that future code is written using this convention.
+
 ## Rotor rotation direction — CCW from above (American convention)
 
 **This project uses the American helicopter convention: the rotor spins
@@ -123,6 +127,44 @@ direct blade-pitch amplitudes with helicopter-standard signs.
 See [PITT_PETERS_DESIGN.md](docs/PITT_PETERS_DESIGN.md) for the full coefficient
 definitions, the cross-product derivation, and the BladeAD sign differences
 (our C_L_hub = -BladeAD C_Mx, our C_M_hub = +BladeAD C_My).
+
+## In-plane hub force (H-force) sign convention
+
+The rotor's net in-plane hub force (classical "H-force") is assembled in
+`dynbem_rs/src/bem_common.rs` and validated by
+`validation_rs/src/checks/h_force.rs`. The signs below are load-bearing;
+do not flip them without re-running that check.
+
+### Profile / induced-drag H-force (implemented)
+
+Each blade element's tangential aerodynamic force `dFt = dQ / r` (the
+same force whose moment produces `dQ`, recovered by undoing the `* r`
+weighting) is projected onto the fixed hub axes with the SAME
+`(sin psi, cos psi)` pairing used everywhere else in the sweep
+(`v_t_extra`, `Mx_hub`/`My_hub`), then azimuth-averaged:
+
+    Fx_hub += (dQ / r) * sin(psi)
+    Fy_hub += (dQ / r) * cos(psi)
+
+**Decision (which convention this project uses):** the pairing above is
+the chosen convention, pinned by two validated directional cases:
+
+- Disk level, hub translating at +X through still air (apparent headwind
+  from the nose): the resulting force is REARWARD (-X) -- drag opposing
+  the direction of flight, matching the textbook H-force definition.
+- Stationary disk, +Y crosswind: force is +Y (downwind).
+
+The term is zero for azimuth-independent (pure axial / hover) loading and
+grows with edgewise flow, vanishing again as the hub axis re-aligns with
+the relative wind. See the `assemble_result` / `SweepCtx::run` doc
+comments for the full rationale.
+
+### Flapping-tilt H-force
+
+The second classical H-force contribution -- the thrust vector tilting
+into the disk plane by the local flap angle beta(psi) -- and its sign
+convention are documented in the blade-flapping section below, since it
+shares the flap-angle sign convention and the harmonic flap solve.
 
 ## Pitt-Peters inflow model
 
@@ -275,12 +317,14 @@ is not consumed by the Rust aero solvers. Use the `pitch_actuation:`
 YAML block (with a `servoflap:` sub-block) to enable active servo-flap
 feathering dynamics.
 
-## Quasi-static blade flapping (hub moment reduction)
+## Quasi-static blade flapping (hub moment reduction + flapback H-force)
 
 `FlapProperties` (in `dynbem_rs/src/rotor_definition.rs`) models
-out-of-plane blade flexibility as an equivalent spring-hinge. The blade
-absorbs most aerodynamic pitching/rolling moment via deflection; only a
-fraction reaches the airframe (hub).
+out-of-plane blade flexibility as an equivalent spring-hinge and solves a
+phase-correct 1/rev flap response. The blade absorbs most of the
+aerodynamic 1/rev moment via deflection; only the fraction set by the
+centrifugal stiffness reaches the airframe (hub moment), and the tilted
+disk contributes an in-plane hub force (the flapping-tilt "H-force").
 
 Parameters:
 
@@ -288,23 +332,72 @@ Parameters:
 - `omega_nr_rad_s` -- non-rotating flap natural frequency [rad/s]
   (K_beta = I_b * omega_NR^2). 0.0 = freely hinged (no spring).
 
-Physics:
+### Flap-angle sign convention (load-bearing)
 
-    nu_beta^2 = 1 + (omega_NR / Omega)^2
-    hub_moment_factor = (nu_beta^2 - 1) / nu_beta^2
+Project frame: psi=0 at +X (nose/North), CCW from above (see
+rotor-rotation section). The flap angle is
 
-- Freely hinged (omega_NR=0): factor=0, no moment transfer.
-- Rigid blade (omega_NR >> Omega): factor->1, full moment transfer.
-- Typical hingeless rotor: nu_beta ~ 1.05-1.15, factor ~ 0.05-0.15.
+    beta(psi) = beta_0 + beta_1c*cos(psi) + beta_1s*sin(psi)
 
-Implementation:
+with **beta > 0 = blade tip UP** (toward -z, the thrust direction). A
+disk that flaps up at the nose (beta_1c > 0) is tilted AFT (thrust vector
+leans toward -X), which is the classical flapback.
 
-- `apply_flap_reduction()` in `dynbem_rs/src/bem_common.rs` scales
-  `mx_hub, my_hub` by the factor before `assemble_result`.
-- Applied in all three models (Pitt-Peters, Oye, quasi-static BEM).
-- The inflow ODE (Pitt-Peters) still uses full aerodynamic moments
-  (the wake responds to disk loading, not what the airframe sees).
+### Phase-correct 1/rev solve
+
+A real rotor running near nu_beta ~ 1.0-1.15 (1/rev forcing near
+resonance) responds to the cyclic aero flap moment with a ~90 deg lag
+driven by aerodynamic flap damping. That lag is what points the flapback
+aft rather than sideways, so the flap solve must be phase-correct (a
+magnitude-only scaling of the hub moment cannot produce it).
+
+`apply_flap_dynamics()` in `dynbem_rs/src/bem_common.rs` implements the
+damped 1/rev harmonic balance (' = d/dpsi):
+
+    I_b*Omega^2 * (beta'' + d*beta' + nu^2*beta) = M_beta(psi)
+    nu_beta^2 = 1 + (omega_NR / Omega)^2       (centrifugal + spring)
+    d = gamma/8 = 0.5*rho*a*S3 / I_b           (aero flap damping)
+    S3 = integral c(r)*r^3 dr                   (over the radial grid; Omega cancels)
+
+The sweep's azimuth-averaged hub moments ARE the 1/rev aero flap-moment
+harmonics: `mx_hub = N_b*M1s/2`, `my_hub = N_b*M1c/2`. At 1/rev
+(beta'' = -beta) the balance is the linear system
+
+    [[a,  d], [-d, a]] [beta_1c; beta_1s] = (1/(I_b*Omega^2)) [M1c; M1s],
+    a = nu^2 - 1
+
+Transmitted hub moment (Johnson):
+`M_hub = (N_b/2)*I_b*Omega^2*(nu^2-1)*beta_1`. Flapping-tilt H-force
+(hub frame, T = mean disk thrust):
+
+    Fx_flap = -T*beta_1c / 2
+    Fy_flap = +T*beta_1s / 2
+
+added to the profile-drag H-force before `assemble_result`.
+
+### Decisions this convention pins
+
+- Freely hinged (omega_NR=0, a=0): transmits **zero** hub moment, but
+  STILL produces a flapback H-force -- damping alone gives beta_1 a pure
+  90 deg lag.
+- Rigid blade / no damping limit: transmitted moment -> full aero moment.
+- **H-force direction (validated, not hand-traced):** forward flight along
+  +X through still air with real thrust gives a REARWARD (-X) flapping
+  H-force that adds to (and dominates) the profile-drag term. Pinned by
+  the `flapback` case in `validation_rs/src/checks/h_force.rs`
+  (flap F_north ~ -2.86 N vs rigid -1.37 N at Lock ~8; free hinge
+  transmits ~0 moment). If you ever change the flap-angle sign, flip
+  `dfx_hub` and `dfy_hub` together (a beta sign flip) and re-run that
+  check.
+
+Implementation notes:
+
+- `apply_flap_dynamics()` is applied in all three BEM-family models
+  (Pitt-Peters, Oye, quasi-static BEM) at the result-assembly step only.
+- The inflow ODE (Pitt-Peters) still uses the FULL aerodynamic moments
+  (the wake responds to disk loading, not to what the airframe sees).
 - Thrust and torque are unchanged by flapping.
+- `FlapProperties::nu_beta_sq()` feeds the harmonic solve's stiffness term.
 
 YAML schema:
 
@@ -312,10 +405,11 @@ YAML schema:
       I_blade_flap_kgm2: 0.012
       omega_nr_rad_s: 8.0
 
-Absent `flap:` section = rigid blade (no moment reduction), preserving
-backward compatibility.
+Absent `flap:` section = rigid blade (no moment reduction, no flapping
+H-force), preserving backward compatibility.
 
-Tests: `tests/test_flap_hinge.py`.
+Tests: `tests/test_flap_hinge.py`,
+`validation_rs/src/checks/h_force.rs` (flapback case).
 
 ## Windmill solver: non-axial v_t_extra extension
 
