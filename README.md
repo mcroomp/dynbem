@@ -90,6 +90,7 @@ model  = dynbem.create_aero(defn, model="pitt_peters")  # or "oye", "bem", "vpm"
 state  = model.initial_rotor_state()
 
 omega = 125.7   # rad/s -- caller owns mechanical state
+spin_angle = 0.0  # rad -- caller owns rotor azimuth, if tracked
 inputs = dynbem.RotorInputs(
     collective_rad=0.14,
     tilt_lon=0.0, tilt_lat=0.0,                # swashplate (helicopter-standard signs)
@@ -104,9 +105,11 @@ result, state = model.step(inputs, state, dt, integration_method="semi_implicit"
 # integration_method: "semi_implicit" | "explicit" | "exponential"  (ignored for quasi static and VPM)
 # result.F_world, result.m_hub_world, result.M_spin, result.Q_spin
 
-# Mechanical ODE lives in the caller:
-from dynbem.mechanical import omega_derivative
-omega += dt * omega_derivative(result.Q_spin, motor_torque_Nm, I_ode_kgm2)
+# Mechanical ODE lives in the caller. Coulomb bearing friction is always
+# a parameter (default 0.0). step_omega is the single canonical, recommended
+# integrator (semi-implicit, unconditionally stable in the aero term).
+from dynbem.mechanical import step_omega
+omega, spin_angle = step_omega(omega, spin_angle, result.Q_spin, motor_torque_Nm, I_ode_kgm2, dt)
 
 # Level-3 VPM: same step() API; the free-wake particle cloud advances each call.
 # dt typically T_rev/36-72; average over several revolutions for steady-state loads.

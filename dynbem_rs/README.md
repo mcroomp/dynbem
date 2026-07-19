@@ -115,7 +115,7 @@ Add to `Cargo.toml`:
 
 ```toml
 [dependencies]
-dynbem_rs = "0.5"
+dynbem_rs = "0.7"
 ```
 
 ```rust
@@ -180,7 +180,7 @@ All quantities are in SI units. The frame is NED (North-East-Down) throughout.
 | `R_hub` | `Mat3` | Rotation matrix from hub frame to world (NED) frame. `R_hub * [0,0,1]` gives the hub spin axis in world coordinates. Pass `Mat3::eye()` for a level rotor with +Z spin axis pointing down. |
 | `v_hub_world` | `Vec3` | Hub-centre velocity in world (NED) frame, m/s. Positive +Z is downward. |
 | `wind_world` | `Vec3` | Ambient wind velocity in world (NED) frame, m/s. Only the relative velocity `wind_world - v_hub_world` matters -- equal and opposite values produce identical aerodynamics. |
-| `omega_rad_s` | `f64` | Rotor angular velocity (rad/s). Positive for the correct spin direction (CCW from above, American convention). The caller advances this externally: `omega += dt * (motor_torque - Q_spin) / I_kgm2`. |
+| `omega_rad_s` | `f64` | Rotor angular velocity (rad/s). Positive for the correct spin direction (CCW from above, American convention). The caller advances this externally via the single canonical mechanical ODE stepper: `omega = crate::mechanical::step_omega(omega, Q_spin, motor_torque, I_kgm2, dt, bearing_friction)`. |
 | `rho_kg_m3` | `f64` | Air density (kg/m^3). Use 1.225 for ISA sea level. |
 | `t` | `f64` | *(Python API only)* Simulation time (s) carried as a convenience field; not present in the Rust `RotorInputs` struct and not read by any model. |
 
@@ -201,7 +201,7 @@ All quantities are in SI units in the world (NED) frame.
 |---|---|---|
 | `F_world` | `Vec3` | Net aerodynamic force on the rotor hub, N, in NED world frame. In hover with the rotor level, thrust appears as a negative Z component (i.e. `F_world.0[2] < 0` lifts the aircraft). |
 | `M_hub_world` | `Vec3` | Aerodynamic hub moment (pitching/rolling) about the hub centre, N·m, in NED world frame. Corresponds to `M_x`/`M_y` in standard helicopter notation. This is what the airframe sees after blade flap reduction (if `FlapProperties` is set). In NED, positive Mx is roll-right, positive My is pitch-up. |
-| `Q_spin` | `f64` | Aerodynamic reaction torque opposing rotation, N·m. Always positive for a powered rotor (torque opposes spin). Use in the angular acceleration equation: `omega += dt * (motor_torque - Q_spin) / I_kgm2`. |
+| `Q_spin` | `f64` | Aerodynamic reaction torque opposing rotation, N·m. Always positive for a powered rotor (torque opposes spin). Pass straight through to `crate::mechanical::step_omega` -- no sign flip needed. |
 | `M_spin` | `Vec3` | `Q_spin` expressed as a vector along the rotor spin axis in world frame, N·m. Direction is `R_hub * [0,0,1]` (the hub +Z axis in world coordinates). Convenience for rigid-body integrators that accept a 3-vector torque input. |
 
 ### State Stepping
@@ -300,6 +300,9 @@ are equivalent.
     |                         apply_flap_reduction()
     +-- common.rs             numerical floors (EPS_*), vrs_lambda1 VRS polynomial
     +-- cyclic.rs             swashplate -> theta_1c, theta_1s mapping
+    +-- mechanical.rs         omega_derivative(), step_omega() -- single canonical
+    |                         rigid-body spin ODE (caller-owned), Coulomb bearing
+    |                         friction always a parameter (default 0.0)
     +-- oye.rs                OyeBEMModel (annular 2-stage filter)
     +-- pitt_peters.rs        PittPetersModel (3-state L-matrix ODE)
     +-- polar.rs              LinearPolar, TabulatedPolar, Polar trait

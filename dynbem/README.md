@@ -23,7 +23,7 @@ and Pitt-Peters L-matrix see [`../AGENTS.md`](../AGENTS.md).
         +-- bem.py             compat shim re-exporting dynbem.bem.*
         +-- cyclic.py          compat shim
         +-- factory.py         create_aero(), build_polar(), load_tabulated_polar()
-        +-- mechanical.py      omega_derivative(), euler_step_omega() -- caller-owned spin ODE
+        +-- mechanical.py      omega_derivative(), step_omega() -- single canonical spin ODE (caller-owned), Coulomb bearing friction always a parameter (default 0.0)
         +-- oye.py             compat shim
         +-- pitt_peters.py     compat shim
         +-- polar.py           compat shim + AirfoilPolar tuple alias
@@ -48,10 +48,14 @@ loading). Implemented as Python subclasses of the Rust pyclasses in
 `__init__.py`. Requires `subclass=True` on the three Rust model pyclasses
 in `wrappers.rs`.
 
-**Mechanical ODE**: `mechanical.py` provides `omega_derivative(Q_aero,
-motor_torque_Nm, I_ode_kgm2)` and `euler_step_omega`. The aero models are
-pure aerodynamic -- they take `omega_rad_s` via `RotorInputs` and return
-loads only. The caller owns the spin ODE.
+**Mechanical ODE**: `mechanical.py` provides the single canonical way to
+advance the spin ODE -- `omega_derivative(omega, Q_aero, motor_torque_Nm,
+I_ode_kgm2, bearing_friction_Nm=0.0)` (raw right-hand side) and
+`step_omega` (the one recommended integrator: semi-implicit, unconditionally
+stable in the aerodynamic term). Coulomb (dry) bearing friction is always a
+parameter, defaulting to `0.0`. The aero
+models are pure aerodynamic -- they take `omega_rad_s` via `RotorInputs`
+and return loads only. The caller owns the spin ODE.
 
 **Virtual ABCs** `dynbem.AeroBase` and `dynbem.RotorState` are declared in
 `__init__.py` with `ABC.register(...)` so `isinstance(model, AeroBase)`

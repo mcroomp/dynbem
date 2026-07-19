@@ -1257,4 +1257,269 @@ mod tests {
             rel_err * 100.0
         );
     }
+
+    /// Omega decay continuity: rotor spinning down to zero with no wind/climb
+    /// must be smooth (no force/torque jumps), and torque must always resist
+    /// rotation (Q_spin > 0) since there's no wind to drive it -- second law
+    /// of thermodynamics: with no energy input from the air, the rotor can
+    /// only ever lose rotational energy, never gain it. This must hold for
+    /// every collective setting (positive AND negative pitch), not just one.
+    ///
+    /// Q_spin convention (see AeroResult docs / aero_io.rs): positive opposes
+    /// rotation (drag, motor must supply +torque to sustain); negative means
+    /// the airflow is driving the rotor (autorotation). With no wind, only
+    /// Q_spin > 0 is physically possible.
+    #[test]
+    fn test_omega_decay_continuity_to_zero() {
+        use crate::rotor_definition::BladeGeometry;
+
+        // Caradonna-Tung rotor: 2 blades, R=1.143 m, NACA 0012, no twist
+        let defn = RotorDefinition {
+            blade: BladeGeometry {
+                n_blades: 2,
+                radius_m: 1.143,
+                root_cutout_m: 0.1,
+                chord_m: 0.1905,
+                twist_deg: 0.0,
+                n_elements: 20,
+                tip_loss: true,
+                r_stations_m: Vec::new(),
+                chord_stations_m: Vec::new(),
+                twist_stations_deg: Vec::new(),
+            },
+            airfoil: LinearPolarParameters {
+                CL0: 0.0,
+                CL_alpha_per_rad: 2.0 * PI,
+                CD0: 0.008,
+                alpha_stall_deg: 15.0,
+            },
+            control: None,
+            pitch_actuation: PitchActuation::DirectMechanical,
+            flap: None,
+            name: "Caradonna-Tung".to_string(),
+            description: String::new(),
+        };
+
+        let polar = crate::polar::LinearPolar::from_properties(&defn.airfoil);
+        let bem = QuasiStaticBEM::build(defn, 36, polar);
+
+        let rho = 1.225;
+        let base_omega = 1250.0 * PI / 30.0;
+
+        // Sweep across positive and negative collectives -- no wind means
+        // the rotor must decelerate (Q_spin > 0) regardless of blade pitch
+        // sign.
+        for &collective_deg in &[-10.0_f64, -5.0, -2.0, 0.0, 2.0, 5.0, 8.0, 12.0] {
+            // Geometric decay (constant ratio per step) so that thrust/torque
+            // coefficients -- which are what should stay continuous, not raw
+            // magnitudes (those naturally scale like omega^2 by momentum
+            // theory) -- can be compared step-to-step on an equal footing.
+            // Stop at a small but nonzero omega; exact omega=0 is covered by
+            // test_zero_omega_gives_zero_forces.
+            let mut omega = base_omega;
+            let mut prev_ct = None;
+            let mut prev_cq = None;
+
+            for _ in 0..30 {
+                let inputs = RotorInputs {
+                    collective_rad: collective_deg.to_radians(),
+                    tilt_lon: 0.0,
+                    tilt_lat: 0.0,
+                    R_hub: Mat3::eye(),
+                    v_hub_world: Vec3::zero(),
+                    wind_world: Vec3::zero(),
+                    omega_rad_s: omega,
+                    rho_kg_m3: rho,
+                };
+
+                let (res, _) = bem.compute_forces(&inputs, &QuasiStaticRotorState::default());
+
+                let thrust = res.F_world[2].abs();
+                let torque_raw = res.Q_spin;
+
+                // No wind driving the rotor: torque must always resist
+                // rotation (never accelerate it) for every collective.
+                assert!(
+                    torque_raw >= 0.0,
+                    "collective={collective_deg} deg, omega={omega:.4}: Q_spin must be \
+                     >= 0 with no wind (rotor can only decelerate), got {torque_raw:.3e} N.m"
+                );
+
+                // Non-dimensionalize by omega^2 (momentum theory: T, Q ~
+                // omega^2 at fixed collective/geometry) so we're checking
+                // for genuine regime-switch discontinuities, not the
+                // expected quadratic falloff of raw magnitude.
+                let ct = thrust / (omega * omega);
+                let cq = torque_raw / (omega * omega);
+
+                if let Some(prev) = prev_ct {
+                    if prev > 1e-6 {
+                        let ratio = ct / prev;
+                        assert!(
+                            0.5 < ratio && ratio < 2.0,
+                            "collective={collective_deg} deg: thrust coefficient \
+                             (T/omega^2) jumped at omega={omega:.4}: {prev:.3e} to \
+                             {ct:.3e} (ratio {ratio:.2})"
+                        );
+                    }
+                }
+                if let Some(prev) = prev_cq {
+                    if prev > 1e-8 {
+                        let ratio = cq / prev;
+                        assert!(
+                            0.5 < ratio && ratio < 2.0,
+                            "collective={collective_deg} deg: torque coefficient \
+                             (Q/omega^2) jumped at omega={omega:.4}: {prev:.3e} to \
+                             {cq:.3e} (ratio {ratio:.2})"
+                        );
+                    }
+                }
+
+                prev_ct = Some(ct);
+                prev_cq = Some(cq);
+
+                omega *= 0.7; // ~30 steps from 1250 RPM down to ~1e-4 RPM
+            }
+        }
+    }
+
+    /// True time-integration spindown: uses the built-in `AeroModel::step()`
+    /// trait method (aero_model.rs) for the inflow-state update, plus the
+    /// caller-owned mechanical spin ODE via `crate::mechanical::omega_derivative`
+    /// / `crate::mechanical::step_omega` -- the single canonical place this
+    /// ODE is evaluated and stepped (see mechanical.rs module docs).
+    /// Integrates omega from a nonzero start, with no wind and no motor
+    /// torque, and checks it decays toward zero monotonically and smoothly --
+    /// exactly the caller pattern documented in AeroModel::step's doc
+    /// comment.
+    ///
+    /// Note: with pure aerodynamic (quadratic) drag and zero other losses,
+    /// the continuous-time ODE only reaches exactly omega=0 asymptotically
+    /// (1/t tail) -- so this checks decay to a small fraction of the start
+    /// speed, not literal zero (test_zero_omega_gives_zero_forces already
+    /// covers the omega==0 endpoint directly).
+    #[test]
+    fn test_omega_spindown_time_integration() {
+        use crate::aero_model::IntegrationMethod;
+        use crate::rotor_definition::BladeGeometry;
+
+        let defn = RotorDefinition {
+            blade: BladeGeometry {
+                n_blades: 2,
+                radius_m: 1.143,
+                root_cutout_m: 0.1,
+                chord_m: 0.1905,
+                twist_deg: 0.0,
+                n_elements: 20,
+                tip_loss: true,
+                r_stations_m: Vec::new(),
+                chord_stations_m: Vec::new(),
+                twist_stations_deg: Vec::new(),
+            },
+            airfoil: LinearPolarParameters {
+                CL0: 0.0,
+                CL_alpha_per_rad: 2.0 * PI,
+                CD0: 0.008,
+                alpha_stall_deg: 15.0,
+            },
+            control: None,
+            pitch_actuation: PitchActuation::DirectMechanical,
+            flap: None,
+            name: "Caradonna-Tung".to_string(),
+            description: String::new(),
+        };
+
+        let polar = crate::polar::LinearPolar::from_properties(&defn.airfoil);
+        let bem = QuasiStaticBEM::build(defn, 36, polar);
+
+        let rho = 1.225;
+        let i_ode_kgm2 = 1.0_f64;
+        let omega_start = 1250.0 * PI / 30.0;
+        let max_steps = 2000;
+
+        for &collective_deg in &[-10.0_f64, -5.0, 5.0, 8.0] {
+            let mut omega = omega_start;
+            let mut state = bem.initial_state();
+            let mut dt = 1e-3_f64;
+            let mut reached_target = false;
+
+            for step in 0..max_steps {
+                let inputs = RotorInputs {
+                    collective_rad: collective_deg.to_radians(),
+                    tilt_lon: 0.0,
+                    tilt_lat: 0.0,
+                    R_hub: Mat3::eye(),
+                    v_hub_world: Vec3::zero(),
+                    wind_world: Vec3::zero(),
+                    omega_rad_s: omega,
+                    rho_kg_m3: rho,
+                };
+
+                // Built-in trait method: advances the inflow state (a
+                // no-op here -- QuasiStaticBEM carries zero inflow DOF).
+                let (res, new_state) =
+                    bem.step(&inputs, &state, dt, IntegrationMethod::ExplicitEuler);
+                state = new_state;
+
+                // Mechanical spin ODE is caller-owned by design (see
+                // AeroModel::step doc comment) -- call into the single
+                // canonical mechanical ODE functions rather than
+                // re-deriving the formula locally.
+                let motor_torque_nm = 0.0;
+                let d_omega = crate::mechanical::omega_derivative(
+                    omega,
+                    res.Q_spin,
+                    motor_torque_nm,
+                    i_ode_kgm2,
+                    0.0,
+                );
+
+                // No wind/motor driving the rotor: it must never
+                // accelerate (Q_spin >= 0 always, per the physics
+                // established in test_omega_decay_continuity_to_zero).
+                assert!(
+                    d_omega <= 1e-9,
+                    "collective={collective_deg} deg, step {step}: omega must \
+                     not accelerate with no wind/motor torque, d_omega={d_omega:.3e}"
+                );
+
+                // Adapt dt to keep the per-step relative change bounded
+                // (~5%) -- necessary because the aerodynamic torque
+                // shrinks as omega^2, so a fixed dt would either take
+                // forever near omega_start or blow past zero near the
+                // end.
+                if d_omega.abs() > 1e-12 {
+                    dt = (0.05 * omega / d_omega.abs()).clamp(1e-6, 5.0);
+                }
+
+                let new_omega = crate::mechanical::step_omega(
+                    omega,
+                    res.Q_spin,
+                    motor_torque_nm,
+                    i_ode_kgm2,
+                    dt,
+                    0.0,
+                );
+                assert!(
+                    new_omega <= omega + 1e-9,
+                    "collective={collective_deg} deg, step {step}: omega \
+                     increased from {omega:.6} to {new_omega:.6} during spindown"
+                );
+
+                omega = new_omega;
+
+                if omega <= 1e-3 * omega_start {
+                    reached_target = true;
+                    break;
+                }
+            }
+
+            assert!(
+                reached_target,
+                "collective={collective_deg} deg: omega failed to decay to \
+                 0.1% of its starting value within {max_steps} steps (stuck \
+                 at {omega:.4} rad/s -- possible spindown regression)"
+            );
+        }
+    }
 }

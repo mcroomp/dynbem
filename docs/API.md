@@ -7,7 +7,7 @@ import dynbem
 from dynbem import (
     create_aero, RotorInputs, AeroResult,
     solve_trim_cyclic, relax_inflow, TrimResult,
-    omega_derivative, euler_step_omega,
+    omega_derivative, step_omega,
     QuasiStaticRotorState, PittPetersRotorState, OyeRotorState,
     LinearPolar, TabulatedPolar,
 )
@@ -76,8 +76,12 @@ result, dstate = model.compute_forces(inputs, state)
 arr = state.to_array() + dt * dstate.to_array()
 state = state.from_array(arr)
 
-# Advance rotor speed (caller owns the mechanical ODE)
-omega += dt * omega_derivative(result.Q_spin, motor_torque_Nm, I_kgm2)
+# Advance rotor speed (caller owns the mechanical ODE). bearing_friction_Nm
+# is always a parameter (Coulomb friction); pass 0.0 for a frictionless
+# bearing. step_omega is the single canonical, recommended integrator
+# (semi-implicit, unconditionally stable in the aero term). spin_angle is
+# caller-owned state, advanced alongside omega.
+omega, spin_angle = step_omega(omega, spin_angle, result.Q_spin, motor_torque_Nm, I_kgm2, dt)
 inputs = RotorInputs(..., omega_rad_s=omega, ...)
 ```
 
@@ -109,7 +113,7 @@ Returned by `compute_forces`.
 |---|---|---|
 | `F_world` | ndarray (3,) | Total rotor force in NED world frame [N]. `F_world[2] < 0` for upward lift |
 | `m_hub_world` | ndarray (3,) | Hub moments in NED world frame [N*m]. Roll about X, pitch about Y |
-| `Q_spin` | float | Aerodynamic reaction torque on the shaft [N*m]. Positive opposes rotation. Feed directly to `omega_derivative` |
+| `Q_spin` | float | Aerodynamic reaction torque on the shaft [N*m]. Positive opposes rotation. Feed directly to `omega_derivative`/`step_omega` as `Q_aero` |
 | `M_spin` | ndarray (3,) | Full spin moment vector in NED world frame [N*m] |
 
 ---
@@ -146,14 +150,28 @@ model). `to_array()` concatenates `[W_int..., W...]` (length
 
 ## Mechanical ODE helpers
 
-### `omega_derivative(Q_aero, motor_torque_Nm, I_ode_kgm2) -> float`
+This is the single canonical way to advance the mechanical (rigid-body
+spin) ODE -- exactly two functions. Bearing (Coulomb/dry) friction is
+always a parameter (`bearing_friction_Nm`, default `0.0`) -- a
+constant-magnitude torque that opposes the current rotation direction,
+and is exactly zero at `omega == 0` (no static breakaway threshold
+modelled). `step_omega` applies a zero-crossing clamp so friction (or any
+purely-decelerating explicit term) cannot flip the sign of `omega` within
+one step -- the rotor comes to rest instead of reversing direction.
 
-Return `d(omega)/dt = (motor_torque - Q_aero) / I` [rad/s^2].
-Pass `AeroResult.Q_spin` directly for `Q_aero`.
+### `omega_derivative(omega, Q_aero, motor_torque_Nm, I_ode_kgm2, bearing_friction_Nm=0.0) -> float`
 
-### `euler_step_omega(omega, spin_angle, Q_aero, motor_torque_Nm, I_ode_kgm2, dt) -> (omega_new, spin_angle_new)`
+Return `d(omega)/dt = (motor_torque - Q_aero - Q_friction(omega)) / I`
+[rad/s^2]. Pass `AeroResult.Q_spin` directly for `Q_aero`. Use this for
+diagnostics or a custom integrator -- do not re-derive the formula.
 
-Forward-Euler step for both `omega` and the spin angle.
+### `step_omega(omega, spin_angle, Q_aero, motor_torque_Nm, I_ode_kgm2, dt, bearing_friction_Nm=0.0) -> (omega_new, spin_angle_new)`
+
+Semi-implicit (locally-frozen relaxation) step -- the one recommended
+integrator for both `omega` and the spin angle. Unconditionally stable in
+the aerodynamic term: pure aero drag can never send `omega` past zero or
+oscillate for any `dt > 0`. Use this for all production and test
+time-stepping.
 
 ---
 
@@ -266,6 +284,7 @@ model = dynbem.create_aero(defn, model="pitt_peters")
 state = model.initial_rotor_state()
 
 omega = 28.0           # rad/s
+spin_angle = 0.0       # rad
 dt    = 0.005          # s
 I     = 0.08           # kg*m^2 (rotor inertia)
 
@@ -287,8 +306,8 @@ for step in range(500):
     arr   = state.to_array() + dt * dstate.to_array()
     state = state.from_array(arr)
 
-    # advance rotor speed (free-spin, no motor torque)
-    omega   += dt * dynbem.omega_derivative(result.Q_spin, 0.0, I)
+    # advance rotor speed (free-spin, no motor torque, no bearing friction)
+    omega, spin_angle = dynbem.step_omega(omega, spin_angle, result.Q_spin, 0.0, I, dt)
     inputs   = dynbem.RotorInputs(
         collective_rad=0.14, tilt_lon=0.0, tilt_lat=0.0,
         R_hub=np.eye(3), v_hub_world=np.zeros(3), wind_world=np.zeros(3),

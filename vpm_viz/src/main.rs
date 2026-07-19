@@ -376,9 +376,18 @@ impl eframe::App for VpmVizApp {
         self.last_result = result;
         self.step_count += 1;
 
-        // Integrate omega: constant drive torque minus aerodynamic resistive torque.
-        let d_omega = (Q_DRIVE - self.last_result.torque) / I_ROTOR * DT;
-        self.omega = (self.omega + d_omega).clamp(OMEGA_MIN, OMEGA_MAX);
+        // Integrate omega: constant drive torque minus aerodynamic resistive
+        // torque, via the single canonical mechanical ODE stepper (no
+        // bearing friction modelled in this viz).
+        self.omega = dynbem_rs::mechanical::step_omega(
+            self.omega,
+            self.last_result.torque,
+            Q_DRIVE,
+            I_ROTOR,
+            DT,
+            0.0,
+        )
+        .clamp(OMEGA_MIN, OMEGA_MAX);
 
         // Ramp wind from 0 to V_WIND_MAX over WIND_RAMP_STEPS steps.
         self.v_wind = (V_WIND_MAX * (self.step_count as f64 / WIND_RAMP_STEPS as f64))
