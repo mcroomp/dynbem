@@ -1,10 +1,10 @@
 [workspace]
 resolver = "2"
-members = ["dynbem", "dynbem_rs", "validation_rs"]
+members = ["dynbem", "dynbem_rs", "validation_rs", "steady_flight_simple"]
 
 # Fields below are inherited by member crates via `field.workspace = true`.
 [workspace.package]
-version = "0.5.0"
+version = "0.6.0"
 edition = "2021"
 license = "MIT"
 authors = ["Kristof"]

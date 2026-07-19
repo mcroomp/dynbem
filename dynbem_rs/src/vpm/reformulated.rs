@@ -191,6 +191,56 @@ fn rvpm_deriv(gamma: [f64; 3], sigma: f64, s: [f64; 3]) -> ([f64; 3], f64) {
     (dgamma, dsigma)
 }
 
+/// Corrected Pedrizzetti relaxation: reorient `gamma` toward local vorticity
+/// `omega` while preserving |gamma| (to first principles, not just approximately).
+///
+/// With `r = relax` in [0,1], first form the standard Pedrizzetti blend
+/// `g_tilde = (1-r) g + r |g| omega_hat`, then apply the corrected
+/// normalization factor so `|g_new| = |g|` exactly:
+///
+///   b2 = 1 - 2(1-r)r(1 - cos(theta)),  cos(theta) = g_hat . omega_hat
+///   g_new = g_tilde / sqrt(b2)
+#[inline]
+fn relax_corrected_pedrizzetti(gamma: [f64; 3], omega: [f64; 3], relax: f64) -> [f64; 3] {
+    if relax <= 0.0 {
+        return gamma;
+    }
+
+    let g2 = gamma[0] * gamma[0] + gamma[1] * gamma[1] + gamma[2] * gamma[2];
+    if g2 < GAMMA2_FLOOR {
+        return gamma;
+    }
+    let w2 = omega[0] * omega[0] + omega[1] * omega[1] + omega[2] * omega[2];
+    if w2 < GAMMA2_FLOOR {
+        return gamma;
+    }
+
+    let r = relax.clamp(0.0, 1.0);
+    let gmag = g2.sqrt();
+    let wmag = w2.sqrt();
+    let inv_wmag = 1.0 / wmag;
+    let what = [
+        omega[0] * inv_wmag,
+        omega[1] * inv_wmag,
+        omega[2] * inv_wmag,
+    ];
+
+    let mut out = [
+        (1.0 - r) * gamma[0] + r * gmag * what[0],
+        (1.0 - r) * gamma[1] + r * gmag * what[1],
+        (1.0 - r) * gamma[2] + r * gmag * what[2],
+    ];
+
+    let cos_theta =
+        ((gamma[0] * what[0] + gamma[1] * what[1] + gamma[2] * what[2]) / gmag).clamp(-1.0, 1.0);
+    let b2 = (1.0 - 2.0 * (1.0 - r) * r * (1.0 - cos_theta)).max(1e-15);
+    let inv_b = 1.0 / b2.sqrt();
+    out[0] *= inv_b;
+    out[1] *= inv_b;
+    out[2] *= inv_b;
+    out
+}
+
 /// Advance the free wake one step of size `dt` with the reformulated VPM:
 /// midpoint (RK2) integration of position (convection + freestream), vector
 /// strength (stretching + reorientation), and core size (mass-conserving
@@ -250,28 +300,18 @@ pub fn advect_rvpm(field: &mut ParticleField, freestream: [f32; 3], dt: f32, rel
         field.sigma[j] = (field.sigma[j] as f64 + dt64 * dsig).max(SIGMA_FLOOR) as f32;
     }
 
-    // ---- Stage 3: Pedrizzetti relaxation -- realign each strength with the
-    // local vorticity (magnitude-preserving), using the midpoint vorticity k2.
-    // alpha <- (1-f) alpha + f |alpha| omega_hat. This is the primary stabilizer
-    // that keeps inviscid rVPM from diverging.
+    // ---- Stage 3: corrected Pedrizzetti relaxation -- realign each strength
+    // with local vorticity while preserving |alpha| (magnitude-conserving),
+    // using the midpoint vorticity k2. This is the primary stabilizer that
+    // keeps inviscid rVPM from diverging.
     if relax > 0.0 {
         for j in 0..n {
             let w = k2[j].2;
-            let wmag2 = w[0] * w[0] + w[1] * w[1] + w[2] * w[2];
-            if wmag2 < GAMMA2_FLOOR {
-                continue;
-            }
-            let gx = field.ax[j] as f64;
-            let gy = field.ay[j] as f64;
-            let gz = field.az[j] as f64;
-            let g2 = gx * gx + gy * gy + gz * gz;
-            if g2 < GAMMA2_FLOOR {
-                continue;
-            }
-            let scale = relax * (g2 / wmag2).sqrt();
-            field.ax[j] = ((1.0 - relax) * gx + scale * w[0]) as f32;
-            field.ay[j] = ((1.0 - relax) * gy + scale * w[1]) as f32;
-            field.az[j] = ((1.0 - relax) * gz + scale * w[2]) as f32;
+            let g = [field.ax[j] as f64, field.ay[j] as f64, field.az[j] as f64];
+            let g_new = relax_corrected_pedrizzetti(g, w, relax);
+            field.ax[j] = g_new[0] as f32;
+            field.ay[j] = g_new[1] as f32;
+            field.az[j] = g_new[2] as f32;
         }
     }
 
@@ -374,5 +414,36 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn corrected_relaxation_preserves_gamma_norm() {
+        let g = [1.2, -0.7, 0.9];
+        let w = [0.4, 0.8, -0.3];
+        let out = relax_corrected_pedrizzetti(g, w, 0.35);
+        let gn = (g[0] * g[0] + g[1] * g[1] + g[2] * g[2]).sqrt();
+        let on = (out[0] * out[0] + out[1] * out[1] + out[2] * out[2]).sqrt();
+        assert!((on - gn).abs() < 1e-12, "|Gamma| changed: {} -> {}", gn, on);
+    }
+
+    #[test]
+    fn corrected_relaxation_improves_alignment() {
+        let g = [1.0, 0.2, 0.1];
+        let w = [0.1, 1.0, 0.2];
+        let out = relax_corrected_pedrizzetti(g, w, 0.4);
+
+        let dot0 = g[0] * w[0] + g[1] * w[1] + g[2] * w[2];
+        let dot1 = out[0] * w[0] + out[1] * w[1] + out[2] * w[2];
+        let gn = (g[0] * g[0] + g[1] * g[1] + g[2] * g[2]).sqrt();
+        let on = (out[0] * out[0] + out[1] * out[1] + out[2] * out[2]).sqrt();
+        let wn = (w[0] * w[0] + w[1] * w[1] + w[2] * w[2]).sqrt();
+        let cos0 = dot0 / (gn * wn);
+        let cos1 = dot1 / (on * wn);
+        assert!(
+            cos1 > cos0,
+            "alignment did not improve: cos0={} cos1={}",
+            cos0,
+            cos1
+        );
     }
 }

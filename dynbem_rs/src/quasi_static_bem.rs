@@ -18,6 +18,21 @@ use crate::servoflap::{solve_feathering, FeatheringState};
 const MAX_BEM_ITER: usize = 60;
 const BEM_TOL: f64 = 1e-7;
 
+/// Minimum |lambda_climb| (tip-referenced axial inflow ratio, v_climb /
+/// (omega*radius_m)) required before the dedicated windmill Brent solver is
+/// even attempted. Below this, the local axial flow is too small relative
+/// to blade speed for the windmill solver's assumptions to hold reliably
+/// (its `lam_local = omega*r/u_up` term grows large and the solved root
+/// becomes numerically noisy/inconsistent from one element or azimuth to
+/// the next -- see tests/test_bem_windmill_boundary.py in the
+/// windpower-repo history). Typical hover/climb induced inflow ratios are
+/// O(0.02-0.08), so this threshold sits at the low end of that range: well
+/// above numerical noise, comfortably below where genuine windmill-brake
+/// descent physics take over. Below this threshold, all
+/// elements/azimuths uniformly fall back to solve_bem_element (helicopter
+/// momentum quadratic), which is continuous through lambda_climb == 0.
+const MIN_LAMBDA_CLIMB_WINDMILL: f64 = 0.02;
+
 #[derive(Clone, Debug, Default)]
 pub struct QuasiStaticRotorState;
 
@@ -168,11 +183,22 @@ pub fn solve_bem_element<P: Polar>(
     let theta = collective_rad + geom.twist_rad;
     let lambda_climb = v_climb * geom.inv_omega_r;
 
-    let mut lambda_r = if lambda_climb >= 0.0 {
-        (lambda_climb + 0.03).max(0.02)
-    } else {
-        (lambda_climb * 0.85).min(-0.02)
-    };
+    // Always seed from the climb/hover branch (small positive inflow ratio),
+    // never the descent branch. This function is only reached when the
+    // dedicated windmill solver (solve_bem_element_windmill) has declined to
+    // handle the station -- either lambda_climb >= 0 (no descent at all), or
+    // lambda_climb < 0 but too small in magnitude for the windmill solver's
+    // Brent bracket to exist (near-hover). In that near-hover band, hover is
+    // physically the v_climb -> 0 limit of the *climb* (propeller) momentum
+    // branch, not the windmill/autorotative branch -- the windmill branch
+    // only exists once there's enough upward axial flow to establish that
+    // distinct flow topology, which is exactly the regime the dedicated
+    // windmill solver already owns. Seeding (and, below, selecting) toward
+    // the descent-branch root here previously caused a large, spurious,
+    // discontinuous jump in thrust/torque right at lambda_climb == 0 (see
+    // tests/test_bem_windmill_boundary.py in the windpower-repo history for
+    // the original repro).
+    let mut lambda_r = (lambda_climb + 0.03).max(0.02);
     let mut a_prime: f64 = 0.0;
 
     for _ in 0..MAX_BEM_ITER {
@@ -209,18 +235,12 @@ pub fn solve_bem_element<P: Polar>(
             let denom = 2.0 * (k - 1.0);
             let r1 = (-lambda_climb + sq) / denom;
             let r2 = (-lambda_climb - sq) / denom;
-            if lambda_climb >= 0.0 {
-                if r2 > 0.0 {
-                    r2
-                } else {
-                    r1
-                }
+            // Climb/hover root: prefer the small positive root (see seed
+            // comment above for why this branch is used unconditionally).
+            if r2 > 0.0 {
+                r2
             } else {
-                if r1 < 0.0 {
-                    r1
-                } else {
-                    r2
-                }
+                r1
             }
         } else if lambda_climb.abs() > 1e-8 {
             -k * geom.x * geom.x / lambda_climb
@@ -469,13 +489,22 @@ fn solve_bem_element_windmill<P: Polar>(
     v_climb: f64,
     v_t_extra: f64,
 ) -> Option<BEMElementResult> {
-    if v_climb >= -EPS_DENOM {
-        return None;
-    }
-    let u_up = -v_climb;
     if geom.omega_r < EPS_OMEGA_R {
         return None;
     }
+    // Rotor-level normalized threshold (see MIN_LAMBDA_CLIMB_WINDMILL doc
+    // comment): reject when the *tip*-referenced inflow ratio is too small
+    // for the windmill solver's assumptions to hold. Deliberately uses the
+    // tip speed (geom.omega * geom.radius_m), not this element's own local
+    // omega*r, so every element/azimuth in a given call switches branch
+    // together -- gating per-element would let inboard and outboard
+    // stations disagree on which solver to use at the same rotor-level
+    // v_climb, producing element-to-element inconsistency across the
+    // integrated blade.
+    if v_climb >= -MIN_LAMBDA_CLIMB_WINDMILL * geom.omega * geom.radius_m {
+        return None;
+    }
+    let u_up = -v_climb;
     let inv_u_up = 1.0 / u_up;
     let theta = collective_rad + geom.twist_rad;
     let lam_local = geom.omega * geom.r * inv_u_up;
