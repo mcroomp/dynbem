@@ -260,8 +260,31 @@ class TestBEMElementConvergence:
         )
         assert elem.lambda_r > 0, "Hover induced flow must be downward (λ_r > 0)"
 
-    def test_autorotation_lambda_r_negative(self, polar):
-        """With upward wind (v_climb < 0), net inflow must be upward (λ_r < 0)."""
+    def test_deep_descent_uses_climb_branch_in_isolation(self, polar):
+        """`solve_bem_element` (the Python-exposed helicopter momentum
+        quadratic) always converges to the climb/hover-branch root (small
+        magnitude, non-negative lambda_r) when called directly, even for
+        strongly negative v_climb -- it no longer flips to a "windmill-like"
+        negative root based on sign(v_climb).
+
+        This is an intentional post-fix contract, not a physics claim about
+        deep descent: `solve_bem_element` used to select its root via
+        sign(lambda_climb), which meant an infinitesimal step across
+        v_climb=0 could jump between two genuinely different self-consistent
+        fixed points of the momentum quadratic (basin-of-attraction hopping),
+        producing large spurious force/torque discontinuities right at
+        hover (see quasi_static_bem.rs and
+        tests/test_bem_windmill_boundary.py). The fix makes this function
+        always seed/select the climb branch, since in the real pipeline
+        (QuasiStaticBEM.compute_forces / BemKernel) it is only ever reached
+        near hover -- genuine windmill-brake descent is handled beforehand
+        by the dedicated (Rust-internal-only) solve_bem_element_windmill
+        solver, which is not exposed to Python. Calling this function in
+        isolation with a deep-descent v_climb, as this test does, therefore
+        no longer produces a physically representative windmill-brake
+        answer; it deliberately returns the climb-branch value instead of a
+        stale sign-only proxy for it.
+        """
         omega = 50.0  # slow spin
         elem = solve_bem_element(
             r=0.8 * 1.143, dr=0.05, chord=0.1905, twist_rad=0.0,
@@ -269,7 +292,10 @@ class TestBEMElementConvergence:
             omega=omega, v_climb=-15.0,  # 15 m/s upward wind
             rho=1.225, n_blades=2, radius_m=1.143, polar=polar, use_tip_loss=False,
         )
-        assert elem.lambda_r < 0, "Upward wind should give net upward inflow (λ_r < 0)"
+        assert elem.lambda_r >= 0, (
+            "solve_bem_element should always return the climb-branch root "
+            "(lambda_r >= 0) when called in isolation, regardless of v_climb sign"
+        )
 
     def test_hover_thrust_matches_momentum_theory(self, polar):
         """At element level, dT should equal momentum-theory prediction 4pi*r*rho*F*vi^2*dr."""
