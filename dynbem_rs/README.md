@@ -199,8 +199,8 @@ All quantities are in SI units in the world (NED) frame.
 
 | Field | Type | Description |
 |---|---|---|
-| `F_world` | `Vec3` | Net aerodynamic force on the rotor hub, N, in NED world frame. In hover with the rotor level, thrust appears as a negative Z component (i.e. `F_world.0[2] < 0` lifts the aircraft). |
-| `M_hub_world` | `Vec3` | Aerodynamic hub moment (pitching/rolling) about the hub centre, N·m, in NED world frame. Corresponds to `M_x`/`M_y` in standard helicopter notation. This is what the airframe sees after blade flap reduction (if `FlapProperties` is set). In NED, positive Mx is roll-right, positive My is pitch-up. |
+| `F_world` | `Vec3` | Net aerodynamic force on the rotor hub, N, in NED world frame. In hover with the rotor level, thrust appears as a negative Z component (i.e. `F_world.0[2] < 0` lifts the aircraft). In edgewise/forward flight it also carries the in-plane hub force ("H-force") -- the profile/induced-drag term plus, when `FlapProperties` is set, the flapping-tilt term. |
+| `M_hub_world` | `Vec3` | Aerodynamic hub moment (pitching/rolling) about the hub centre, N·m, in NED world frame. Corresponds to `M_x`/`M_y` in standard helicopter notation. This is what the airframe sees after the phase-correct 1/rev blade-flap solve (if `FlapProperties` is set), which reduces and rotates the transmitted moment. In NED, positive Mx is roll-right, positive My is pitch-up. |
 | `Q_spin` | `f64` | Aerodynamic reaction torque opposing rotation, N·m. Always positive for a powered rotor (torque opposes spin). Pass straight through to `crate::mechanical::step_omega` -- no sign flip needed. |
 | `M_spin` | `Vec3` | `Q_spin` expressed as a vector along the rotor spin axis in world frame, N·m. Direction is `R_hub * [0,0,1]` (the hub +Z axis in world coordinates). Convenience for rigid-body integrators that accept a 3-vector torque input. |
 
