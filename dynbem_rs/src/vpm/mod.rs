@@ -243,6 +243,10 @@ pub struct VpmRotorResult {
     pub mx_hub: f64,
     /// Hub pitching moment (pitch-up positive), N*m.
     pub my_hub: f64,
+    /// In-plane hub force along hub +X (North-ish), N.
+    pub fx_hub: f64,
+    /// In-plane hub force along hub +Y (East-ish), N.
+    pub fy_hub: f64,
     /// Wake particle count at the end of the run.
     pub n_particles: usize,
     /// Mean wake position (for diagnostics, e.g. skew).
@@ -546,16 +550,19 @@ impl<P: Polar> AeroModel for VpmRotor<P> {
         let (fc, kin) = self.flight_condition(inputs);
         // One sub-step per call; dt IS the sub-step duration.
         let (res, out_state) = self.march_window(&fc, Some(state), state.psi, dt, 1, 1);
-        // TODO: VPM's free-wake march doesn't yet accumulate the in-plane
-        // hub force (H-force) the BEM-family models compute in
-        // bem_common::SweepCtx::run -- pass 0.0, 0.0 until that's added here.
+        // The free-wake march accumulates the in-plane hub force (H-force)
+        // directly from the blade-element loads (profile/induced drag plus,
+        // when the flap DOF is active, the instantaneous thrust-vector tilt) --
+        // see the loads loop in `march_window`. No separate harmonic flap solve
+        // is needed here (unlike the BEM-family models) because VPM marches the
+        // flap DOF in the time domain.
         let result = assemble_result(
             res.thrust,
             res.torque,
             res.mx_hub,
             res.my_hub,
-            0.0,
-            0.0,
+            res.fx_hub,
+            res.fy_hub,
             kin.hub_axis,
             &inputs.R_hub,
         );

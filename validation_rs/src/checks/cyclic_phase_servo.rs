@@ -150,6 +150,8 @@ fn march_nan_debug(
         torque: results.iter().map(|r| r.torque).sum::<f64>() / n,
         mx_hub: results.iter().map(|r| r.mx_hub).sum::<f64>() / n,
         my_hub: results.iter().map(|r| r.my_hub).sum::<f64>() / n,
+        fx_hub: results.iter().map(|r| r.fx_hub).sum::<f64>() / n,
+        fy_hub: results.iter().map(|r| r.fy_hub).sum::<f64>() / n,
         n_particles: results.last().map(|r| r.n_particles).unwrap_or(0),
         wake_centroid: results.last().map(|r| r.wake_centroid).unwrap_or([0.0; 3]),
     }
