@@ -293,10 +293,14 @@ Nose-down pitching moment is **negative**, consistent throughout.
 
 - `C_M_delta_per_rad < 0`: positive (downward) flap deflection produces a
   nose-down blade pitching moment about the feathering axis.
-- `ac_offset_m > 0`: AC is **aft** of the feathering axis -> stable
-  (restoring) aerodynamic spring, `k_aero > 0`. `ac_offset_m < 0` is
-  divergent (do not use unless deliberately modelling divergence).
-  `ac_offset_m = 0` is the Kaman ideal (axis at AC, no aero spring).
+- `ac_offset_m = x_ac - x_feathering_axis`, in metres, with section `x`
+  increasing from leading edge toward trailing edge. Positive means AC
+  **aft** of the axis: `k_aero > 0`, restoring. Negative means AC forward:
+  `k_aero < 0`, destabilising. Zero is the Kaman ideal (axis at AC, no
+  offset spring). The physical spring moment is `-k_aero * theta_f`;
+  this sign describes the offset contribution, not complete-system
+  stability. It is not a NED-axis or cyclic-phase sign. See
+  [BEM_COMMON.md](docs/BEM_COMMON.md#offset-sign-convention).
 - `blade_Cm_AC < 0`: cambered-airfoil nose-down zero-lift moment (typical);
   0.0 for a symmetric section.
 - Feathering `theta_f` replaces blade pitch directly in servo mode, so its
@@ -530,6 +534,18 @@ This rule has bitten before — see [memory feedback-no-silent-reverts].
   piping breaks on array args, etc.). If a one-liner is awkward in
   bash, write a short script under the appropriate dir and run it
   through bash instead.
+- **Scope text searches -- do not `grep`/`find` the whole repo root.**
+  This workspace has large build/output trees (`target/`, `.venv/`,
+  `dynbem_rs/target/`, `dynbem/target/`, node_modules-style caches,
+  etc.) that are gitignored but still on disk. An unscoped `grep -r`
+  or `find /` over the repo root (or worse, the whole filesystem) walks
+  all of it and can take a long time or hang. Scope every search to a
+  specific source directory (e.g. `dynbem_rs/src/`, `vpm_viz/src/`),
+  or exclude the known-large dirs explicitly (`--exclude-dir=target
+  --exclude-dir=.venv` for `grep`, or prune them in `find`). The
+  workspace `grep_search` / `file_search` tools already respect
+  `.gitignore` by default -- prefer those over raw terminal `grep`/`find`
+  unless you specifically need to search ignored files.
 - **CRITICAL -- ASCII only in new Python / CSV / Markdown content.** No
   Greek letters, no em-dashes, no degree signs, no smart quotes, no
   subscripts/superscripts, no plus-minus or less-equal glyphs. Use plain
@@ -708,4 +724,3 @@ with the actual files on disk.
   momentum target, what Oye cannot model. **Read before touching Oye.**
 
 Defer to those files when working inside the respective directories.
-
