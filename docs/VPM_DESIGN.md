@@ -614,11 +614,14 @@ the blade rides a pitch bearing and feathers freely, restrained by the
 mechanical bearing damper `C_theta` (the only dissipation) and the
 **aerodynamic spring** `k_aero` from any AC offset:
 
-$$I_\theta\,\ddot\theta_f + C_\theta\,\dot\theta_f + k_\text{aero}\,\theta_f
+$$I_\theta\,\ddot\theta_f + C_\theta\,\dot\theta_f
++ (I_\theta\Omega^2+k_\text{aero})\,\theta_f
 = M_\text{servo} + M_\text{camber},$$
 
-integrated semi-implicitly (implicit on the damper) for unconditional
-stability regardless of damper strength. The aerodynamic spring is
+integrated with an implicit Euler step for both damping and stiffness. This is
+stable for positive total stiffness. Negative total stiffness is a physical
+divergence; results require timestep-convergence checks near that instability.
+The aerodynamic spring is
 
 $$k_\text{aero} = \tfrac{1}{2}\rho\,\omega^2 C_{L\alpha}\,\cdot ac\_offset
 \cdot \int c\,r^2\,dr,$$
@@ -626,9 +629,9 @@ $$k_\text{aero} = \tfrac{1}{2}\rho\,\omega^2 C_{L\alpha}\,\cdot ac\_offset
 a nose-down restoring torque from the extra lift acting at the AC a distance
 `ac_offset` aft of the feathering axis. `M_servo` is accumulated over
 the flap span from the true local dynamic pressure, and `M_camber`
-(from `blade_Cm_AC`) sets the DC trim. With `ac_offset = 0` (Kaman ideal, axis
-at AC) the damper alone sets the cyclic phase lag and DC trim comes from
-`M_camber`. There is no artificial control-stiffness spring -- all
+(from `blade_Cm_AC`) contributes to DC trim. With `ac_offset = 0` (Kaman ideal,
+axis at AC), centrifugal stiffness still provides a finite DC equilibrium and
+the damper sets the cyclic phase lag. There is no artificial control-stiffness spring -- all
 constants are physical and measurable. (The alternative torsional-twist
 servo-flap architecture is not modelled yet.)
 
@@ -767,7 +770,7 @@ vs direct ($<5\%$ of peak at $\theta = 0.5$).
 | `cyclic_sign` | Directional (AGENTS.md) | Collective monotone; cyclic tilt signs | PASS |
 | `flap_directional` | Directional | Flap coning in hover; hub-moment relief under cyclic | PASS |
 | `vpm_hforce_directional` | Directional | In-plane hub force (H-force) downwind in edgewise flow; ~0 in hover | PASS |
-| `servo_flap` | Directional | Kaman servo-flap feathering (zero / collective / cyclic) | PASS |
+| `servo_flap` | Directional | Kaman feathering: zero input, settled collective trim at zero/nonzero offset, and cyclic moment response | PASS |
 | `cyclic_phase_servo` | Directional | Direct-mech pitching `My` vs servo-flap rolling `Mx` | PASS |
 
 Hover thrust tracks BEMT to within ~14-18%; coning `a0` and longitudinal
@@ -927,15 +930,18 @@ commands map directly to blade pitch; in servo mode they drive flap deflection
 and feathering dynamics. Servo mode is active whenever the rotor carries a
 `ServoFlapActuation` (`pitch_actuation: servoflap`). The feathering ODE is
 
-    I_theta * theta'' + C_theta * theta' + k_aero * theta = M_servo
+    I_theta * theta'' + C_theta * theta'
+        + (I_theta * omega^2 + k_aero) * theta = M_servo + M_camber
 
-where `C_theta` is the bearing damper (the only dissipation) and `k_aero` is the
-**aerodynamic spring** from the AC offset,
+where `C_theta` is the bearing damper (the only dissipation), `I_theta*omega^2`
+approximates centrifugal pitch stiffness for a thin blade, and `k_aero` is the **aerodynamic spring**
+from the AC offset,
 `k_aero = 0.5*rho*omega^2*cl_alpha*ac_offset*Int(c r^2 dr)` (a pitch-up makes more
 lift at the AC, a distance `ac_offset` aft of the feathering axis, giving a
-nose-down restoring torque). With `ac_offset = 0` (axis at AC, Kaman ideal) the
-damper alone sets the ~90 deg cyclic phase lag and DC trim comes from the blade
-camber moment `blade_Cm_AC`. There is no artificial control-stiffness spring; all
+nose-down restoring torque). With `ac_offset = 0` (axis at AC, Kaman ideal),
+centrifugal stiffness still supplies a finite DC equilibrium and the damper
+sets the ~90 deg cyclic phase lag. The blade camber moment `blade_Cm_AC`
+contributes to the equilibrium pitch. There is no artificial control-stiffness spring; all
 constants are physical and measurable. (The alternative torsional-twist servo-flap
 architecture -- elastic blade twist against spar stiffness -- is not modelled yet.)
 

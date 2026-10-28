@@ -284,7 +284,8 @@ pub struct VpmRotor<P: Polar> {
     cl_alpha: f64,
     /// Spanwise integral Sum(chord[i] * r_mid[i]^2 * dr[i]) [m^4], precomputed
     /// for the aerodynamic feathering spring: k_aero = 0.5*rho*omega^2*
-    /// cl_alpha*ac_offset * feather_span_integral.
+    /// cl_alpha*ac_offset * feather_span_integral. The total pitch stiffness
+    /// also includes centrifugal stiffness I_theta*omega^2.
     feather_span_integral: f64,
     ctrl: ControlGains,
     config: VpmRotorConfig,

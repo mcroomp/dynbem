@@ -193,7 +193,6 @@ impl<P: Polar + Clone> AeroModel for PittPetersModel<P> {
         let hub_axis = kin.hub_axis;
         let v_climb = kin.v_climb;
         let v_edge = kin.v_edge;
-        let mu = kin.mu;
         let v_inplane_hub = kin.v_inplane_hub;
 
         let lam0 = state.lambda_0;
@@ -225,9 +224,8 @@ impl<P: Polar + Clone> AeroModel for PittPetersModel<P> {
                 theta_1s,
                 rho,
                 omega,
-                mu,
-                r_tip,
-                blade.chord_m,
+                v_inplane_hub,
+                &self.grid,
                 self.defn.airfoil.CL_alpha_per_rad,
             ),
         };

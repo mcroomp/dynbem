@@ -46,7 +46,7 @@ def make_minimal_defn(servoflap=False, damper=5.0):
     servoflap_act = None
     if servoflap:
         servoflap_act = ServoFlapActuation(
-            I_theta_kgm2=0.001, damper_Nms_per_rad=damper,
+            I_theta_kgm2=0.1, damper_Nms_per_rad=damper,
             flap=ServoFlapGeometry(
                 C_M_delta_per_rad=-1.5, r_inner_m=0.5, r_outer_m=1.2,
             ),

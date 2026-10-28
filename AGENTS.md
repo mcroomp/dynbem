@@ -271,12 +271,17 @@ torsional stiffness instead of the bearing damper.
 
 The feathering EOM (per blade, time domain in the VPM):
 
-    I_theta * theta'' + C_theta * theta' + k_aero * theta = M_servo + M_camber
+    I_theta * theta'' + C_theta * theta'
+        + (I_theta * omega^2 + k_aero) * theta = M_servo + M_camber
 
 - `C_theta` (bearing damper) is the ONLY dissipation. In the
   damper-dominated limit (`C_theta >> I_theta*omega`) it sets the ~90 deg
   cyclic phase lag between flap command and feathering response. The lag
   is NOT from a spring resonance.
+- For a thin blade with negligible section-thickness inertia,
+  `I_theta * omega^2` approximates centrifugal restoring stiffness. It
+  cancels the 1/rev inertial term in the harmonic solve but remains in the
+  DC trim balance.
 - `k_aero` is the aerodynamic spring from the AC offset:
   `k_aero = 0.5*rho*omega^2*cl_alpha*ac_offset*Int(c r^2 dr)`.
 - `M_camber` from `blade_Cm_AC` sets the DC trim.
@@ -296,7 +301,8 @@ Nose-down pitching moment is **negative**, consistent throughout.
 - `ac_offset_m = x_ac - x_feathering_axis`, in metres, with section `x`
   increasing from leading edge toward trailing edge. Positive means AC
   **aft** of the axis: `k_aero > 0`, restoring. Negative means AC forward:
-  `k_aero < 0`, destabilising. Zero is the Kaman ideal (axis at AC, no
+  `k_aero < 0`, a destabilising contribution. Total static stability depends
+  on `I_theta * omega^2 + k_aero`. Zero is the Kaman ideal (axis at AC, no
   offset spring). The physical spring moment is `-k_aero * theta_f`;
   this sign describes the offset contribution, not complete-system
   stability. It is not a NED-axis or cyclic-phase sign. See
@@ -331,9 +337,12 @@ Known limitations:
   feathering + damper)
 - No direct sectional `dCL/d_delta * delta_f` lift increment yet
 - No servo actuator lag model yet
-- DC flap path uses quasi-static approximation; for AC-on-axis configurations
-  (`k_aero ~= 0`) it falls back to collective pass-through to retain authority
-- `mu` cross-term in flap forcing uses scalar advance ratio only
+- DC flap path uses quasi-static trim in BEM and time integration in VPM;
+  both include centrifugal restoring stiffness
+- BEM servo-flap forcing uses a first-order tangential-wind harmonic;
+  axial-flow and higher-harmonic dynamic-pressure terms are omitted
+- BEM flapping is a post-sweep hub-load correction, so it is not coupled to
+  the feathering solve. VPM couples both DOFs through the section loads.
 
 The old `kaman_flap:` block under `control:` remains metadata-only and
 is not consumed by the Rust aero solvers. Use the `pitch_actuation:`
