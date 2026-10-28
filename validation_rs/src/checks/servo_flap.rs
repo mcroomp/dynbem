@@ -3,7 +3,9 @@
 // Moved from dynbem_rs/src/vpm/mod.rs::tests. Three checks:
 //   1. Zero swashplate command -> zero feathering on all blades.
 //   2. Collective command drives feathering to a bounded, settled angle.
-//   3. Cyclic command raises hub moment relative to no-command baseline.
+//   3. Cyclic command changes the hub-moment vector from the no-command
+//      baseline. Its expected axis and sign are checked separately in
+//      cyclic_phase_servo.
 //
 // The bounded/settled DC feathering in check 2 requires a restoring spring.
 // This is the aerodynamic spring from a nonzero ac_offset (AC aft of the
