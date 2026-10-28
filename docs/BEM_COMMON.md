@@ -543,24 +543,48 @@ agent-facing sign rules are in
 
 ### Equation of Motion (psi-domain)
 
-$$I_\theta\,\delta\theta'' + C_\theta\,\delta\theta' + k_\text{aero}\,\delta\theta = M_\text{servo}(\psi)$$
+$$I_\theta\Omega^2\,\delta\theta'' + C_\theta\Omega\,\delta\theta' + (I_\theta\Omega^2 + k_\text{aero})\,\delta\theta = M_\text{servo}(\psi) + M_\text{camber}(\psi)$$
 
 where primes denote $d/d\psi$, and:
 
-$$k_\text{aero} = \tfrac{1}{2}\rho\,c_{L\alpha}\,c\,x_\text{AC}\,R^3/3 \quad \text{(zero if AC at feathering axis)}$$
+$$k_\text{aero} = \tfrac{1}{2}\rho\Omega^2\,c_{L\alpha}\,\text{ac\_offset}\int_{r_\text{root}}^R c(r)r^2\,dr \quad \text{(zero if AC at feathering axis)}$$
+
+For a thin blade with negligible section-thickness inertia, the centrifugal
+term is approximated by the pitch inertia times `Omega^2`. It cancels the
+1/rev inertial term in the harmonic balance, but remains in the DC trim
+stiffness. The aerodynamic
+spring has units of N m/rad and scales with rotor speed squared, matching the
+time-domain VPM model. For the BEM pre-pass, sectional dynamic pressure is
+approximated by the mean rotational speed plus its first-order tangential
+in-plane-wind perturbation; axial-flow and higher-harmonic dynamic-pressure
+terms are not included.
+
+The static feathering angle is `M_0 / (I_theta*Omega^2 + k_aero)`. With zero
+AC offset, the centrifugal stiffness supplies the finite DC response; there
+is no direct-pitch pass-through. The BEM flapping model remains a post-sweep
+hub-load correction, so it is not dynamically coupled to this feathering
+pre-pass. VPM couples flap and feather motion through the section loads.
+Static stability requires `I_theta*Omega^2 + k_aero > 0`; a negative AC offset
+is a destabilizing contribution, not by itself proof of a divergent total mode.
 
 ### Servo-Flap Aerodynamic Moment
 
-$$M_{f,0} = \delta_{f,0}\,m_\text{dc}, \quad M_{f,1c} = \delta_{f,1c}\,m_\text{dc}, \quad M_{f,1s} = \delta_{f,1s}\,m_\text{dc} + \delta_{f,0}\,m_\mu$$
+$$M_{f,0} = \delta_{f,0}\,m_\text{dc} + \tfrac{1}{2}(\delta_{f,1c}m_c+\delta_{f,1s}m_s), \quad M_{f,1c} = \delta_{f,1c}\,m_\text{dc} + \delta_{f,0}m_c, \quad M_{f,1s} = \delta_{f,1s}\,m_\text{dc} + \delta_{f,0}m_s$$
 
-$$m_\text{dc} = \tfrac{1}{2}\rho\Omega^2 C_{M\delta}\,c\,\frac{r_\text{out}^3 - r_\text{in}^3}{3}$$
+$$m_\text{dc} = \tfrac{1}{2}\rho\Omega^2 C_{M\delta}\int_{r_\text{in}}^{r_\text{out}}c(r)^2r^2\,dr$$
 
-$$m_\mu = -\tfrac{1}{2}\rho\Omega^2 C_{M\delta}\,c\,\mu R\,(r_\text{out}^2 - r_\text{in}^2)$$
+$$m_c = \rho\Omega C_{M\delta}v_{\text{in},y}\int_{r_\text{in}}^{r_\text{out}}c(r)^2r\,dr,\quad m_s = \rho\Omega C_{M\delta}v_{\text{in},x}\int_{r_\text{in}}^{r_\text{out}}c(r)^2r\,dr$$
+
+The `c^2` terms are required because `C_M_delta` is a dimensionless pitching
+moment coefficient. The wind terms use hub-frame in-plane velocity components
+under the repository's `v_t_extra = v_in,x*sin(psi) + v_in,y*cos(psi)` convention.
 
 ### 1/rev Harmonic Balance Solve
 
-Frequency ratio: $p^2 = 1 + k_\text{aero}/(I_\theta\Omega^2)$,
-mechanical damping ratio: $\zeta = C_\theta/(2 I_\theta \Omega)$.
+The dimensionless frequency factor and damping ratio are `p_sq =
+1 + k_aero/(I_theta*Omega^2)` and `zeta = C_theta/(2*I_theta*Omega)`.
+The 1/rev diagonal is `p_sq - 1`: centrifugal stiffness cancels inertia,
+leaving only the aerodynamic stiffness.
 
 $$\begin{bmatrix} p^2-1 & 2\zeta \\ -2\zeta & p^2-1 \end{bmatrix}
   \begin{bmatrix} A \\ B \end{bmatrix}
@@ -576,6 +600,13 @@ account for this lag through swashplate phase configuration.
 
 In servo-flap mode, $(\delta\theta_0, A, B)$ **replace** the direct
 swashplate-to-pitch path in the psi-loop.
+
+The servo-flap unit and directional tests check equation consistency and
+qualitative response; they are not comparisons against measured servo-flap
+performance. No dedicated dataset currently establishes quantitative BEM
+accuracy for feathering amplitude, phase, or trim. See
+[`EMPIRICAL_VALIDATION.md`](EMPIRICAL_VALIDATION.md#servo-flap-pitch-actuation-status)
+for the model's empirical-validation status and limitations.
 
 ---
 

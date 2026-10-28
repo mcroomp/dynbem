@@ -711,9 +711,8 @@ impl<P: Polar + Clone> AeroModel for QuasiStaticBEM<P> {
                 theta_1s,
                 rho,
                 omega,
-                mu,
-                r_tip,
-                blade.chord_m,
+                v_inplane_hub,
+                grid,
                 self.defn.airfoil.CL_alpha_per_rad,
             ),
         };

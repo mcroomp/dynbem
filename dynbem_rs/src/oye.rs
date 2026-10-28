@@ -244,7 +244,6 @@ impl<P: Polar + Clone> AeroModel for OyeBEMModel<P> {
         let (theta_1c, theta_1s) = cyclic_coeffs(inputs.tilt_lon, inputs.tilt_lat, gains);
 
         // Quasi-static feathering solve (pre-pass)
-        let mu = kin.mu;
         let feathering_state = match &self.defn.pitch_actuation {
             PitchActuation::DirectMechanical => FeatheringState::RIGID,
             PitchActuation::ServoFlap(act) => solve_feathering(
@@ -254,9 +253,8 @@ impl<P: Polar + Clone> AeroModel for OyeBEMModel<P> {
                 theta_1s,
                 rho,
                 omega,
-                mu,
-                r_tip,
-                blade.chord_m,
+                v_inplane_hub,
+                &self.grid,
                 self.defn.airfoil.CL_alpha_per_rad,
             ),
         };

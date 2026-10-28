@@ -69,8 +69,9 @@ fn beaupoil_defn(actuation: PitchActuation) -> RotorDefinition {
 
 fn beaupoil_servo() -> ServoFlapActuation {
     // Feathering + damper architecture (Kaman ideal: axis at AC, no aero spring).
-    // The bearing damper alone sets the cyclic phase lag. The cyclic test drives
-    // collective=0, so no DC restoring is needed; ac_offset=0 and blade_Cm_AC=0.
+    // Centrifugal stiffness supplies DC restoring at zero AC offset; the bearing
+    // damper sets the cyclic phase lag. The test drives collective=0 to isolate
+    // the cyclic response.
     ServoFlapActuation {
         I_theta_kgm2: 0.05,
         damper_Nms_per_rad: 2.0,
@@ -193,11 +194,8 @@ pub fn check_cyclic_phase_servo(r: &mut Report) {
         rotor_direct.march(&fc, None, dt, n_steps).0
     };
 
-    // For servo-flap, drive the flap with cyclic only (collective_rad=0).
-    // With no aero spring (ac_offset=0) a constant collective flap command has
-    // no DC restoring and the feathering integrates without bound, driving the
-    // blade into deep stall. Setting collective=0 isolates the cyclic (phase)
-    // response and keeps theta_f within the linear polar range.
+    // For servo-flap, drive the flap with cyclic only (collective_rad=0) to
+    // isolate the phase response and keep theta_f within the linear polar range.
     let fc_sf = FlightCondition {
         collective_rad: 0.0,
         ..fc

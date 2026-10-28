@@ -16,6 +16,7 @@ use super::reformulated::advect_rvpm;
 use super::{FlightCondition, VpmRotor, VpmRotorResult, VpmRotorState, WakeEngine};
 use crate::cyclic::cyclic_coeffs;
 use crate::polar::Polar;
+use crate::servoflap::{aerodynamic_pitch_stiffness, centrifugal_pitch_stiffness};
 use std::f64::consts::PI;
 #[inline]
 fn r_hat(psi: f64) -> [f64; 3] {
@@ -24,6 +25,26 @@ fn r_hat(psi: f64) -> [f64; 3] {
 #[inline]
 fn t_hat(psi: f64) -> [f64; 3] {
     [-psi.sin(), -psi.cos(), 0.0]
+}
+
+#[inline]
+fn implicit_feather_step(
+    theta: f64,
+    theta_dot: f64,
+    moment: f64,
+    inertia: f64,
+    damping: f64,
+    stiffness: f64,
+    dt: f64,
+) -> (f64, f64) {
+    let denom = 1.0 + dt * damping / inertia + dt * dt * stiffness / inertia;
+    assert!(
+        denom.is_finite() && denom != 0.0,
+        "servo-flap integration reached a singular implicit feathering step"
+    );
+    let acceleration = (moment - stiffness * theta) / inertia;
+    let next_rate = (theta_dot + dt * acceleration) / denom;
+    (theta + dt * next_rate, next_rate)
 }
 
 /// Regularized Biot-Savart velocity at `p` induced by a straight vortex
@@ -118,10 +139,10 @@ impl<P: Polar> VpmRotor<P> {
         // flap deflection commands delta_f, which produce the pitching moment
         // M_servo that drives feathering; the feathering angle theta_f then
         // REPLACES the direct swashplate-to-pitch path. The ODE integrated is
-        //   I_theta*theta'' + C_theta*theta' + k_aero*theta = M_servo
-        // with the mechanical damper C_theta the only dissipation and k_aero
-        // the aerodynamic spring from the AC offset -- integrated
-        // semi-implicitly below.
+        //   I_theta*theta'' + C_theta*theta'
+        //       + (I_theta*Omega^2 + k_aero)*theta = M_servo
+        // with centrifugal and aerodynamic restoring stiffness, and the
+        // mechanical damper C_theta as the only dissipation.
         // Servo-flap mode is active whenever the rotor carries a
         // ServoFlapActuation; there is no stiffness gate.
         let servo_active = self.feather.is_some();
@@ -421,18 +442,18 @@ impl<P: Polar> VpmRotor<P> {
                     // (d_thrust, up) at arm r. Positive -> flaps blade up.
                     m_flap[b] += r * d_thrust;
                     // Servo-flap pitching moment about the feathering axis over
-                    // the flap span: dM = q_dyn * c * C_M_delta * delta_f * dr.
+                    // the flap span: dM = q_dyn * c^2 * C_M_delta * delta_f * dr.
                     // Also add the blade zero-lift AC moment over the whole span:
-                    // dM = q_dyn * c * blade_Cm_AC * dr (DC only, all stations).
+                    // dM = q_dyn * c^2 * blade_Cm_AC * dr.
                     // Together these give the physical DC balance: feathering
                     // trims at the collective where flap + blade moments cancel.
                     if servo_active {
                         let act = self.feather.as_ref().unwrap();
                         if r >= flap_r_in && r <= flap_r_out {
-                            m_servo[b] += q_dyn * c * flap_cm_delta * delta_f_b * self.dr[i];
+                            m_servo[b] += q_dyn * c * c * flap_cm_delta * delta_f_b * self.dr[i];
                         }
                         if act.blade_Cm_AC.abs() > 1e-12 {
-                            m_servo[b] += q_dyn * c * act.blade_Cm_AC * self.dr[i];
+                            m_servo[b] += q_dyn * c * c * act.blade_Cm_AC * self.dr[i];
                         }
                     }
 
@@ -619,8 +640,8 @@ impl<P: Polar> VpmRotor<P> {
     /// nose-down restoring torque. With ac_offset=0 (axis at AC) there is no
     /// spring and the damper alone sets the ~90 deg cyclic phase lag; DC trim
     /// then comes from the blade camber moment (folded into `m_servo`).
-    /// Integrated semi-implicitly (implicit damping) for unconditional
-    /// stability regardless of damper strength. Requires `self.feather`.
+    /// Integrated with backward Euler for damping and stiffness. Requires
+    /// `self.feather`; negative total stiffness remains physically divergent.
     fn integrate_feather(
         &self,
         theta_f: &mut [f64],
@@ -634,22 +655,37 @@ impl<P: Polar> VpmRotor<P> {
             .feather
             .as_ref()
             .expect("integrate_feather requires ServoFlapActuation");
-        let i_th = act.I_theta_kgm2.max(1e-12);
+        let i_th = act.I_theta_kgm2;
         let c_th = act.damper_Nms_per_rad;
-        // Aerodynamic feathering spring from the AC offset [N*m/rad]:
+        assert!(
+            i_th.is_finite() && i_th > 0.0,
+            "servo-flap pitch inertia must be finite and positive"
+        );
+        assert!(
+            c_th.is_finite() && c_th >= 0.0,
+            "servo-flap bearing damping must be finite and nonnegative"
+        );
+        // Centrifugal and aerodynamic feathering stiffness [N*m/rad]:
+        //   k_total = I_theta*omega^2 + k_aero
         //   k_aero = 0.5*rho*omega^2*cl_alpha*ac_offset*Int(c r^2 dr)
-        let k_aero = 0.5
-            * rho
-            * omega
-            * omega
-            * self.cl_alpha
-            * act.ac_offset_m
-            * self.feather_span_integral;
-        let damp_fac = 1.0 / (1.0 + dt * c_th / i_th);
+        let k_total = centrifugal_pitch_stiffness(i_th, omega)
+            + aerodynamic_pitch_stiffness(
+                rho,
+                omega,
+                self.cl_alpha,
+                act.ac_offset_m,
+                self.feather_span_integral,
+            );
         for b in 0..theta_f.len() {
-            let rhs = (m_servo[b] - k_aero * theta_f[b]) / i_th;
-            theta_f_dot[b] = (theta_f_dot[b] + dt * rhs) * damp_fac;
-            theta_f[b] += dt * theta_f_dot[b];
+            (theta_f[b], theta_f_dot[b]) = implicit_feather_step(
+                theta_f[b],
+                theta_f_dot[b],
+                m_servo[b],
+                i_th,
+                c_th,
+                k_total,
+                dt,
+            );
         }
     }
 
@@ -1303,4 +1339,38 @@ fn wake_centroid(f: &ParticleField) -> [f64; 3] {
         f.py.iter().map(|&v| v as f64).sum::<f64>() * inv,
         f.pz.iter().map(|&v| v as f64).sum::<f64>() * inv,
     ]
+}
+
+#[cfg(test)]
+mod feathering_tests {
+    use super::*;
+
+    #[test]
+    fn implicit_feather_step_satisfies_time_domain_equation() {
+        let inertia = 0.05;
+        let damping = 0.5;
+        let omega = 28.27;
+        let stiffness = centrifugal_pitch_stiffness(inertia, omega)
+            + aerodynamic_pitch_stiffness(1.225, omega, 5.75, -0.01, 0.4);
+        let dt = 0.001;
+        let theta = 0.08;
+        let theta_dot = -0.2;
+        let moment = 0.03;
+
+        let (next_theta, next_theta_dot) =
+            implicit_feather_step(theta, theta_dot, moment, inertia, damping, stiffness, dt);
+        let inertia_residual = inertia * (next_theta_dot - theta_dot);
+        let force_integral = dt * (moment - damping * next_theta_dot - stiffness * next_theta);
+        assert!((inertia_residual - force_integral).abs() < 1e-14);
+    }
+
+    #[test]
+    fn centrifugal_and_aerodynamic_pitch_stiffness_are_consistent() {
+        let inertia = 0.05;
+        let omega = 28.27;
+        let centrifugal = centrifugal_pitch_stiffness(inertia, omega);
+        let aero = aerodynamic_pitch_stiffness(1.225, omega, 5.75, 0.0, 0.4);
+        assert!((centrifugal - inertia * omega * omega).abs() < 1e-14);
+        assert_eq!(aero, 0.0);
+    }
 }

@@ -127,15 +127,19 @@ pub struct ControlProperties {
 /// bearing damper. Left as future work.)
 ///
 /// EOM (time domain, per blade):
-///   I_theta * theta'' + C_theta * theta' + k_aero * theta = M_servo + M_camber
+///   I_theta * theta'' + C_theta * theta'
+///       + (I_theta * Omega^2 + k_aero) * theta = M_servo + M_camber
 ///
-/// with the aerodynamic spring and camber trim moment both physical &
-/// measurable (see the field docs). All are ASCII-safe scalar constants.
+/// For a thin blade, I_theta * Omega^2 approximates centrifugal restoring
+/// stiffness. The aerodynamic spring and camber trim moment are also physical
+/// and measurable (see the field docs).
 ///
 /// Sign conventions (project frame: psi=0 at +X, CCW from above; nose-down =
 /// negative pitching moment, consistent with C_M_delta_per_rad):
 /// - `ac_offset_m > 0`: AC aft of the feathering axis -> stable (restoring)
-///   aerodynamic spring k_aero > 0. `ac_offset_m < 0` is divergent.
+///   aerodynamic spring k_aero > 0. `ac_offset_m < 0` is a destabilizing
+///   aerodynamic contribution; total stability depends on centrifugal and
+///   aerodynamic stiffness together.
 /// - `blade_Cm_AC < 0`: cambered-airfoil nose-down zero-lift moment (typical).
 /// - `C_M_delta_per_rad < 0`: positive (downward) flap deflection -> nose-down
 ///   blade pitching moment.
@@ -153,7 +157,8 @@ pub struct ServoFlapActuation {
     pub damper_Nms_per_rad: f64,
     /// Distance from the feathering axis to the aerodynamic centre (~25% chord)
     /// [m]. Positive when the AC is AFT of the feathering axis, which gives a
-    /// stable (restoring) aerodynamic spring; negative is divergent. 0.0 =
+    /// restoring aerodynamic spring; negative is destabilizing. Total static
+    /// stability depends on centrifugal plus aerodynamic stiffness. 0.0 =
     /// feathering axis exactly at the AC (Kaman ideal: no aero spring).
     /// Measurable: ruler on the blade section (pitch-axis to quarter-chord), or
     /// a calibrated-moment RPM sweep (the aero spring scales with Omega^2).

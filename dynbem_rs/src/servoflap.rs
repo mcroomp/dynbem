@@ -1,102 +1,80 @@
-// Quasi-static blade feathering model driven by a trailing-edge servo-flap.
+// Quasi-static 1/rev blade feathering response to a trailing-edge servo-flap.
 //
-// # Physics
+// The time-domain model used by the VPM is
 //
-// The blade is free to rotate about its feathering (pitch) axis, restrained
-// only by a rotary damper at the pitch bearing and -- if the aerodynamic
-// centre is offset from the feathering axis -- by an aerodynamic spring.
+//   I_theta * theta_ddot + C_theta * theta_dot
+//       + (I_theta * Omega^2 + k_aero) * theta = M_servo + M_camber.
 //
-// Kaman design intent: feathering axis at the AC, so no aerodynamic spring
-// and no aerodynamic damping from the main blade in pitch.  The only damping
-// is mechanical (the bearing damper).  The servo-flap exerts a pitching
-// moment that drives feathering angle delta_theta(psi).
+// For a thin blade, I_theta * Omega^2 is the centrifugal restoring stiffness
+// about its feathering axis. k_aero is the additional lift-arm stiffness when
+// the aerodynamic centre is offset from that axis. Substituting
+// theta = theta_0 + A*cos(psi) + B*sin(psi), psi_dot = Omega, gives the 1/rev
+// matrix below. The centrifugal term cancels the 1/rev inertial term, but it
+// remains in the DC trim equation.
 //
-// EOM in psi-domain (primes = d/d(psi)):
-//
-//   I_theta * delta_theta'' + C_theta * delta_theta' + k_aero * delta_theta
-//       = M_servo(psi)                                                   (1)
-//
-// where:
-//   k_aero = 0.5 * rho * cl_alpha * chord * ac_offset * R^3 / 3
-//             (aerodynamic spring from AC offset; zero if ac_offset = 0)
-//   M_servo = servo-flap pitching moment (1/rev harmonic forcing)
-//
-// Dividing by I_theta * Omega^2 and defining:
-//   p_sq  = 1 + k_aero / (I_theta * Omega^2)     (frequency ratio squared)
-//   d_mech = C_theta / (2 * I_theta * Omega)      (non-dim mechanical damping)
-//
-// Note: p_sq = 1 for a pure feathering axis at the AC (no spring).
-// Note: there is NO aerodynamic damping term in pitch (unlike flapping where
-//       the Lock-number d_aero = gamma/8 dominates).  The feathering DOF only
-//       couples to the aerodynamics through the spring term (if ac_offset != 0)
-//       and through the forced response itself.
-//
-// The non-dimensional 2x2 harmonic balance at 1/rev:
-//
-//   [-(p_sq-1), -2*d_mech] [delta_theta_1c]   [m_f1c]
-//   [-2*d_mech, -(p_sq-1)] [delta_theta_1s] = [m_f1s]
-//
-// where m_f = M_servo / (I_theta * Omega^2).
-//
-// det = (p_sq-1)^2 - 4*d_mech^2  (can be zero at resonance p_sq=1, d_mech=0)
-// For p_sq=1 (feathering at AC, typical Kaman):
-//   det = -4*d_mech^2
-//   delta_theta_1c = -m_f1s / (2 * d_mech)  ->  M_f1s / (C_theta * Omega)
-//   delta_theta_1s = -m_f1c / (2 * d_mech)  ->  -M_f1c / (C_theta * Omega)
-// Wait -- let me re-derive carefully to get the sign right.
-//
-// With delta_theta = A*cos(psi) + B*sin(psi):
-//   delta_theta'  = -A*sin(psi) + B*cos(psi)
-//   delta_theta'' = -A*cos(psi) - B*sin(psi)
-//
-// EOM / (I_theta * Omega^2):
-//   cos(psi): -(p_sq)*A + 2*d_mech*B = m_f1c / (I*O^2)   -- wait, let me redo
-//
-// I_theta*O^2*[ -A*cos - B*sin ] + C_theta*O*[ -A*sin + B*cos ] + k_aero*[A*cos + B*sin]
-//   = M_f1c*cos + M_f1s*sin
-//
-// cos: I*O^2*(-A) + C*O*(B) + k*A = M_f1c
-//      A*(k - I*O^2) + B*(C*O)    = M_f1c
-//      A*I*O^2*(p_sq - 1) + B*C*O = M_f1c        [since k = I*O^2*(p_sq-1)]
-//
-// sin: I*O^2*(-B) + C*O*(-A) + k*B = M_f1s
-//      -A*(C*O) + B*(k - I*O^2)    = M_f1s
-//      -A*C*O + B*I*O^2*(p_sq - 1) = M_f1s
-//
-// Dividing by I*O^2, letting zeta = C*O/(2*I*O^2) = C/(2*I*O) = d_mech:
-//   A*(p_sq-1) + 2*d_mech*B = M_f1c / (I*O^2)  =: rhs_c
-//   -2*d_mech*A + B*(p_sq-1) = M_f1s / (I*O^2)  =: rhs_s
-//
-// Matrix: M = [[(p_sq-1), 2*d_mech], [-2*d_mech, (p_sq-1)]]
-// det(M) = (p_sq-1)^2 + 4*d_mech^2
-//
-// Solution (Cramer):
-//   A = delta_theta_1c = [ (p_sq-1)*rhs_c - 2*d_mech*rhs_s ] / det
-//   B = delta_theta_1s = [ 2*d_mech*rhs_c + (p_sq-1)*rhs_s ] / det
-//
-// For p_sq=1 (det = 4*d_mech^2):
-//   A = -2*d_mech*rhs_s / (4*d_mech^2) = -rhs_s / (2*d_mech)
-//         = -M_f1s / (2*d_mech * I*O^2) = -M_f1s / (C*O)   [since 2*d_mech*I*O^2 = C*O]
-//   B =  2*d_mech*rhs_c / (4*d_mech^2) =  rhs_c / (2*d_mech)
-//         =  M_f1c / (C*O)
-//
-// Physical interpretation (p_sq=1):
-//   A positive M_f1c (cos forcing, e.g. from lateral tilt) drives B > 0 (sin response).
-//   This is the classical 90-deg phase lag: cos forcing -> sin response.
-//
-// These delta_theta values are added directly to loop_theta_1c/1s in the psi-loop.
-//
-// Practical convention note:
-//   This solver applies NO internal phase compensation. It returns the raw
-//   feathering response, including the intrinsic ~90 deg lag at 1/rev.
-//   Any control-axis phase correction belongs in upstream control mapping
-//   (controller or swashplate phase configuration), not inside this model.
-//
-// # References
-// Kaman Aerospace: servo-flap rotor design patents and technical reports.
-// Bramwell, "Helicopter Dynamics", Ch. 4 -- pitch-flap coupling, feathering EOM.
+// This BEM approximation keeps only the mean dynamic pressure and its linear
+// first-harmonic perturbation from tangential in-plane wind. The VPM instead
+// computes local dynamic pressure and advances the same physical feathering
+// DOF in time. Neither model includes torsional blade flexibility.
 
+use crate::aero_io::Vec3;
+use crate::bem_common::RadialGrid;
 use crate::rotor_definition::{ServoFlapActuation, ServoFlapGeometry};
+
+#[derive(Clone, Copy, Debug, Default)]
+struct FeatheringIntegrals {
+    lift_arm_r2: f64,
+    blade_moment_r2: f64,
+    blade_moment_r1: f64,
+    flap_moment_r2: f64,
+    flap_moment_r1: f64,
+}
+
+impl FeatheringIntegrals {
+    fn from_grid(grid: &RadialGrid, flap: &ServoFlapGeometry) -> Self {
+        let mut integrals = Self::default();
+        let half_dr = 0.5 * grid.dr;
+
+        for i in 0..grid.n_elements {
+            let r = grid.r_mid[i];
+            let chord = grid.chord[i];
+            let lo = r - half_dr;
+            let hi = r + half_dr;
+            let int_r2 = (hi.powi(3) - lo.powi(3)) / 3.0;
+            let int_r1 = (hi.powi(2) - lo.powi(2)) / 2.0;
+            integrals.lift_arm_r2 += chord * int_r2;
+            integrals.blade_moment_r2 += chord * chord * int_r2;
+            integrals.blade_moment_r1 += chord * chord * int_r1;
+
+            let flap_lo = lo.max(flap.r_inner_m);
+            let flap_hi = hi.min(flap.r_outer_m);
+            if flap_hi > flap_lo {
+                let flap_r2 = (flap_hi.powi(3) - flap_lo.powi(3)) / 3.0;
+                let flap_r1 = (flap_hi.powi(2) - flap_lo.powi(2)) / 2.0;
+                integrals.flap_moment_r2 += chord * chord * flap_r2;
+                integrals.flap_moment_r1 += chord * chord * flap_r1;
+            }
+        }
+
+        integrals
+    }
+}
+
+#[inline]
+pub(crate) fn centrifugal_pitch_stiffness(i_theta: f64, omega: f64) -> f64 {
+    i_theta * omega * omega
+}
+
+#[inline]
+pub(crate) fn aerodynamic_pitch_stiffness(
+    rho: f64,
+    omega: f64,
+    cl_alpha: f64,
+    ac_offset: f64,
+    lift_arm_r2: f64,
+) -> f64 {
+    0.5 * rho * omega * omega * cl_alpha * ac_offset * lift_arm_r2
+}
 
 /// Solved feathering pitch harmonics for one compute_forces call.
 ///
@@ -130,23 +108,9 @@ impl FeatheringState {
 /// Compute the aerodynamic pitching moment about the feathering axis from the
 /// servo-flap, decomposed into mean + 1/rev harmonics (M_f0, M_f1c, M_f1s).
 ///
-/// Integrates:  dM/dr = 0.5 * rho * v_local^2 * c * C_M_delta * delta_f(psi)
-/// over the flap span, keeping only the mean, cos(psi) and sin(psi) terms.
-///
-/// v_local(r, psi) = Omega*r - Omega*R*mu*sin(psi)   (hover: mu=0)
-///
-/// This sign follows the project convention (psi=0 at +X, CCW from above).
-/// The mu cross-term contributes through delta_f0 (the DC flap command, driven
-/// by collective in servo-flap mode) and feeds the sin(psi) harmonic.
-///
-/// After expanding v_local^2 and multiplying by delta_f harmonics:
-///   M_f0  = delta_f0  * m_dc_shape
-///   M_f1c = delta_f1c * m_dc_shape
-///   M_f1s = delta_f1s * m_dc_shape + delta_f0 * m_sin_shape
-///
-/// where:
-///   m_dc_shape  = 0.5 * rho * Omega^2 * C_M_delta * chord * (r_out^3-r_in^3)/3
-///   m_sin_shape = -0.5 * rho * Omega^2 * C_M_delta * chord * mu * R * (r_out^2-r_in^2)
+/// Integrates `dM/dr = q * chord^2 * C_M_delta * delta_f` over the flap span.
+/// The first-harmonic dynamic-pressure terms use the project hub-frame
+/// tangential wind components and are linearized about `Omega*r`.
 fn servo_flap_moments(
     sp: &ServoFlapGeometry,
     delta_f0: f64,
@@ -154,29 +118,22 @@ fn servo_flap_moments(
     delta_f1s: f64,
     rho: f64,
     omega: f64,
-    mu: f64,
-    r_tip: f64,
-    chord: f64,
+    v_inplane_hub: Vec3,
+    integrals: FeatheringIntegrals,
 ) -> (f64, f64, f64) {
-    let r_in = sp.r_inner_m;
-    let r_out = sp.r_outer_m.min(r_tip);
-    if r_out <= r_in || omega == 0.0 {
+    if omega == 0.0 || integrals.flap_moment_r2 == 0.0 {
         return (0.0, 0.0, 0.0);
     }
 
-    let r3 = (r_out.powi(3) - r_in.powi(3)) / 3.0;
-    let r2 = (r_out.powi(2) - r_in.powi(2)) / 2.0;
-    let q_base = 0.5 * rho * omega * omega * sp.C_M_delta_per_rad * chord;
+    let m_dc_shape = 0.5 * rho * omega * omega * sp.C_M_delta_per_rad * integrals.flap_moment_r2;
+    let m_c_shape =
+        rho * omega * sp.C_M_delta_per_rad * v_inplane_hub.0[1] * integrals.flap_moment_r1;
+    let m_s_shape =
+        rho * omega * sp.C_M_delta_per_rad * v_inplane_hub.0[0] * integrals.flap_moment_r1;
 
-    // DC velocity^2 integral (dominant term)
-    let m_dc_shape = q_base * r3;
-    // Cross term with forward-flight mu (psi=0 at +X): negative sign from
-    // v_local = Omega*r - Omega*R*mu*sin(psi).
-    let m_sin_shape = -q_base * 2.0 * mu * r_tip * r2;
-
-    let m_f0 = delta_f0 * m_dc_shape;
-    let m_f1c = delta_f1c * m_dc_shape;
-    let m_f1s = delta_f1s * m_dc_shape + delta_f0 * m_sin_shape;
+    let m_f0 = delta_f0 * m_dc_shape + 0.5 * (delta_f1c * m_c_shape + delta_f1s * m_s_shape);
+    let m_f1c = delta_f1c * m_dc_shape + delta_f0 * m_c_shape;
+    let m_f1s = delta_f1s * m_dc_shape + delta_f0 * m_s_shape;
 
     (m_f0, m_f1c, m_f1s)
 }
@@ -199,9 +156,8 @@ fn servo_flap_moments(
 ///                  flap harmonics without internal phase compensation.
 /// * `rho`     -- air density [kg/m^3]
 /// * `omega`   -- rotor angular velocity [rad/s]
-/// * `mu`      -- advance ratio
-/// * `r_tip`   -- blade tip radius [m]
-/// * `chord`   -- mean blade chord [m]
+/// * `v_inplane_hub` -- hub-frame in-plane relative-air velocity [m/s]
+/// * `grid`    -- blade radial stations and per-station chord
 /// * `cl_alpha` -- lift curve slope [1/rad] (for aerodynamic spring if ac_offset != 0)
 pub fn solve_feathering(
     act: &ServoFlapActuation,
@@ -210,9 +166,8 @@ pub fn solve_feathering(
     theta_1s: f64,
     rho: f64,
     omega: f64,
-    mu: f64,
-    r_tip: f64,
-    chord: f64,
+    v_inplane_hub: Vec3,
+    grid: &RadialGrid,
     cl_alpha: f64,
 ) -> FeatheringState {
     if omega < 1e-6 {
@@ -221,60 +176,71 @@ pub fn solve_feathering(
 
     let i_theta = act.I_theta_kgm2;
     let c_theta = act.damper_Nms_per_rad;
+    let integrals = FeatheringIntegrals::from_grid(grid, &act.flap);
+    assert!(
+        i_theta.is_finite() && i_theta > 0.0,
+        "servo-flap pitch inertia must be finite and positive"
+    );
+    assert!(
+        c_theta.is_finite() && c_theta >= 0.0,
+        "servo-flap bearing damping must be finite and nonnegative"
+    );
 
     // Non-dimensional mechanical damping: d_mech = C / (2 * I * Omega)
     let d_mech = c_theta / (2.0 * i_theta * omega);
 
-    // Aerodynamic spring from AC offset (zero for Kaman design with axis at AC).
-    // k_aero = 0.5 * rho * cl_alpha * chord * ac_offset * integral(r^2 dr, 0, R)
-    //        = 0.5 * rho * cl_alpha * chord * ac_offset * R^3/3
-    let k_aero = if act.ac_offset_m.abs() > 1e-9 {
-        0.5 * rho * cl_alpha * chord * act.ac_offset_m * r_tip.powi(3) / 3.0
-    } else {
-        0.0
-    };
-    // p_sq = 1 + k_aero / (I * Omega^2);  p_sq = 1 when ac_offset = 0
-    let p_sq = 1.0 + k_aero / (i_theta * omega * omega);
-
-    // Servo-flap moment harmonics (raw physical mapping, no pre-rotation).
-    let (mut m_f0, m_f1c, m_f1s) = servo_flap_moments(
-        &act.flap, theta_0, theta_1c, theta_1s, rho, omega, mu, r_tip, chord,
+    // Lift-arm spring about the feathering axis. The thin-blade centrifugal
+    // spring is I_theta*Omega^2, so DC stiffness remains at zero AC offset.
+    let omega2 = omega * omega;
+    let k_aero =
+        aerodynamic_pitch_stiffness(rho, omega, cl_alpha, act.ac_offset_m, integrals.lift_arm_r2);
+    let k_centrifugal = centrifugal_pitch_stiffness(i_theta, omega);
+    let k_total = k_centrifugal + k_aero;
+    assert!(
+        k_total.is_finite() && k_total != 0.0,
+        "servo-flap has no finite static feathering trim at this rotor speed"
     );
 
-    // Blade zero-lift pitching moment (DC only, whole blade, same normalisation
-    // as the flap term). Acts to balance the flap moment at the trim collective:
-    //   C_M_delta * delta_f_trim + blade_Cm_AC = 0
-    // With blade_Cm_AC set, the DC balance gives a finite trim theta_f without
-    // needing an artificial spring.
+    // Servo-flap moment harmonics (raw physical mapping, no pre-rotation).
+    let (mut m_f0, mut m_f1c, mut m_f1s) = servo_flap_moments(
+        &act.flap,
+        theta_0,
+        theta_1c,
+        theta_1s,
+        rho,
+        omega,
+        v_inplane_hub,
+        integrals,
+    );
+
+    // Blade zero-lift pitching moment over the full blade, using the same
+    // chord-squared moment-coefficient normalization as the flap moment.
     if act.blade_Cm_AC.abs() > 1e-12 {
-        let r3_full = r_tip.powi(3) / 3.0;
-        m_f0 += 0.5 * rho * omega * omega * act.blade_Cm_AC * chord * r3_full;
+        m_f0 += 0.5 * rho * omega2 * act.blade_Cm_AC * integrals.blade_moment_r2;
+        m_f1c += rho * omega * act.blade_Cm_AC * v_inplane_hub.0[1] * integrals.blade_moment_r1;
+        m_f1s += rho * omega * act.blade_Cm_AC * v_inplane_hub.0[0] * integrals.blade_moment_r1;
     }
 
-    // DC response. In true static balance, k_aero * theta_0 = M_f0.
-    // For AC-on-axis setups (k_aero ~= 0), static balance is singular; use a
-    // pass-through fallback so servo mode retains collective authority.
-    let delta_theta_0 = if k_aero.abs() > 1e-12 {
-        m_f0 / k_aero
-    } else {
-        theta_0
-    };
+    // Static trim balances the servo and camber moments against both
+    // centrifugal and aerodynamic pitch stiffness.
+    let delta_theta_0 = m_f0 / k_total;
 
     // Normalised RHS
-    let inv_i_omega2 = 1.0 / (i_theta * omega * omega);
+    let inv_i_omega2 = 1.0 / (i_theta * omega2);
     let rhs_c = m_f1c * inv_i_omega2;
     let rhs_s = m_f1s * inv_i_omega2;
 
-    // 2x2 system (see derivation in module comment):
-    //   [(p_sq-1),  2*d_mech] [A]   [rhs_c]
-    //   [-2*d_mech, (p_sq-1)] [B] = [rhs_s]
-    let diag = p_sq - 1.0;
+    // At 1/rev, the centrifugal stiffness I*Omega^2 cancels the inertial
+    // term -I*Omega^2. The remaining diagonal is k_aero/(I*Omega^2).
+    //   [diag,  2*d] [A] = [rhs_c]
+    //   [-2*d, diag] [B]   [rhs_s]
+    let diag = k_aero * inv_i_omega2;
     let det = diag * diag + 4.0 * d_mech * d_mech;
 
-    if det.abs() < 1e-30 {
-        // Undamped resonance (p_sq=1, d_mech=0) -- physically unbounded; clamp.
-        return FeatheringState::RIGID;
-    }
+    assert!(
+        det.is_finite() && det > 0.0,
+        "servo-flap has an undamped 1/rev feathering resonance"
+    );
 
     let inv_det = 1.0 / det;
     let delta_theta_1c = inv_det * (diag * rhs_c - 2.0 * d_mech * rhs_s);
@@ -293,7 +259,11 @@ pub fn solve_feathering(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::rotor_definition::{ServoFlapActuation, ServoFlapGeometry};
+    use crate::rotor_definition::{BladeGeometry, ServoFlapActuation, ServoFlapGeometry};
+
+    fn make_grid(chord: f64) -> RadialGrid {
+        RadialGrid::from_blade(&BladeGeometry::uniform(2, 2.5, 0.0, chord, 0.0, 10))
+    }
 
     fn make_actuation(c_theta: f64, ac_offset: f64) -> ServoFlapActuation {
         ServoFlapActuation {
@@ -313,7 +283,17 @@ mod tests {
     #[test]
     fn test_no_command_zero_feathering() {
         let fp = make_actuation(5.0, 0.0);
-        let s = solve_feathering(&fp, 0.0, 0.0, 0.0, 1.225, 33.2, 0.0, 2.5, 0.20, 5.79);
+        let s = solve_feathering(
+            &fp,
+            0.0,
+            0.0,
+            0.0,
+            1.225,
+            33.2,
+            Vec3::zero(),
+            &make_grid(0.20),
+            5.79,
+        );
         assert!(s.delta_theta_0.abs() < 1e-10);
         assert!(s.delta_theta_1c.abs() < 1e-10);
         assert!(s.delta_theta_1s.abs() < 1e-10);
@@ -323,16 +303,21 @@ mod tests {
     #[test]
     fn test_theta_1c_command_cross_couples_to_theta_1s_at_ac() {
         let fp = make_actuation(5.0, 0.0);
-        let s = solve_feathering(&fp, 0.0, 0.1, 0.0, 1.225, 33.2, 0.0, 2.5, 0.20, 5.79);
+        let grid = make_grid(0.20);
+        let s = solve_feathering(&fp, 0.0, 0.1, 0.0, 1.225, 33.2, Vec3::zero(), &grid, 5.79);
+        let integrals = FeatheringIntegrals::from_grid(&grid, &fp.flap);
+        let moment = 0.5
+            * 1.225
+            * 33.2_f64.powi(2)
+            * fp.flap.C_M_delta_per_rad
+            * integrals.flap_moment_r2
+            * 0.1;
+        assert!(s.delta_theta_1s.abs() > 1e-4);
+        assert!((s.delta_theta_1s - moment / (fp.damper_Nms_per_rad * 33.2)).abs() < 1e-12);
         assert!(
             s.delta_theta_1c.abs() < 1e-6,
             "delta_theta_1c should be ~0 for pure theta_1c command: {}",
             s.delta_theta_1c
-        );
-        assert!(
-            s.delta_theta_1s.abs() > 1e-4,
-            "delta_theta_1s should be nonzero from 90-deg lag: {}",
-            s.delta_theta_1s
         );
     }
 
@@ -340,7 +325,17 @@ mod tests {
     #[test]
     fn test_zero_omega_returns_rigid() {
         let fp = make_actuation(5.0, 0.0);
-        let s = solve_feathering(&fp, 0.0, 0.1, 0.1, 1.225, 0.0, 0.0, 2.5, 0.20, 5.79);
+        let s = solve_feathering(
+            &fp,
+            0.0,
+            0.1,
+            0.1,
+            1.225,
+            0.0,
+            Vec3::zero(),
+            &make_grid(0.20),
+            5.79,
+        );
         assert_eq!(s.delta_theta_1c, 0.0);
         assert_eq!(s.delta_theta_1s, 0.0);
     }
@@ -350,8 +345,29 @@ mod tests {
     fn test_authority_scales_with_damper() {
         let fp_lo = make_actuation(2.0, 0.0);
         let fp_hi = make_actuation(8.0, 0.0);
-        let s_lo = solve_feathering(&fp_lo, 0.0, 0.1, 0.0, 1.225, 33.2, 0.0, 2.5, 0.20, 5.79);
-        let s_hi = solve_feathering(&fp_hi, 0.0, 0.1, 0.0, 1.225, 33.2, 0.0, 2.5, 0.20, 5.79);
+        let grid = make_grid(0.20);
+        let s_lo = solve_feathering(
+            &fp_lo,
+            0.0,
+            0.1,
+            0.0,
+            1.225,
+            33.2,
+            Vec3::zero(),
+            &grid,
+            5.79,
+        );
+        let s_hi = solve_feathering(
+            &fp_hi,
+            0.0,
+            0.1,
+            0.0,
+            1.225,
+            33.2,
+            Vec3::zero(),
+            &grid,
+            5.79,
+        );
         // Lower damper -> larger response
         assert!(
             s_lo.delta_theta_1s.abs() > s_hi.delta_theta_1s.abs(),
@@ -366,17 +382,164 @@ mod tests {
     fn test_ac_offset_reduces_authority() {
         let fp_at_ac = make_actuation(5.0, 0.0);
         let fp_offset = make_actuation(5.0, 0.01); // 1 cm forward of AC
-        let s_at_ac = solve_feathering(&fp_at_ac, 0.0, 0.1, 0.0, 1.225, 33.2, 0.0, 2.5, 0.20, 5.79);
-        let s_offset =
-            solve_feathering(&fp_offset, 0.0, 0.1, 0.0, 1.225, 33.2, 0.0, 2.5, 0.20, 5.79);
+        let grid = make_grid(0.20);
+        let s_at_ac = solve_feathering(
+            &fp_at_ac,
+            0.0,
+            0.1,
+            0.0,
+            1.225,
+            33.2,
+            Vec3::zero(),
+            &grid,
+            5.79,
+        );
+        let s_offset = solve_feathering(
+            &fp_offset,
+            0.0,
+            0.1,
+            0.0,
+            1.225,
+            33.2,
+            Vec3::zero(),
+            &grid,
+            5.79,
+        );
         // AC offset moves p_sq away from 1, det changes
         assert!(s_at_ac.delta_theta_1s.abs() != s_offset.delta_theta_1s.abs());
     }
 
     #[test]
-    fn test_dc_collective_pass_through_at_zero_spring() {
+    fn test_nonzero_offset_dc_balance_is_independent_of_omega() {
+        let theta_0 = 0.001;
+        let cl_alpha = 5.75;
+        let grid = make_grid(0.10);
+
+        for ac_offset in [-0.01, 0.01] {
+            let fp = make_actuation(0.5, ac_offset);
+            let integrals = FeatheringIntegrals::from_grid(&grid, &fp.flap);
+            let expected =
+                0.5 * 1.225 * fp.flap.C_M_delta_per_rad * theta_0 * integrals.flap_moment_r2
+                    / (fp.I_theta_kgm2
+                        + 0.5 * 1.225 * cl_alpha * ac_offset * integrals.lift_arm_r2);
+
+            for omega in [14.135, 28.27, 56.54] {
+                let s = solve_feathering(
+                    &fp,
+                    theta_0,
+                    0.0,
+                    0.0,
+                    1.225,
+                    omega,
+                    Vec3::zero(),
+                    &grid,
+                    cl_alpha,
+                );
+                assert!(
+                    (s.delta_theta_0 - expected).abs() < 1e-12,
+                    "offset={ac_offset}, omega={omega}: theta_0={}, expected={expected}",
+                    s.delta_theta_0,
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_dc_collective_uses_centrifugal_stiffness_not_pass_through() {
+        let grid = make_grid(0.10);
         let fp = make_actuation(5.0, 0.0);
-        let s = solve_feathering(&fp, 0.07, 0.0, 0.0, 1.225, 33.2, 0.0, 2.5, 0.20, 5.79);
-        assert!((s.delta_theta_0 - 0.07).abs() < 1e-12);
+        let command = 0.07;
+        let integrals = FeatheringIntegrals::from_grid(&grid, &fp.flap);
+        let expected = 0.5 * 1.225 * fp.flap.C_M_delta_per_rad * command * integrals.flap_moment_r2
+            / fp.I_theta_kgm2;
+        let response = solve_feathering(
+            &fp,
+            command,
+            0.0,
+            0.0,
+            1.225,
+            33.2,
+            Vec3::zero(),
+            &grid,
+            5.79,
+        );
+        assert!((response.delta_theta_0 - expected).abs() < 1e-12);
+
+        let mut no_flap_moment = fp;
+        no_flap_moment.flap.C_M_delta_per_rad = 0.0;
+        let response = solve_feathering(
+            &no_flap_moment,
+            command,
+            0.0,
+            0.0,
+            1.225,
+            33.2,
+            Vec3::zero(),
+            &grid,
+            5.79,
+        );
+        assert_eq!(response.delta_theta_0, 0.0);
+    }
+
+    #[test]
+    fn test_flap_moment_has_chord_squared_scaling() {
+        let fp = make_actuation(5.0, 0.0);
+        let grid = make_grid(0.10);
+        let integrals = FeatheringIntegrals::from_grid(&grid, &fp.flap);
+        let expected_integral =
+            0.10_f64.powi(2) * (fp.flap.r_outer_m.powi(3) - fp.flap.r_inner_m.powi(3)) / 3.0;
+        assert!((integrals.flap_moment_r2 - expected_integral).abs() < 1e-12);
+        let command = 0.01;
+        let moment = servo_flap_moments(
+            &fp.flap,
+            command,
+            0.0,
+            0.0,
+            1.225,
+            33.2,
+            Vec3::zero(),
+            integrals,
+        )
+        .0;
+        let expected = 0.5
+            * 1.225
+            * 33.2_f64.powi(2)
+            * command
+            * fp.flap.C_M_delta_per_rad
+            * integrals.flap_moment_r2;
+        assert!((moment - expected).abs() < 1e-12);
+        assert!(moment < 0.0);
+    }
+
+    #[test]
+    fn test_forward_flight_harmonics_follow_hub_wind_direction() {
+        let fp = make_actuation(5.0, 0.0);
+        let grid = make_grid(0.10);
+        let x_wind = solve_feathering(
+            &fp,
+            0.001,
+            0.0,
+            0.0,
+            1.225,
+            33.2,
+            Vec3::new(5.0, 0.0, 0.0),
+            &grid,
+            5.79,
+        );
+        let y_wind = solve_feathering(
+            &fp,
+            0.001,
+            0.0,
+            0.0,
+            1.225,
+            33.2,
+            Vec3::new(0.0, 5.0, 0.0),
+            &grid,
+            5.79,
+        );
+        assert!(x_wind.delta_theta_1c.abs() > 0.0);
+        assert_eq!(x_wind.delta_theta_1s, 0.0);
+        assert!(y_wind.delta_theta_1s.abs() > 0.0);
+        assert_eq!(y_wind.delta_theta_1c, 0.0);
     }
 }
