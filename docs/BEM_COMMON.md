@@ -543,11 +543,16 @@ agent-facing sign rules are in
 
 ### Equation of Motion (psi-domain)
 
-$$I_\theta\,\delta\theta'' + C_\theta\,\delta\theta' + k_\text{aero}\,\delta\theta = M_\text{servo}(\psi)$$
+$$I_\theta\Omega^2\,\delta\theta'' + C_\theta\Omega\,\delta\theta' + k_\text{aero}\,\delta\theta = M_\text{servo}(\psi)$$
 
 where primes denote $d/d\psi$, and:
 
-$$k_\text{aero} = \tfrac{1}{2}\rho\,c_{L\alpha}\,c\,x_\text{AC}\,R^3/3 \quad \text{(zero if AC at feathering axis)}$$
+$$k_\text{aero} = \tfrac{1}{2}\rho\Omega^2\,c_{L\alpha}\,c\,x_\text{AC}\,R^3/3 \quad \text{(zero if AC at feathering axis)}$$
+
+The spring has units of N m/rad and scales with rotor speed squared, matching
+the VPM feathering spring. For a nonzero offset, both the DC flap moment and
+the spring scale with rotor speed squared, so their static balance is
+independent of rotor speed. Zero-offset behavior is unchanged.
 
 ### Servo-Flap Aerodynamic Moment
 

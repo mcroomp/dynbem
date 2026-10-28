@@ -13,11 +13,11 @@
 //
 // EOM in psi-domain (primes = d/d(psi)):
 //
-//   I_theta * delta_theta'' + C_theta * delta_theta' + k_aero * delta_theta
-//       = M_servo(psi)                                                   (1)
+//   I_theta * Omega^2 * delta_theta'' + C_theta * Omega * delta_theta'
+//       + k_aero * delta_theta = M_servo(psi)                            (1)
 //
 // where:
-//   k_aero = 0.5 * rho * cl_alpha * chord * ac_offset * R^3 / 3
+//   k_aero = 0.5 * rho * Omega^2 * cl_alpha * chord * ac_offset * R^3 / 3
 //             (aerodynamic spring from AC offset; zero if ac_offset = 0)
 //   M_servo = servo-flap pitching moment (1/rev harmonic forcing)
 //
@@ -226,10 +226,9 @@ pub fn solve_feathering(
     let d_mech = c_theta / (2.0 * i_theta * omega);
 
     // Aerodynamic spring from AC offset (zero for Kaman design with axis at AC).
-    // k_aero = 0.5 * rho * cl_alpha * chord * ac_offset * integral(r^2 dr, 0, R)
-    //        = 0.5 * rho * cl_alpha * chord * ac_offset * R^3/3
+    // k_aero = 0.5 * rho * omega^2 * cl_alpha * chord * ac_offset * R^3/3
     let k_aero = if act.ac_offset_m.abs() > 1e-9 {
-        0.5 * rho * cl_alpha * chord * act.ac_offset_m * r_tip.powi(3) / 3.0
+        0.5 * rho * omega * omega * cl_alpha * chord * act.ac_offset_m * r_tip.powi(3) / 3.0
     } else {
         0.0
     };
@@ -371,6 +370,33 @@ mod tests {
             solve_feathering(&fp_offset, 0.0, 0.1, 0.0, 1.225, 33.2, 0.0, 2.5, 0.20, 5.79);
         // AC offset moves p_sq away from 1, det changes
         assert!(s_at_ac.delta_theta_1s.abs() != s_offset.delta_theta_1s.abs());
+    }
+
+    #[test]
+    fn test_nonzero_offset_dc_balance_is_independent_of_omega() {
+        let theta_0 = 0.001;
+        let cl_alpha = 5.75;
+        let r_tip: f64 = 2.5;
+
+        for ac_offset in [-0.01, 0.01] {
+            let fp = make_actuation(0.5, ac_offset);
+            // Flap forcing and the offset spring both scale with rho*Omega^2*chord.
+            let expected = theta_0
+                * fp.flap.C_M_delta_per_rad
+                * (fp.flap.r_outer_m.powi(3) - fp.flap.r_inner_m.powi(3))
+                / (cl_alpha * ac_offset * r_tip.powi(3));
+
+            for omega in [14.135, 28.27, 56.54] {
+                let s = solve_feathering(
+                    &fp, theta_0, 0.0, 0.0, 1.225, omega, 0.0, r_tip, 0.10, cl_alpha,
+                );
+                assert!(
+                    (s.delta_theta_0 - expected).abs() < 1e-12,
+                    "offset={ac_offset}, omega={omega}: theta_0={}, expected={expected}",
+                    s.delta_theta_0,
+                );
+            }
+        }
     }
 
     #[test]
