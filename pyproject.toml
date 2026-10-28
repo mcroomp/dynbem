@@ -35,6 +35,11 @@ members = ["dynbem"]
 [tool.uv.sources]
 dynbem = { workspace = true }
 
+[[tool.uv.index]]
+name = "microsoft-python"
+url = "https://packagefeedproxy.microsoft.io/pypi/simple/"
+default = true
+
 [tool.pytest.ini_options]
 timeout = 10
 testpaths = ["tests"]
