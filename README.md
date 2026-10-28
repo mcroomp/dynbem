@@ -66,6 +66,13 @@ toolchain with `rustup update stable`. The development workspace still
 requires Python 3.11+, while the published package and its `abi3-py310` wheels
 retain Python 3.10+ support.
 
+All repository packages share one release version. Cargo workspace members
+inherit `workspace.package.version` from [`Cargo.toml`](Cargo.toml), and
+maturin derives the Python `dynbem` version from its Cargo package. The
+development project's [`pyproject.toml`](pyproject.toml) and the standalone
+visualizer's [`Cargo.toml`](vpm_viz/Cargo.toml) require matching explicit
+versions because they do not share that metadata inheritance mechanism.
+
 **Manual setup** (equivalent to what the scripts run):
 
 The repo is a uv workspace + Cargo workspace. The Rust extension is built
