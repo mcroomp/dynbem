@@ -1,6 +1,6 @@
 // Shared low-level numerics. Pure Rust, no PyO3 here.
 
-use aligned::{Aligned, A64};
+use aligned::{A64, Aligned};
 
 /// Maximum radial elements supported by model/state vectors.
 pub const MAX_BEM_ELEMENTS: usize = 256;

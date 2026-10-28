@@ -6,14 +6,18 @@ use crate::conv::{mat3_to_py, read_mat3, read_vec3, vec3_to_py};
 use dynbem_rs as core_;
 use dynbem_rs::polar::Polar as _;
 use numpy::{IntoPyArray, PyArray1, PyReadonlyArray1, PyReadonlyArray2};
+use pyo3::PyTypeInfo;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::PyTypeInfo;
 
 fn parse_integration_method(
     method: Option<&str>,
 ) -> PyResult<core_::aero_model::IntegrationMethod> {
-    match method.unwrap_or("semi_implicit").to_ascii_lowercase().as_str() {
+    match method
+        .unwrap_or("semi_implicit")
+        .to_ascii_lowercase()
+        .as_str()
+    {
         "semi_implicit" | "semi-implicit" | "semiimplicit" | "implicit" => {
             Ok(core_::aero_model::IntegrationMethod::SemiImplicitEuler)
         }
@@ -33,7 +37,7 @@ fn parse_integration_method(
 // Polars
 // ===========================================================================
 
-#[pyclass(name = "LinearPolar", module = "dynbem._dynbem")]
+#[pyclass(name = "LinearPolar", module = "dynbem._dynbem", from_py_object)]
 #[derive(Clone, Debug)]
 pub struct PyLinearPolar(pub core_::polar::LinearPolar);
 
@@ -85,7 +89,7 @@ impl PyLinearPolar {
         let mut cl = vec![0.0f64; n];
         let mut cd = vec![0.0f64; n];
         self.0.cl_cd_into(a, &mut cl, &mut cd);
-        Ok((cl.into_pyarray_bound(py), cd.into_pyarray_bound(py)))
+        Ok((cl.into_pyarray(py), cd.into_pyarray(py)))
     }
 
     fn __repr__(&self) -> String {
@@ -121,7 +125,7 @@ impl PyLinearPolar {
     }
 }
 
-#[pyclass(name = "TabulatedPolar", module = "dynbem._dynbem")]
+#[pyclass(name = "TabulatedPolar", module = "dynbem._dynbem", from_py_object)]
 #[derive(Clone, Debug)]
 pub struct PyTabulatedPolar(pub core_::polar::TabulatedPolar);
 
@@ -155,7 +159,7 @@ impl PyTabulatedPolar {
         let mut cl = vec![0.0f64; n];
         let mut cd = vec![0.0f64; n];
         self.0.cl_cd_into(a, &mut cl, &mut cd);
-        Ok((cl.into_pyarray_bound(py), cd.into_pyarray_bound(py)))
+        Ok((cl.into_pyarray(py), cd.into_pyarray(py)))
     }
 
     fn __repr__(&self) -> String {
@@ -184,7 +188,12 @@ pub fn extract_polar(obj: &Bound<'_, PyAny>) -> PyResult<ResolvedPolar> {
 // Rotor definition pieces
 // ===========================================================================
 
-#[pyclass(name = "BladeGeometry", module = "dynbem._dynbem", subclass)]
+#[pyclass(
+    name = "BladeGeometry",
+    module = "dynbem._dynbem",
+    subclass,
+    from_py_object
+)]
 #[derive(Clone, Debug)]
 pub struct PyBladeGeometry(pub core_::rotor_definition::BladeGeometry);
 
@@ -280,8 +289,8 @@ impl PyBladeGeometry {
         self.0.twist_at(r)
     }
 
-    fn __reduce__(&self, py: Python<'_>) -> PyResult<(PyObject, PyObject)> {
-        let cls: PyObject = Self::type_object_bound(py).into_any().unbind();
+    fn __reduce__(&self, py: Python<'_>) -> PyResult<(Py<PyAny>, Py<PyAny>)> {
+        let cls = Self::type_object(py).into_any().unbind();
         let args = (
             self.0.n_blades,
             self.0.radius_m,
@@ -294,12 +303,18 @@ impl PyBladeGeometry {
             self.0.twist_stations_deg.clone(),
             self.0.tip_loss,
         )
-            .into_py(py);
+            .into_pyobject(py)?
+            .into_any()
+            .unbind();
         Ok((cls, args))
     }
 }
 
-#[pyclass(name = "LinearPolarParameters", module = "dynbem._dynbem")]
+#[pyclass(
+    name = "LinearPolarParameters",
+    module = "dynbem._dynbem",
+    from_py_object
+)]
 #[derive(Clone, Debug)]
 pub struct PyLinearPolarParameters(pub core_::rotor_definition::LinearPolarParameters);
 
@@ -338,7 +353,7 @@ impl PyLinearPolarParameters {
     }
 }
 
-#[pyclass(name = "ControlProperties", module = "dynbem._dynbem")]
+#[pyclass(name = "ControlProperties", module = "dynbem._dynbem", from_py_object)]
 #[derive(Clone, Debug)]
 pub struct PyControlProperties(pub core_::rotor_definition::ControlProperties);
 
@@ -363,7 +378,7 @@ impl PyControlProperties {
     }
 }
 
-#[pyclass(name = "ServoFlapGeometry", module = "dynbem._dynbem")]
+#[pyclass(name = "ServoFlapGeometry", module = "dynbem._dynbem", from_py_object)]
 #[derive(Clone, Debug)]
 pub struct PyServoFlapGeometry(pub core_::rotor_definition::ServoFlapGeometry);
 
@@ -395,7 +410,7 @@ impl PyServoFlapGeometry {
     }
 }
 
-#[pyclass(name = "ServoFlapActuation", module = "dynbem._dynbem")]
+#[pyclass(name = "ServoFlapActuation", module = "dynbem._dynbem", from_py_object)]
 #[derive(Clone, Debug)]
 pub struct PyServoFlapActuation(pub core_::rotor_definition::ServoFlapActuation);
 
@@ -445,7 +460,7 @@ impl PyServoFlapActuation {
     }
 }
 
-#[pyclass(name = "FlapProperties", module = "dynbem._dynbem")]
+#[pyclass(name = "FlapProperties", module = "dynbem._dynbem", from_py_object)]
 #[derive(Clone, Debug)]
 pub struct PyFlapProperties(pub core_::rotor_definition::FlapProperties);
 
@@ -472,7 +487,7 @@ impl PyFlapProperties {
     }
 }
 
-#[pyclass(name = "RotorDefinition", module = "dynbem._dynbem")]
+#[pyclass(name = "RotorDefinition", module = "dynbem._dynbem", from_py_object)]
 #[derive(Clone, Debug)]
 pub struct PyRotorDefinition(pub core_::rotor_definition::RotorDefinition);
 
@@ -545,7 +560,11 @@ impl PyRotorDefinition {
 // Rotor states
 // ===========================================================================
 
-#[pyclass(name = "QuasiStaticRotorState", module = "dynbem._dynbem")]
+#[pyclass(
+    name = "QuasiStaticRotorState",
+    module = "dynbem._dynbem",
+    from_py_object
+)]
 #[derive(Clone, Debug, Default)]
 pub struct PyQuasiStaticRotorState(pub core_::quasi_static_bem::QuasiStaticRotorState);
 
@@ -557,7 +576,7 @@ impl PyQuasiStaticRotorState {
     }
 
     fn to_array<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
-        Vec::<f64>::new().into_pyarray_bound(py)
+        Vec::<f64>::new().into_pyarray(py)
     }
 
     fn from_array(&self, arr: PyReadonlyArray1<'_, f64>) -> PyResult<Self> {
@@ -574,7 +593,11 @@ impl PyQuasiStaticRotorState {
     }
 }
 
-#[pyclass(name = "PittPetersRotorState", module = "dynbem._dynbem")]
+#[pyclass(
+    name = "PittPetersRotorState",
+    module = "dynbem._dynbem",
+    from_py_object
+)]
 #[derive(Clone, Debug, Default)]
 pub struct PyPittPetersRotorState(pub core_::pitt_peters::PittPetersRotorState);
 
@@ -616,7 +639,7 @@ impl PyPittPetersRotorState {
     }
 
     fn to_array<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
-        vec![self.0.lambda_0, self.0.lambda_c, self.0.lambda_s].into_pyarray_bound(py)
+        vec![self.0.lambda_0, self.0.lambda_c, self.0.lambda_s].into_pyarray(py)
     }
 
     fn from_array(&self, arr: PyReadonlyArray1<'_, f64>) -> PyResult<Self> {
@@ -637,7 +660,7 @@ impl PyPittPetersRotorState {
     }
 }
 
-#[pyclass(name = "OyeRotorState", module = "dynbem._dynbem")]
+#[pyclass(name = "OyeRotorState", module = "dynbem._dynbem", from_py_object)]
 #[derive(Clone, Debug)]
 pub struct PyOyeRotorState(pub core_::oye::OyeRotorState);
 
@@ -670,12 +693,12 @@ impl PyOyeRotorState {
     #[getter]
     #[allow(non_snake_case)]
     fn W_int<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
-        self.0.w_int_slice().to_vec().into_pyarray_bound(py)
+        self.0.w_int_slice().to_vec().into_pyarray(py)
     }
     #[getter]
     #[allow(non_snake_case)]
     fn W<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
-        self.0.w_slice().to_vec().into_pyarray_bound(py)
+        self.0.w_slice().to_vec().into_pyarray(py)
     }
 
     fn to_array<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
@@ -683,7 +706,7 @@ impl PyOyeRotorState {
         let mut v = Vec::with_capacity(2 * n);
         v.extend_from_slice(self.0.w_int_slice());
         v.extend_from_slice(self.0.w_slice());
-        v.into_pyarray_bound(py)
+        v.into_pyarray(py)
     }
 
     fn from_array(&self, arr: PyReadonlyArray1<'_, f64>) -> PyResult<Self> {
@@ -707,7 +730,7 @@ impl PyOyeRotorState {
 // RotorInputs / AeroResult
 // ===========================================================================
 
-#[pyclass(name = "RotorInputs", module = "dynbem._dynbem")]
+#[pyclass(name = "RotorInputs", module = "dynbem._dynbem", from_py_object)]
 #[derive(Clone, Debug)]
 pub struct PyRotorInputs {
     pub inner: core_::aero_io::RotorInputs,
@@ -802,7 +825,7 @@ impl PyRotorInputs {
     }
 }
 
-#[pyclass(name = "AeroResult", module = "dynbem._dynbem")]
+#[pyclass(name = "AeroResult", module = "dynbem._dynbem", from_py_object)]
 #[derive(Clone, Debug)]
 pub struct PyAeroResult(pub core_::aero_io::AeroResult);
 
@@ -846,7 +869,12 @@ use dynbem_rs::aero_model::AeroModel as _;
 // QuasiStaticBEM
 // ---------------------------------------------------------------------------
 
-#[pyclass(name = "_QuasiStaticBEMLinear", module = "dynbem._dynbem", subclass)]
+#[pyclass(
+    name = "_QuasiStaticBEMLinear",
+    module = "dynbem._dynbem",
+    subclass,
+    from_py_object
+)]
 #[derive(Clone)]
 pub struct PyQuasiStaticBEMLinear(
     pub Box<core_::quasi_static_bem::QuasiStaticBEM<core_::polar::LinearPolar>>,
@@ -892,9 +920,7 @@ impl PyQuasiStaticBEMLinear {
         inputs: &PyRotorInputs,
         state: &PyQuasiStaticRotorState,
     ) -> Bound<'py, PyArray1<f64>> {
-        self.0
-            .inflow_taus(&inputs.inner, &state.0)
-            .into_pyarray_bound(py)
+        self.0.inflow_taus(&inputs.inner, &state.0).into_pyarray(py)
     }
     #[getter]
     fn defn(&self) -> PyRotorDefinition {
@@ -906,7 +932,12 @@ impl PyQuasiStaticBEMLinear {
     }
 }
 
-#[pyclass(name = "_QuasiStaticBEMTabulated", module = "dynbem._dynbem", subclass)]
+#[pyclass(
+    name = "_QuasiStaticBEMTabulated",
+    module = "dynbem._dynbem",
+    subclass,
+    from_py_object
+)]
 #[derive(Clone)]
 pub struct PyQuasiStaticBEMTabulated(
     pub Box<core_::quasi_static_bem::QuasiStaticBEM<core_::polar::TabulatedPolar>>,
@@ -952,9 +983,7 @@ impl PyQuasiStaticBEMTabulated {
         inputs: &PyRotorInputs,
         state: &PyQuasiStaticRotorState,
     ) -> Bound<'py, PyArray1<f64>> {
-        self.0
-            .inflow_taus(&inputs.inner, &state.0)
-            .into_pyarray_bound(py)
+        self.0.inflow_taus(&inputs.inner, &state.0).into_pyarray(py)
     }
     #[getter]
     fn defn(&self) -> PyRotorDefinition {
@@ -970,7 +999,12 @@ impl PyQuasiStaticBEMTabulated {
 // PittPetersModel
 // ---------------------------------------------------------------------------
 
-#[pyclass(name = "_PittPetersModelLinear", module = "dynbem._dynbem", subclass)]
+#[pyclass(
+    name = "_PittPetersModelLinear",
+    module = "dynbem._dynbem",
+    subclass,
+    from_py_object
+)]
 #[derive(Clone)]
 pub struct PyPittPetersModelLinear(
     pub Box<core_::pitt_peters::PittPetersModel<core_::polar::LinearPolar>>,
@@ -1016,9 +1050,7 @@ impl PyPittPetersModelLinear {
         inputs: &PyRotorInputs,
         state: &PyPittPetersRotorState,
     ) -> Bound<'py, PyArray1<f64>> {
-        self.0
-            .inflow_taus(&inputs.inner, &state.0)
-            .into_pyarray_bound(py)
+        self.0.inflow_taus(&inputs.inner, &state.0).into_pyarray(py)
     }
     #[getter]
     fn defn(&self) -> PyRotorDefinition {
@@ -1033,7 +1065,8 @@ impl PyPittPetersModelLinear {
 #[pyclass(
     name = "_PittPetersModelTabulated",
     module = "dynbem._dynbem",
-    subclass
+    subclass,
+    from_py_object
 )]
 #[derive(Clone)]
 pub struct PyPittPetersModelTabulated(
@@ -1080,9 +1113,7 @@ impl PyPittPetersModelTabulated {
         inputs: &PyRotorInputs,
         state: &PyPittPetersRotorState,
     ) -> Bound<'py, PyArray1<f64>> {
-        self.0
-            .inflow_taus(&inputs.inner, &state.0)
-            .into_pyarray_bound(py)
+        self.0.inflow_taus(&inputs.inner, &state.0).into_pyarray(py)
     }
     #[getter]
     fn defn(&self) -> PyRotorDefinition {
@@ -1098,7 +1129,12 @@ impl PyPittPetersModelTabulated {
 // OyeBEMModel
 // ---------------------------------------------------------------------------
 
-#[pyclass(name = "_OyeBEMModelLinear", module = "dynbem._dynbem", subclass)]
+#[pyclass(
+    name = "_OyeBEMModelLinear",
+    module = "dynbem._dynbem",
+    subclass,
+    from_py_object
+)]
 #[derive(Clone)]
 pub struct PyOyeBEMModelLinear(pub Box<core_::oye::OyeBEMModel<core_::polar::LinearPolar>>);
 
@@ -1148,9 +1184,7 @@ impl PyOyeBEMModelLinear {
         inputs: &PyRotorInputs,
         state: &PyOyeRotorState,
     ) -> Bound<'py, PyArray1<f64>> {
-        self.0
-            .inflow_taus(&inputs.inner, &state.0)
-            .into_pyarray_bound(py)
+        self.0.inflow_taus(&inputs.inner, &state.0).into_pyarray(py)
     }
     #[getter]
     fn defn(&self) -> PyRotorDefinition {
@@ -1166,7 +1200,12 @@ impl PyOyeBEMModelLinear {
     }
 }
 
-#[pyclass(name = "_OyeBEMModelTabulated", module = "dynbem._dynbem", subclass)]
+#[pyclass(
+    name = "_OyeBEMModelTabulated",
+    module = "dynbem._dynbem",
+    subclass,
+    from_py_object
+)]
 #[derive(Clone)]
 pub struct PyOyeBEMModelTabulated(pub Box<core_::oye::OyeBEMModel<core_::polar::TabulatedPolar>>);
 
@@ -1216,9 +1255,7 @@ impl PyOyeBEMModelTabulated {
         inputs: &PyRotorInputs,
         state: &PyOyeRotorState,
     ) -> Bound<'py, PyArray1<f64>> {
-        self.0
-            .inflow_taus(&inputs.inner, &state.0)
-            .into_pyarray_bound(py)
+        self.0.inflow_taus(&inputs.inner, &state.0).into_pyarray(py)
     }
     #[getter]
     fn defn(&self) -> PyRotorDefinition {
@@ -1249,7 +1286,7 @@ impl PyOyeBEMModelTabulated {
 // VpmRotor() factory dispatches on the polar instance.
 // ---------------------------------------------------------------------------
 
-#[pyclass(name = "VpmRotorState", module = "dynbem._dynbem")]
+#[pyclass(name = "VpmRotorState", module = "dynbem._dynbem", from_py_object)]
 #[derive(Clone, Debug)]
 pub struct PyVpmRotorState(pub core_::vpm::VpmRotorState);
 
@@ -1277,7 +1314,7 @@ impl PyVpmRotorState {
     /// Inflow serialization. VPM carries no scalar inflow DOFs (the free wake
     /// lives on this object), so the inflow vector is always empty.
     fn to_array<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
-        Vec::<f64>::new().into_pyarray_bound(py)
+        Vec::<f64>::new().into_pyarray(py)
     }
 
     /// Round-trip the inflow vector (which must be empty for VPM). The wake is
@@ -1344,7 +1381,12 @@ fn build_vpm_config(
     }
 }
 
-#[pyclass(name = "_VpmRotorLinear", module = "dynbem._dynbem", subclass)]
+#[pyclass(
+    name = "_VpmRotorLinear",
+    module = "dynbem._dynbem",
+    subclass,
+    from_py_object
+)]
 #[derive(Clone)]
 pub struct PyVpmRotorLinear(pub Box<core_::vpm::VpmRotor<core_::polar::LinearPolar>>);
 
@@ -1437,7 +1479,12 @@ impl PyVpmRotorLinear {
     }
 }
 
-#[pyclass(name = "_VpmRotorTabulated", module = "dynbem._dynbem", subclass)]
+#[pyclass(
+    name = "_VpmRotorTabulated",
+    module = "dynbem._dynbem",
+    subclass,
+    from_py_object
+)]
 #[derive(Clone)]
 pub struct PyVpmRotorTabulated(pub Box<core_::vpm::VpmRotor<core_::polar::TabulatedPolar>>);
 

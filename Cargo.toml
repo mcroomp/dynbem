@@ -1,21 +1,21 @@
 [workspace]
-resolver = "2"
+resolver = "3"
 members = ["dynbem", "dynbem_rs", "validation_rs"]
 
 # Fields below are inherited by member crates via `field.workspace = true`.
 [workspace.package]
-version = "0.8.0"
-edition = "2021"
+version = "0.9.0"
+edition = "2024"
 license = "MIT"
 authors = ["Kristof"]
 repository = "https://github.com/mcroomp/dynbem"
-rust-version = "1.74"
+rust-version = "1.99"
 
 [workspace.dependencies]
 # Pinned versions used by the python-binding crate; kept here so any
 # future workspace members touching pyo3 stay on the same revision.
-pyo3 = { version = "0.22", features = ["extension-module", "abi3-py310"] }
-numpy = "0.22"
+pyo3 = { version = "0.30.1", features = ["extension-module", "abi3-py310"] }
+numpy = "0.30"
 
 [profile.release]
 lto = "thin"

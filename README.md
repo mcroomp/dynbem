@@ -60,6 +60,19 @@ Both scripts check prerequisites (uv, cargo), then run `uv sync --group dev`,
 which creates the `.venv`, installs dependencies, and builds the Rust
 extension via maturin. See [setup.sh](setup.sh) for details.
 
+Source builds require Rust 1.99 or newer and use the Rust 2024 edition.
+The dependency upgrade was tested with stable Rust 1.99.1. Update an existing
+toolchain with `rustup update stable`. The development workspace still
+requires Python 3.11+, while the published package and its `abi3-py310` wheels
+retain Python 3.10+ support.
+
+All repository packages share one release version. Cargo workspace members
+inherit `workspace.package.version` from [`Cargo.toml`](Cargo.toml), and
+maturin derives the Python `dynbem` version from its Cargo package. The
+development project's [`pyproject.toml`](pyproject.toml) and the standalone
+visualizer's [`Cargo.toml`](vpm_viz/Cargo.toml) require matching explicit
+versions because they do not share that metadata inheritance mechanism.
+
 **Manual setup** (equivalent to what the scripts run):
 
 The repo is a uv workspace + Cargo workspace. The Rust extension is built
@@ -75,6 +88,12 @@ Python dependencies are resolved through the default uv index configured in
 [`pyproject.toml`](pyproject.toml):
 `https://packagefeedproxy.microsoft.io/pypi/simple/`, matching the sibling
 `windpower` project. Setup scripts and `uv run` use this feed automatically.
+
+Lockfiles are intentionally untracked in this repository. To refresh locally
+resolved dependencies, run `cargo update`, `cargo update --manifest-path
+vpm_viz/Cargo.toml`, and `uv sync --upgrade --group dev`. The standalone
+visualizer has its own Cargo workspace and must be checked separately with
+`cargo check --manifest-path vpm_viz/Cargo.toml`.
 
 The publishable Python package is [`dynbem/`](dynbem/) (Rust-backed via
 PyO3). Inside a non-uv environment you can still `pip install -e dynbem/`

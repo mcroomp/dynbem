@@ -1,24 +1,24 @@
 [project]
 name = "aero-workspace"
-version = "0.4.0"
+version = "0.9.0"
 description = "Repo-wide development environment for dynbem + dynbem_rs. Not published to PyPI; the publishable package is `dynbem/` (Rust-backed)."
 requires-python = ">=3.11"
 dependencies = [
     # PyYAML is used by dynbem.rotor_definition (Python-side YAML loading)
     # and by the verification/ scripts that drive Docker tools.
     "dynbem",
-    "PyYAML>=6",
+    "PyYAML>=6.0.3",
     # Plot output from envelope.compute_map and the verification scripts.
-    "matplotlib",
+    "matplotlib>=3.11.2",
 ]
 
 [dependency-groups]
 dev = [
-    "pytest>=7",
-    "pytest-timeout>=2",
-    "maturin>=1.7,<2.0",
-    "build",
-    "twine",
+    "pytest>=9.1.1",
+    "pytest-timeout>=2.5",
+    "maturin>=1.15,<2.0",
+    "build>=1.6.1",
+    "twine>=7",
 ]
 
 # ---------------------------------------------------------------------------

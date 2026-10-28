@@ -1,16 +1,17 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, criterion_group, criterion_main};
 use dynbem_rs::aero_io::{Mat3, RotorInputs, Vec3};
 use dynbem_rs::aero_model::AeroModel;
-use dynbem_rs::bem_common::{element_force, ElementCtx, RadialGrid, SweepCtx};
-use dynbem_rs::oye::{OyeBEMModel, OyeRotorState, OYE_K};
+use dynbem_rs::bem_common::{ElementCtx, RadialGrid, SweepCtx, element_force};
+use dynbem_rs::oye::{OYE_K, OyeBEMModel, OyeRotorState};
 use dynbem_rs::pitt_peters::{PittPetersModel, PittPetersRotorState};
 use dynbem_rs::polar::{LinearPolar, TabulatedPolar};
 use dynbem_rs::quasi_static_bem::{
-    solve_bem_element, BEMElementGeometry, QuasiStaticBEM, QuasiStaticRotorState,
+    BEMElementGeometry, QuasiStaticBEM, QuasiStaticRotorState, solve_bem_element,
 };
 use dynbem_rs::rotor_definition::{
     BladeGeometry, LinearPolarParameters, PitchActuation, RotorDefinition,
 };
+use std::hint::black_box;
 
 fn make_rotor_definition(n_elements: usize) -> RotorDefinition {
     RotorDefinition {

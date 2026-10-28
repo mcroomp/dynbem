@@ -38,6 +38,12 @@ jobs:
         # dev boxes and shouldn't fail on timing alone.
         run: uv run pytest tests/ -q --timeout=0
 
+      - name: Test published package on Python 3.10
+        run: >-
+          uv run --isolated --no-project --python 3.10
+          --with ./dynbem --with pytest --with pytest-timeout --with matplotlib
+          pytest tests/ -q --timeout=0
+
       - name: Sanity-build release wheel
         run: uv run maturin build --release --manifest-path dynbem/Cargo.toml
 
@@ -57,3 +63,9 @@ jobs:
 
       - name: cargo check (full workspace)
         run: cargo check --workspace
+
+      - name: Rust release tests
+        run: cargo test --release --workspace
+
+      - name: cargo check (standalone visualizer)
+        run: cargo check --manifest-path vpm_viz/Cargo.toml

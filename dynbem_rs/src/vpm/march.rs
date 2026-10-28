@@ -7,11 +7,11 @@
 
 use super::aging::{core_spread, strength_decay};
 use super::common::{
-    advect_rk2, advect_rk2_bh, advect_rk2_bh_seq, advect_rk2_nan_check, advect_rk2_seq,
-    induced_at_points, induced_at_points_bh, induced_at_points_bh_seq, induced_at_points_nan_check,
-    induced_at_points_seq, ParticleField,
+    ParticleField, advect_rk2, advect_rk2_bh, advect_rk2_bh_seq, advect_rk2_nan_check,
+    advect_rk2_seq, induced_at_points, induced_at_points_bh, induced_at_points_bh_seq,
+    induced_at_points_nan_check, induced_at_points_seq,
 };
-use super::merge::{merge_particles, MergeOpts};
+use super::merge::{MergeOpts, merge_particles};
 use super::reformulated::advect_rvpm;
 use super::{FlightCondition, VpmRotor, VpmRotorResult, VpmRotorState, WakeEngine};
 use crate::cyclic::cyclic_coeffs;
@@ -413,8 +413,8 @@ impl<P: Polar> VpmRotor<P> {
                     let dl = q_dyn * c * cl * self.dr[i];
                     let dd = q_dyn * c * cd * self.dr[i];
                     let d_thrust = dl * phi.cos() - dd * phi.sin(); // up (-Z)
-                                                                    // In-plane tangential aero force (the same force whose
-                                                                    // moment gives the torque, opposing blade motion).
+                    // In-plane tangential aero force (the same force whose
+                    // moment gives the torque, opposing blade motion).
                     let d_ft = dl * phi.sin() + dd * phi.cos();
                     thrust_step += d_thrust;
                     torque_step += d_ft * r;
@@ -1072,9 +1072,21 @@ impl<P: Polar> VpmRotor<P> {
         u_far_i: &[f64; 3],
     ) {
         for k in 0..3 {
-            assert!(urel[k].is_finite() && urel[k].abs() < 1e8,
+            assert!(
+                urel[k].is_finite() && urel[k].abs() < 1e8,
                 "final nan: step={} b={} i={} urel[{}]={} u_mag={} cl={} gam[i]={} r_mid={} th={:?} u_far={:?}",
-                step, b, i, k, urel[k], u_mag, cl, gam_i, self.r_mid[i], th, u_far_i);
+                step,
+                b,
+                i,
+                k,
+                urel[k],
+                u_mag,
+                cl,
+                gam_i,
+                self.r_mid[i],
+                th,
+                u_far_i
+            );
         }
         assert!(
             gam_i.is_finite() && gam_i.abs() < 1e8,

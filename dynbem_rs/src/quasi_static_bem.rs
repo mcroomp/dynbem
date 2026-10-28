@@ -6,14 +6,14 @@ use std::f64::consts::PI;
 use crate::aero_io::{AeroResult, RotorInputs};
 use crate::aero_model::{AeroModel, RotorStateExt};
 use crate::bem_common::{
-    apply_flap_dynamics, assemble_result, build_psi_trig_table, kinematics, ElementCtx, PsiKernel,
-    RadialGrid, SweepCtx,
+    ElementCtx, PsiKernel, RadialGrid, SweepCtx, apply_flap_dynamics, assemble_result,
+    build_psi_trig_table, kinematics,
 };
 use crate::common::{EPS_DENOM, EPS_OMEGA_R, MIN_LOSS_FACTOR};
 use crate::cyclic::cyclic_coeffs;
 use crate::polar::Polar;
 use crate::rotor_definition::{PitchActuation, RotorDefinition};
-use crate::servoflap::{solve_feathering, FeatheringState};
+use crate::servoflap::{FeatheringState, solve_feathering};
 
 const MAX_BEM_ITER: usize = 60;
 const BEM_TOL: f64 = 1e-7;
@@ -239,17 +239,9 @@ pub fn solve_bem_element<P: Polar>(
             // Mirror the seeding choice: climb branch near hover, descent
             // branch for genuine deep descent.
             if near_hover || lambda_climb >= 0.0 {
-                if r2 > 0.0 {
-                    r2
-                } else {
-                    r1
-                }
+                if r2 > 0.0 { r2 } else { r1 }
             } else {
-                if r1 < 0.0 {
-                    r1
-                } else {
-                    r2
-                }
+                if r1 < 0.0 { r1 } else { r2 }
             }
         } else if lambda_climb.abs() > 1e-8 {
             -k * geom.x * geom.x / lambda_climb

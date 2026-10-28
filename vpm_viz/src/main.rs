@@ -14,7 +14,9 @@
 
 use dynbem_rs::cyclic::ControlGains;
 use dynbem_rs::polar::LinearPolar;
-use dynbem_rs::rotor_definition::{BladeGeometry, LinearPolarParameters, PitchActuation, RotorDefinition};
+use dynbem_rs::rotor_definition::{
+    BladeGeometry, LinearPolarParameters, PitchActuation, RotorDefinition,
+};
 use dynbem_rs::vpm::{FlightCondition, VpmRotor, VpmRotorConfig, VpmRotorResult, VpmRotorState};
 use eframe::egui::{self, Color32, FontId, Pos2, Rect, Sense, Stroke, Vec2};
 
@@ -22,27 +24,27 @@ use eframe::egui::{self, Color32, FontId, Pos2, Rect, Sense, Stroke, Vec2};
 // Rotor / flight parameters
 // ---------------------------------------------------------------------------
 
-const R_TIP:           f64 = 1.0;
-const R_ROOT:          f64 = 0.2;
-const CHORD:           f64 = 0.06;
-const TWIST_DEG:       f64 = 2.0;
-const CL_ALPHA:        f64 = 5.7;
-const CD0:             f64 = 0.01;
+const R_TIP: f64 = 1.0;
+const R_ROOT: f64 = 0.2;
+const CHORD: f64 = 0.06;
+const TWIST_DEG: f64 = 2.0;
+const CL_ALPHA: f64 = 5.7;
+const CD0: f64 = 0.01;
 const ALPHA_STALL_DEG: f64 = 15.0;
-const N_BLADES:        usize = 2;
-const N_STATIONS:      usize = 16;
-const RHO:             f64 = 1.225;
-const OMEGA_MIN:       f64 = 5.0;    // start here -- omega=0 gives mu=inf
-const OMEGA_MAX:       f64 = 120.0;  // target rotor speed (rad/s)
-const I_ROTOR:         f64 = 0.05;   // effective blade inertia (kg*m^2)
-const Q_DRIVE:         f64 = 8.0;    // constant drive torque for spin-up (N*m)
-const V_WIND_MAX:      f64 = 10.0;   // final wind speed (m/s)
-const WIND_RAMP_STEPS: u64 = 3000;   // steps to full wind (3000/400 = 7.5 s)
-const CYCLIC_AMP:      f64 = 0.04;   // swashplate tilt amplitude (rad, ~2.3 deg)
-const CYCLIC_PERIOD_S: f64 = 2.0;    // one full cyclic rotation every 2 seconds
-const DT:              f64 = 1.0 / 400.0;
-const COLLECTIVE_DEG:  f64 = 8.0;
-const CROSSWIND_DEG:   f64 = 30.0;
+const N_BLADES: usize = 2;
+const N_STATIONS: usize = 16;
+const RHO: f64 = 1.225;
+const OMEGA_MIN: f64 = 5.0; // start here -- omega=0 gives mu=inf
+const OMEGA_MAX: f64 = 120.0; // target rotor speed (rad/s)
+const I_ROTOR: f64 = 0.05; // effective blade inertia (kg*m^2)
+const Q_DRIVE: f64 = 8.0; // constant drive torque for spin-up (N*m)
+const V_WIND_MAX: f64 = 10.0; // final wind speed (m/s)
+const WIND_RAMP_STEPS: u64 = 3000; // steps to full wind (3000/400 = 7.5 s)
+const CYCLIC_AMP: f64 = 0.04; // swashplate tilt amplitude (rad, ~2.3 deg)
+const CYCLIC_PERIOD_S: f64 = 2.0; // one full cyclic rotation every 2 seconds
+const DT: f64 = 1.0 / 400.0;
+const COLLECTIVE_DEG: f64 = 8.0;
+const CROSSWIND_DEG: f64 = 30.0;
 
 // ---------------------------------------------------------------------------
 // Viridis colormap (22-point approximation)
@@ -78,42 +80,42 @@ fn viridis(t: f32) -> Color32 {
 fn build_rotor() -> VpmRotor<LinearPolar> {
     let defn = RotorDefinition {
         blade: BladeGeometry {
-            n_blades:          N_BLADES,
-            radius_m:          R_TIP,
-            root_cutout_m:     R_ROOT,
-            chord_m:           CHORD,
-            twist_deg:         TWIST_DEG,
-            n_elements:        N_STATIONS,
-            tip_loss:          true,
-            r_stations_m:      Vec::new(),
-            chord_stations_m:  Vec::new(),
+            n_blades: N_BLADES,
+            radius_m: R_TIP,
+            root_cutout_m: R_ROOT,
+            chord_m: CHORD,
+            twist_deg: TWIST_DEG,
+            n_elements: N_STATIONS,
+            tip_loss: true,
+            r_stations_m: Vec::new(),
+            chord_stations_m: Vec::new(),
             twist_stations_deg: Vec::new(),
         },
         airfoil: LinearPolarParameters {
-            CL0:              0.0,
+            CL0: 0.0,
             CL_alpha_per_rad: CL_ALPHA,
             CD0,
-            alpha_stall_deg:  ALPHA_STALL_DEG,
+            alpha_stall_deg: ALPHA_STALL_DEG,
         },
-        control:         None,
+        control: None,
         pitch_actuation: PitchActuation::DirectMechanical,
-        flap:            None,
-        name:            "viz_rotor".to_string(),
-        description:     "VPM crosswind visualisation rotor".to_string(),
+        flap: None,
+        name: "viz_rotor".to_string(),
+        description: "VPM crosswind visualisation rotor".to_string(),
     };
-    let polar  = LinearPolar::new(0.0, CL_ALPHA, CD0, ALPHA_STALL_DEG.to_radians());
-    let ctrl   = ControlGains::default();
+    let polar = LinearPolar::new(0.0, CL_ALPHA, CD0, ALPHA_STALL_DEG.to_radians());
+    let ctrl = ControlGains::default();
     let config = VpmRotorConfig {
-        max_particles:  3_000,
-        sigma:           0.18,
-        relax:           0.35,
+        max_particles: 3_000,
+        sigma: 0.18,
+        relax: 0.35,
         nonlinear_lifting_line: true,
-        tip_clustering:  true,
-        local_core:      true,
-        barnes_hut:      false,
-        bh_theta:        0.5,
+        tip_clustering: true,
+        local_core: true,
+        barnes_hut: false,
+        bh_theta: 0.5,
         bh_min_particles: 2048,
-        flap_dynamics:   true,
+        flap_dynamics: true,
         ..VpmRotorConfig::default()
     };
     VpmRotor::new(&defn, polar, ctrl, config)
@@ -126,8 +128,8 @@ fn build_fc(omega: f64, v_wind: f64, tilt_lon: f64, tilt_lat: f64) -> FlightCond
         tilt_lon,
         tilt_lat,
         v_hub: [v_wind * ang.cos(), v_wind * ang.sin(), 0.0],
-        omega_rad_s:    omega,
-        rho:            RHO,
+        omega_rad_s: omega,
+        rho: RHO,
     }
 }
 
@@ -135,19 +137,28 @@ fn build_fc(omega: f64, v_wind: f64, tilt_lon: f64, tilt_lat: f64) -> FlightCond
 fn extract_particles(state: &VpmRotorState) -> (Vec<([f32; 3], f32)>, f32, f32) {
     let wake = match state.wake.as_ref() {
         Some(w) => w,
-        None    => return (Vec::new(), -6.0, -3.0),
+        None => return (Vec::new(), -6.0, -3.0),
     };
     let mut pts = Vec::with_capacity(wake.len());
     let mut lo = f32::MAX;
     let mut hi = f32::MIN;
     for (pos, strength, _) in wake.particles() {
-        let mag  = (strength[0]*strength[0] + strength[1]*strength[1] + strength[2]*strength[2]).sqrt();
+        let mag =
+            (strength[0] * strength[0] + strength[1] * strength[1] + strength[2] * strength[2])
+                .sqrt();
         let logm = mag.max(1e-12_f32).log10();
         pts.push((pos, logm));
-        if logm < lo { lo = logm; }
-        if logm > hi { hi = logm; }
+        if logm < lo {
+            lo = logm;
+        }
+        if logm > hi {
+            hi = logm;
+        }
     }
-    if pts.is_empty() { lo = -6.0; hi = -3.0; }
+    if pts.is_empty() {
+        lo = -6.0;
+        hi = -3.0;
+    }
     (pts, lo, hi)
 }
 
@@ -157,7 +168,7 @@ fn extract_particles(state: &VpmRotorState) -> (Vec<([f32; 3], f32)>, f32, f32) 
 
 fn draw_arrow(painter: &egui::Painter, origin: Pos2, tip: Pos2, stroke: Stroke) {
     painter.line_segment([origin, tip], stroke);
-    let dir  = (tip - origin).normalized();
+    let dir = (tip - origin).normalized();
     let perp = Vec2::new(-dir.y, dir.x);
     let head = 10.0_f32;
     painter.line_segment([tip, tip - dir * head + perp * (head * 0.4)], stroke);
@@ -171,13 +182,24 @@ fn draw_panel_bg(painter: &egui::Painter, rect: Rect, cx: f32, cy: f32, scale: f
         let x = cx + i as f32 * scale;
         let y = cy + i as f32 * scale;
         if x >= rect.left() && x <= rect.right() {
-            painter.line_segment([Pos2::new(x, rect.top()), Pos2::new(x, rect.bottom())], Stroke::new(0.5, gc));
+            painter.line_segment(
+                [Pos2::new(x, rect.top()), Pos2::new(x, rect.bottom())],
+                Stroke::new(0.5, gc),
+            );
         }
         if y >= rect.top() && y <= rect.bottom() {
-            painter.line_segment([Pos2::new(rect.left(), y), Pos2::new(rect.right(), y)], Stroke::new(0.5, gc));
+            painter.line_segment(
+                [Pos2::new(rect.left(), y), Pos2::new(rect.right(), y)],
+                Stroke::new(0.5, gc),
+            );
         }
     }
-    painter.rect_stroke(rect, 0.0, Stroke::new(1.0, Color32::from_rgb(80, 80, 100)));
+    painter.rect_stroke(
+        rect,
+        0.0,
+        Stroke::new(1.0, Color32::from_rgb(80, 80, 100)),
+        egui::StrokeKind::Inside,
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -185,51 +207,69 @@ fn draw_panel_bg(painter: &egui::Painter, rect: Rect, cx: f32, cy: f32, scale: f
 // ---------------------------------------------------------------------------
 
 struct VpmVizApp {
-    rotor:        VpmRotor<LinearPolar>,
-    state:        VpmRotorState,
-    last_result:  VpmRotorResult,
-    step_count:   u64,
-    omega:        f64,   // current rotor speed (rad/s), integrated each frame
-    v_wind:       f64,   // current wind speed (m/s), ramped 0->V_WIND_MAX
-    cyclic_phase: f64,   // angle (rad), advances 2pi every CYCLIC_PERIOD_S
-    tilt_lon:     f64,   // current longitudinal swashplate tilt (rad)
-    tilt_lat:     f64,   // current lateral swashplate tilt (rad)
+    rotor: VpmRotor<LinearPolar>,
+    state: VpmRotorState,
+    last_result: VpmRotorResult,
+    step_count: u64,
+    omega: f64,        // current rotor speed (rad/s), integrated each frame
+    v_wind: f64,       // current wind speed (m/s), ramped 0->V_WIND_MAX
+    cyclic_phase: f64, // angle (rad), advances 2pi every CYCLIC_PERIOD_S
+    tilt_lon: f64,     // current longitudinal swashplate tilt (rad)
+    tilt_lat: f64,     // current lateral swashplate tilt (rad)
 
     // cached display data, refreshed from state.wake after each step_one call
-    particles:    Vec<([f32; 3], f32)>,
-    log_min:      f32,
-    log_max:      f32,
+    particles: Vec<([f32; 3], f32)>,
+    log_min: f32,
+    log_max: f32,
 }
 
 impl VpmVizApp {
     fn new(rotor: VpmRotor<LinearPolar>) -> Self {
         let state = VpmRotorState::default();
         let last_result = VpmRotorResult {
-            thrust: 0.0, torque: 0.0, mx_hub: 0.0, my_hub: 0.0,
-            n_particles: 0, wake_centroid: [0.0; 3],
+            thrust: 0.0,
+            torque: 0.0,
+            mx_hub: 0.0,
+            my_hub: 0.0,
+            fx_hub: 0.0,
+            fy_hub: 0.0,
+            n_particles: 0,
+            wake_centroid: [0.0; 3],
         };
         let (particles, log_min, log_max) = extract_particles(&state);
         Self {
-            rotor, state, last_result, step_count: 0,
-            omega: OMEGA_MIN, v_wind: 0.0,
-            cyclic_phase: 0.0, tilt_lon: 0.0, tilt_lat: 0.0,
-            particles, log_min, log_max,
+            rotor,
+            state,
+            last_result,
+            step_count: 0,
+            omega: OMEGA_MIN,
+            v_wind: 0.0,
+            cyclic_phase: 0.0,
+            tilt_lon: 0.0,
+            tilt_lat: 0.0,
+            particles,
+            log_min,
+            log_max,
         }
     }
 
     fn color_for(&self, logm: f32) -> Color32 {
         let range = self.log_max - self.log_min;
-        let t = if range > 1e-6 { (logm - self.log_min) / range } else { 0.5 };
+        let t = if range > 1e-6 {
+            (logm - self.log_min) / range
+        } else {
+            0.5
+        };
         viridis(t)
     }
 
     // Top-down view (XY).  screen_x = cx + scale*Y,  screen_y = cy - scale*X
     fn draw_top_view(&self, ui: &mut egui::Ui) {
         let (resp, painter) = ui.allocate_painter(Vec2::splat(480.0), Sense::hover());
-        let rect  = resp.rect;
+        let rect = resp.rect;
         let scale = 110.0_f32;
-        let cx    = rect.center().x;
-        let cy    = rect.center().y;
+        let cx = rect.center().x;
+        let cy = rect.center().y;
 
         draw_panel_bg(&painter, rect, cx, cy, scale);
 
@@ -242,47 +282,75 @@ impl VpmVizApp {
         }
 
         // Rotor disk outline (faint circle).
-        painter.circle_stroke(Pos2::new(cx, cy), R_TIP as f32 * scale,
-            Stroke::new(1.0, Color32::from_rgba_unmultiplied(180, 180, 220, 70)));
+        painter.circle_stroke(
+            Pos2::new(cx, cy),
+            R_TIP as f32 * scale,
+            Stroke::new(1.0, Color32::from_rgba_unmultiplied(180, 180, 220, 70)),
+        );
         // Rotating blade spans. r_hat(psi) = [cos(psi), -sin(psi), 0];
         // screen: sx = cx + Y*scale = cx - sin(psi)*r*scale
         //         sy = cy - X*scale = cy - cos(psi)*r*scale
         let psi = self.state.psi as f32;
         let r_root_px = R_ROOT as f32 * scale;
-        let r_tip_px  = R_TIP  as f32 * scale;
+        let r_tip_px = R_TIP as f32 * scale;
         for b in 0..N_BLADES {
             let psi_b = psi + b as f32 * std::f32::consts::PI;
             let (sp, cp) = psi_b.sin_cos();
             let root = Pos2::new(cx - sp * r_root_px, cy - cp * r_root_px);
-            let tip  = Pos2::new(cx - sp * r_tip_px,  cy - cp * r_tip_px);
-            painter.line_segment([root, tip], Stroke::new(3.0, Color32::from_rgb(255, 255, 255)));
+            let tip = Pos2::new(cx - sp * r_tip_px, cy - cp * r_tip_px);
+            painter.line_segment(
+                [root, tip],
+                Stroke::new(3.0, Color32::from_rgb(255, 255, 255)),
+            );
         }
         painter.circle_filled(Pos2::new(cx, cy), 4.0, Color32::WHITE);
 
         let ang = CROSSWIND_DEG as f32 * std::f32::consts::PI / 180.0;
-        let ao  = Pos2::new(rect.left() + 40.0, rect.bottom() - 45.0);
-        draw_arrow(&painter, ao, ao + Vec2::new(ang.sin() * 50.0, -ang.cos() * 50.0),
-            Stroke::new(2.0, Color32::from_rgb(64, 210, 255)));
-        painter.text(ao + Vec2::new(ang.sin() * 58.0, -ang.cos() * 58.0),
+        let ao = Pos2::new(rect.left() + 40.0, rect.bottom() - 45.0);
+        draw_arrow(
+            &painter,
+            ao,
+            ao + Vec2::new(ang.sin() * 50.0, -ang.cos() * 50.0),
+            Stroke::new(2.0, Color32::from_rgb(64, 210, 255)),
+        );
+        painter.text(
+            ao + Vec2::new(ang.sin() * 58.0, -ang.cos() * 58.0),
             egui::Align2::LEFT_CENTER,
             &format!("wind {:.1} m/s  {:.0}deg", self.v_wind, CROSSWIND_DEG),
-            FontId::proportional(11.0), Color32::from_rgb(64, 210, 255));
+            FontId::proportional(11.0),
+            Color32::from_rgb(64, 210, 255),
+        );
 
-        painter.text(rect.min + Vec2::new(8.0, 8.0), egui::Align2::LEFT_TOP,
-            "Top view  (XY, looking -Z)", FontId::proportional(13.0), Color32::from_rgb(200, 200, 200));
-        painter.text(Pos2::new(rect.right()-6.0, cy), egui::Align2::RIGHT_CENTER,
-            "+Y", FontId::proportional(11.0), Color32::from_rgb(130, 130, 150));
-        painter.text(Pos2::new(cx+4.0, rect.top()+24.0), egui::Align2::LEFT_CENTER,
-            "+X", FontId::proportional(11.0), Color32::from_rgb(130, 130, 150));
+        painter.text(
+            rect.min + Vec2::new(8.0, 8.0),
+            egui::Align2::LEFT_TOP,
+            "Top view  (XY, looking -Z)",
+            FontId::proportional(13.0),
+            Color32::from_rgb(200, 200, 200),
+        );
+        painter.text(
+            Pos2::new(rect.right() - 6.0, cy),
+            egui::Align2::RIGHT_CENTER,
+            "+Y",
+            FontId::proportional(11.0),
+            Color32::from_rgb(130, 130, 150),
+        );
+        painter.text(
+            Pos2::new(cx + 4.0, rect.top() + 24.0),
+            egui::Align2::LEFT_CENTER,
+            "+X",
+            FontId::proportional(11.0),
+            Color32::from_rgb(130, 130, 150),
+        );
     }
 
     // Side view (XZ).  screen_x = cx + scale*X,  screen_y = cy + scale*Z
     fn draw_side_view(&self, ui: &mut egui::Ui) {
         let (resp, painter) = ui.allocate_painter(Vec2::splat(480.0), Sense::hover());
-        let rect  = resp.rect;
+        let rect = resp.rect;
         let scale = 110.0_f32;
-        let cx    = rect.center().x;
-        let cy    = rect.top() + 110.0;
+        let cx = rect.center().x;
+        let cy = rect.top() + 110.0;
 
         draw_panel_bg(&painter, rect, cx, cy, scale);
 
@@ -298,17 +366,19 @@ impl VpmVizApp {
         let r_px = R_TIP as f32 * scale;
         painter.line_segment(
             [Pos2::new(cx - r_px, cy), Pos2::new(cx + r_px, cy)],
-            Stroke::new(1.0, Color32::from_rgba_unmultiplied(180, 180, 220, 60)));
+            Stroke::new(1.0, Color32::from_rgba_unmultiplied(180, 180, 220, 60)),
+        );
         // Rotating blades projected onto XZ: Z=0, X = R*cos(psi_b).
         let psi = self.state.psi as f32;
         for b in 0..N_BLADES {
             let psi_b = psi + b as f32 * std::f32::consts::PI;
             let cp = psi_b.cos();
             let root_sx = cx + cp * R_ROOT as f32 * scale;
-            let tip_sx  = cx + cp * R_TIP  as f32 * scale;
+            let tip_sx = cx + cp * R_TIP as f32 * scale;
             painter.line_segment(
                 [Pos2::new(root_sx, cy), Pos2::new(tip_sx, cy)],
-                Stroke::new(3.0, Color32::from_rgb(255, 255, 255)));
+                Stroke::new(3.0, Color32::from_rgb(255, 255, 255)),
+            );
         }
         painter.circle_filled(Pos2::new(cx, cy), 4.0, Color32::WHITE);
 
@@ -318,52 +388,99 @@ impl VpmVizApp {
         let tl = self.tilt_lon as f32;
         let arrow_len = 60.0_f32;
         let tip = Pos2::new(cx - tl.sin() * arrow_len, cy - tl.cos() * arrow_len);
-        draw_arrow(&painter, Pos2::new(cx, cy), tip,
-            Stroke::new(2.0, Color32::from_rgb(255, 200, 60)));
-        painter.text(tip + Vec2::new(6.0, 0.0), egui::Align2::LEFT_CENTER,
+        draw_arrow(
+            &painter,
+            Pos2::new(cx, cy),
+            tip,
+            Stroke::new(2.0, Color32::from_rgb(255, 200, 60)),
+        );
+        painter.text(
+            tip + Vec2::new(6.0, 0.0),
+            egui::Align2::LEFT_CENTER,
             &format!("T = {:.0} N", self.last_result.thrust),
-            FontId::proportional(12.0), Color32::from_rgb(255, 200, 60));
+            FontId::proportional(12.0),
+            Color32::from_rgb(255, 200, 60),
+        );
 
-        painter.text(rect.min + Vec2::new(8.0, 8.0), egui::Align2::LEFT_TOP,
-            "Side view  (XZ, looking +Y)", FontId::proportional(13.0), Color32::from_rgb(200, 200, 200));
-        painter.text(Pos2::new(rect.right()-6.0, cy), egui::Align2::RIGHT_CENTER,
-            "+X (fwd)", FontId::proportional(11.0), Color32::from_rgb(130, 130, 150));
-        painter.text(Pos2::new(cx+4.0, rect.bottom()-8.0), egui::Align2::LEFT_BOTTOM,
-            "+Z (down)", FontId::proportional(11.0), Color32::from_rgb(130, 130, 150));
+        painter.text(
+            rect.min + Vec2::new(8.0, 8.0),
+            egui::Align2::LEFT_TOP,
+            "Side view  (XZ, looking +Y)",
+            FontId::proportional(13.0),
+            Color32::from_rgb(200, 200, 200),
+        );
+        painter.text(
+            Pos2::new(rect.right() - 6.0, cy),
+            egui::Align2::RIGHT_CENTER,
+            "+X (fwd)",
+            FontId::proportional(11.0),
+            Color32::from_rgb(130, 130, 150),
+        );
+        painter.text(
+            Pos2::new(cx + 4.0, rect.bottom() - 8.0),
+            egui::Align2::LEFT_BOTTOM,
+            "+Z (down)",
+            FontId::proportional(11.0),
+            Color32::from_rgb(130, 130, 150),
+        );
     }
 
     fn draw_colorbar(&self, ui: &mut egui::Ui) {
         let bar_w = 340.0_f32;
         let bar_h = 18.0_f32;
-        let (resp, painter) = ui.allocate_painter(Vec2::new(bar_w + 130.0, bar_h + 36.0), Sense::hover());
-        let rect  = resp.rect;
-        let bx0   = rect.left() + 60.0;
-        let by0   = rect.top()  + 10.0;
+        let (resp, painter) =
+            ui.allocate_painter(Vec2::new(bar_w + 130.0, bar_h + 36.0), Sense::hover());
+        let rect = resp.rect;
+        let bx0 = rect.left() + 60.0;
+        let by0 = rect.top() + 10.0;
         let bar_rect = Rect::from_min_size(Pos2::new(bx0, by0), Vec2::new(bar_w, bar_h));
 
         let n_seg = 80usize;
         for i in 0..n_seg {
             let t = i as f32 / (n_seg - 1) as f32;
             painter.rect_filled(
-                Rect::from_min_size(Pos2::new(bx0 + i as f32 * bar_w / n_seg as f32, by0),
-                    Vec2::new(bar_w / n_seg as f32 + 1.0, bar_h)),
-                0.0, viridis(t));
+                Rect::from_min_size(
+                    Pos2::new(bx0 + i as f32 * bar_w / n_seg as f32, by0),
+                    Vec2::new(bar_w / n_seg as f32 + 1.0, bar_h),
+                ),
+                0.0,
+                viridis(t),
+            );
         }
-        painter.rect_stroke(bar_rect, 0.0, Stroke::new(1.0, Color32::from_rgb(120, 120, 120)));
+        painter.rect_stroke(
+            bar_rect,
+            0.0,
+            Stroke::new(1.0, Color32::from_rgb(120, 120, 120)),
+            egui::StrokeKind::Inside,
+        );
 
         let lc = Color32::from_rgb(150, 150, 150);
         let ft = FontId::proportional(11.0);
-        for &(frac, val) in &[(0.0_f32, self.log_min), (0.5, 0.5*(self.log_min+self.log_max)), (1.0, self.log_max)] {
-            painter.text(Pos2::new(bx0 + frac * bar_w, by0 + bar_h + 4.0),
-                egui::Align2::CENTER_TOP, &format!("{:.1}", val), ft.clone(), lc);
+        for &(frac, val) in &[
+            (0.0_f32, self.log_min),
+            (0.5, 0.5 * (self.log_min + self.log_max)),
+            (1.0, self.log_max),
+        ] {
+            painter.text(
+                Pos2::new(bx0 + frac * bar_w, by0 + bar_h + 4.0),
+                egui::Align2::CENTER_TOP,
+                &format!("{:.1}", val),
+                ft.clone(),
+                lc,
+            );
         }
-        painter.text(Pos2::new(bx0 + bar_w + 8.0, by0 + bar_h * 0.5),
-            egui::Align2::LEFT_CENTER, "log10(|alpha| m^3/s)", FontId::proportional(11.0), lc);
+        painter.text(
+            Pos2::new(bx0 + bar_w + 8.0, by0 + bar_h * 0.5),
+            egui::Align2::LEFT_CENTER,
+            "log10(|alpha| m^3/s)",
+            FontId::proportional(11.0),
+            lc,
+        );
     }
 }
 
 impl eframe::App for VpmVizApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Advance cyclic phase (one full rotation per CYCLIC_PERIOD_S).
         self.cyclic_phase += DT * 2.0 * std::f64::consts::PI / CYCLIC_PERIOD_S;
         self.tilt_lon = CYCLIC_AMP * self.cyclic_phase.cos();
@@ -372,7 +489,7 @@ impl eframe::App for VpmVizApp {
         // Build flight condition from current dynamic omega/wind, advance one step.
         let fc = build_fc(self.omega, self.v_wind, self.tilt_lon, self.tilt_lat);
         let (result, new_state) = self.rotor.step_one(&fc, &self.state, DT);
-        self.state       = new_state;
+        self.state = new_state;
         self.last_result = result;
         self.step_count += 1;
 
@@ -390,8 +507,8 @@ impl eframe::App for VpmVizApp {
         .clamp(OMEGA_MIN, OMEGA_MAX);
 
         // Ramp wind from 0 to V_WIND_MAX over WIND_RAMP_STEPS steps.
-        self.v_wind = (V_WIND_MAX * (self.step_count as f64 / WIND_RAMP_STEPS as f64))
-            .min(V_WIND_MAX);
+        self.v_wind =
+            (V_WIND_MAX * (self.step_count as f64 / WIND_RAMP_STEPS as f64)).min(V_WIND_MAX);
 
         let (pts, lo, hi) = extract_particles(&self.state);
         self.particles = pts;
@@ -399,11 +516,15 @@ impl eframe::App for VpmVizApp {
         self.log_min = self.log_min * 0.95 + lo * 0.05;
         self.log_max = self.log_max * 0.95 + hi * 0.05;
 
-        ctx.set_visuals(egui::Visuals::dark());
+        ctx.request_repaint();
+    }
+
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        ui.ctx().set_visuals(egui::Visuals::dark());
 
         egui::CentralPanel::default()
-            .frame(egui::Frame::none().fill(Color32::from_rgb(8, 8, 16)))
-            .show(ctx, |ui| {
+            .frame(egui::Frame::NONE.fill(Color32::from_rgb(8, 8, 16)))
+            .show(ui, |ui| {
                 ui.vertical_centered(|ui| {
                     ui.add_space(8.0);
                     ui.label(egui::RichText::new(format!(
@@ -434,9 +555,6 @@ impl eframe::App for VpmVizApp {
                 ui.add_space(6.0);
                 ui.vertical_centered(|ui| { self.draw_colorbar(ui); });
             });
-
-        // Keep animating -- request the next frame immediately.
-        ctx.request_repaint();
     }
 }
 
@@ -446,11 +564,20 @@ impl eframe::App for VpmVizApp {
 
 fn main() {
     println!("==========================================================");
-    println!("  VPM Rotor Visualiser  --  {:.0}-deg Crosswind, cold start", CROSSWIND_DEG);
-    println!("  omega: {:.0} -> {:.0} rad/s (drive torque {:.0} N*m, I={:.2} kg*m^2)",
-        OMEGA_MIN, OMEGA_MAX, Q_DRIVE, I_ROTOR);
-    println!("  wind:  0 -> {:.0} m/s over {} steps ({:.1} s)",
-        V_WIND_MAX, WIND_RAMP_STEPS, WIND_RAMP_STEPS as f64 * DT);
+    println!(
+        "  VPM Rotor Visualiser  --  {:.0}-deg Crosswind, cold start",
+        CROSSWIND_DEG
+    );
+    println!(
+        "  omega: {:.0} -> {:.0} rad/s (drive torque {:.0} N*m, I={:.2} kg*m^2)",
+        OMEGA_MIN, OMEGA_MAX, Q_DRIVE, I_ROTOR
+    );
+    println!(
+        "  wind:  0 -> {:.0} m/s over {} steps ({:.1} s)",
+        V_WIND_MAX,
+        WIND_RAMP_STEPS,
+        WIND_RAMP_STEPS as f64 * DT
+    );
     println!("  Opening window...");
 
     let rotor = build_rotor();
