@@ -22,7 +22,7 @@
 //! merge is bounded by the cell's dipole moment, i.e. the same order as the
 //! Barnes-Hut opening-angle error -- keep `kappa` consistent with `bh_theta`.
 
-use super::common::{build_node, simd_min_max, ParticleField, TmpNode, BH_MIN_HALF};
+use super::common::{BH_MIN_HALF, ParticleField, TmpNode, build_node, simd_min_max};
 
 /// Options for [`merge_particles`].
 #[derive(Clone, Copy, Debug)]

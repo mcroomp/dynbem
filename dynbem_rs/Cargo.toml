@@ -17,14 +17,14 @@ name = "dynbem_rs"
 path = "src/lib.rs"
 
 [dependencies]
-aligned = "0.4"
-aligned-vec = "0.6"
-bytemuck = "1"
-wide = "0.7"
-rayon = "1"
+aligned = "0.4.3"
+aligned-vec = "0.6.4"
+bytemuck = "1.25.2"
+wide = "1.7.1"
+rayon = "1.12"
 
 [dev-dependencies]
-criterion = { version = "0.5", default-features = false, features = ["cargo_bench_support"] }
+criterion = { version = "0.8.2", default-features = false, features = ["cargo_bench_support"] }
 
 [[bench]]
 name = "model_kernels"

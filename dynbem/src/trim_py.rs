@@ -75,11 +75,15 @@ pub struct PyTrimResult {
 #[pymethods]
 impl PyTrimResult {
     #[getter]
-    fn final_state<'py>(&self, py: Python<'py>) -> PyObject {
+    fn final_state<'py>(&self, py: Python<'py>) -> PyResult<Py<PyAny>> {
         match &self.final_state {
-            FinalState::QuasiStatic(s) => PyQuasiStaticRotorState(s.clone()).into_py(py),
-            FinalState::PittPeters(s) => PyPittPetersRotorState(s.clone()).into_py(py),
-            FinalState::Oye(s) => PyOyeRotorState(s.clone()).into_py(py),
+            FinalState::QuasiStatic(s) => {
+                Ok(Py::new(py, PyQuasiStaticRotorState(s.clone()))?.into_any())
+            }
+            FinalState::PittPeters(s) => {
+                Ok(Py::new(py, PyPittPetersRotorState(s.clone()))?.into_any())
+            }
+            FinalState::Oye(s) => Ok(Py::new(py, PyOyeRotorState(s.clone()))?.into_any()),
         }
     }
 }
@@ -165,13 +169,13 @@ pub fn relax_inflow_py(
     inputs: &PyRotorInputs,
     n_steps: usize,
     dt: f64,
-) -> PyResult<PyObject> {
+) -> PyResult<Py<PyAny>> {
     let model = AeroAny::from_py(aero)?;
     macro_rules! do_relax {
         ($m:expr, $s_ty:ty, $out_wrapper:expr) => {{
             let s = state.extract::<$s_ty>()?.0;
             let out = relax_inflow(&$m, s, &inputs.inner, n_steps, dt);
-            Ok($out_wrapper(out).into_py(py))
+            Ok(Py::new(py, $out_wrapper(out))?.into_any())
         }};
     }
     match model {

@@ -24,7 +24,7 @@
 
 use crate::aero_io::{AeroResult, RotorInputs};
 use crate::aero_model::{AeroModel, IntegrationMethod, RotorStateExt};
-use crate::bem_common::{assemble_result, kinematics, Kinematics};
+use crate::bem_common::{Kinematics, assemble_result, kinematics};
 use crate::cyclic::ControlGains;
 use crate::polar::Polar;
 use crate::rotor_definition::{
@@ -52,8 +52,8 @@ use std::f64::consts::PI;
 // standalone profiler binaries and any external kernel benchmark). Bringing
 // them in with `pub use` also puts them in scope for this module's own use.
 pub use common::{
-    advect_rk2, induced_velocities, induced_velocities_bh_seq, induced_velocities_seq,
-    ParticleField,
+    ParticleField, advect_rk2, induced_velocities, induced_velocities_bh_seq,
+    induced_velocities_seq,
 };
 
 /// Which free-wake evolution engine the rotor drives the wake with. Chosen by

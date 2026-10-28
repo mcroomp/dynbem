@@ -11,7 +11,7 @@ mod conv;
 mod trim_py;
 mod wrappers;
 
-use trim_py::{relax_inflow_py, solve_trim_cyclic_py, PyTrimResult};
+use trim_py::{PyTrimResult, relax_inflow_py, solve_trim_cyclic_py};
 use wrappers::*;
 
 #[pyfunction]

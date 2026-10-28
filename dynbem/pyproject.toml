@@ -1,5 +1,5 @@
 [build-system]
-requires = ["maturin>=1.7,<2.0"]
+requires = ["maturin>=1.15,<2.0"]
 build-backend = "maturin"
 
 [project]
@@ -23,7 +23,7 @@ keywords = ["rotor", "aerodynamics", "BEM", "blade-element-momentum",
             "wind-turbine", "autorotation", "VRS"]
 dependencies = [
     "numpy>=1.24",
-    "PyYAML>=6",
+    "PyYAML>=6.0.3",
 ]
 
 # YAML loading is handled in pure Python (dynbem.rotor_definition uses

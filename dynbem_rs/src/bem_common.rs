@@ -301,7 +301,7 @@ pub fn apply_flap_dynamics(
                 my_out: my_hub,
                 dfx_hub: 0.0,
                 dfy_hub: 0.0,
-            }
+            };
         }
     };
 

@@ -7,8 +7,8 @@ use dynbem_rs::rotor_definition::{
 };
 pub use dynbem_rs::rotor_definition::{ServoFlapActuation, ServoFlapGeometry};
 use dynbem_rs::vpm::{
-    induced_velocities_at_points, FlightCondition, VpmRotor, VpmRotorConfig, VpmRotorResult,
-    VpmRotorState,
+    FlightCondition, VpmRotor, VpmRotorConfig, VpmRotorResult, VpmRotorState,
+    induced_velocities_at_points,
 };
 use std::f64::consts::PI;
 
