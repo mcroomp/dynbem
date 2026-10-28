@@ -71,6 +71,11 @@ uv sync --group dev     # also installs pytest, maturin, build, twine
 uv run pytest tests/    # run the test suite
 ```
 
+Python dependencies are resolved through the default uv index configured in
+[`pyproject.toml`](pyproject.toml):
+`https://packagefeedproxy.microsoft.io/pypi/simple/`, matching the sibling
+`windpower` project. Setup scripts and `uv run` use this feed automatically.
+
 The publishable Python package is [`dynbem/`](dynbem/) (Rust-backed via
 PyO3). Inside a non-uv environment you can still `pip install -e dynbem/`
 — maturin will pick up `dynbem/pyproject.toml` and compile the extension
