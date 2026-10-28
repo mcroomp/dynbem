@@ -118,7 +118,7 @@ Add to `Cargo.toml`:
 
 ```toml
 [dependencies]
-dynbem_rs = "0.7"
+dynbem_rs = "0.9"
 ```
 
 ```rust
