@@ -770,8 +770,8 @@ vs direct ($<5\%$ of peak at $\theta = 0.5$).
 | `cyclic_sign` | Directional (AGENTS.md) | Collective monotone; cyclic tilt signs | PASS |
 | `flap_directional` | Directional | Flap coning in hover; hub-moment relief under cyclic | PASS |
 | `vpm_hforce_directional` | Directional | In-plane hub force (H-force) downwind in edgewise flow; ~0 in hover | PASS |
-| `servo_flap` | Directional | Kaman feathering: zero input, settled collective trim at zero/nonzero offset, and cyclic moment response | PASS |
-| `cyclic_phase_servo` | Directional | Direct-mech pitching `My` vs servo-flap rolling `Mx` | PASS |
+| `servo_flap` | Directional | Kaman feathering: zero input, bounded/settled collective trim at zero/nonzero offset, and a changed cyclic hub-moment vector | PASS |
+| `cyclic_phase_servo` | Directional | Direct-mech pitching `My` vs servo-flap rolling `Mx`, including expected signs and dominant axes | PASS |
 
 Hover thrust tracks BEMT to within ~14-18%; coning `a0` and longitudinal
 flapping `a1` match the closed forms to ~14% (the disk tilts back by the right
@@ -784,6 +784,12 @@ amount). Lateral flapping `b1` is currently under-predicted -- see the TODO.
 | `hover_castles_gray` | Castles-Gray NACA TN-2474 Table V | Hover thrust, power (CQ) and Figure of Merit vs measured | CT ~8-13%; CQ <~21%; FM <~11% |
 | `measured_companions` | CG 1600 rpm, CG descent, Wheatley TR-515 | Each theory module anchored to a measured point | PASS |
 | `vpm_forward_flight_empirical` | Wheatley & Hood NACA TR-515 Tables III/IV | Forward-flight autorotation lift sweep | <= ~8% to mu = 0.32 |
+
+The servo-flap rows in Section 8.1 are qualitative directional checks, not
+empirical validation. No dedicated measured servo-flap dataset currently
+validates feathering amplitude, phase, trim, or damping. See
+[`EMPIRICAL_VALIDATION.md`](EMPIRICAL_VALIDATION.md#servo-flap-pitch-actuation-status)
+for the status and model limitations.
 
 `validation_rs` also validates the QS / Pitt-Peters / Oye BEM models against
 the same Castles-Gray data (`hover_ct_empirical`, `hover_cq_empirical`,
@@ -919,10 +925,12 @@ The RAWES blades use a **Kaman-type trailing-edge servo flap** for pitch control
 step. In servo mode, swashplate collective/cyclic are reinterpreted as
 flap-deflection commands and the solved feathering angle replaces direct
 swashplate pitch in the section AoA. The servo-flap path:
-- Introduces a first-order feathering lag (~90 deg phase at 1/rev)
+- Produces a damped feathering response; at zero AC offset, finite damping
+  gives a 90 deg phase shift at 1/rev
 - Attenuates high-frequency cyclic authority
-- Requires the `ServoFlapActuation` / `ServoFlapGeometry` parameters from the RAWES YAML
-  (`beaupoil_2026.yaml`)
+- Uses the configured `ServoFlapActuation` / `ServoFlapGeometry` parameters
+  (for example, those in `beaupoil_2026.yaml`); these have not been calibrated
+  against a dedicated servo-flap measurement dataset
 
 The VPM's `march_window` passes `fc.collective_rad`, `fc.tilt_lon`, `fc.tilt_lat` through
 `cyclic_coeffs` to form the harmonic commands. In direct-mechanical mode those

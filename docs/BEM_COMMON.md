@@ -601,6 +601,13 @@ account for this lag through swashplate phase configuration.
 In servo-flap mode, $(\delta\theta_0, A, B)$ **replace** the direct
 swashplate-to-pitch path in the psi-loop.
 
+The servo-flap unit and directional tests check equation consistency and
+qualitative response; they are not comparisons against measured servo-flap
+performance. No dedicated dataset currently establishes quantitative BEM
+accuracy for feathering amplitude, phase, or trim. See
+[`EMPIRICAL_VALIDATION.md`](EMPIRICAL_VALIDATION.md#servo-flap-pitch-actuation-status)
+for the model's empirical-validation status and limitations.
+
 ---
 
 ## 14. Output Assembly
