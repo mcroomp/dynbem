@@ -508,6 +508,39 @@ Source: `dynbem_rs/src/servoflap.rs`. Applies when
 $\delta\theta$ is driven by a trailing-edge servo-flap rather than by
 direct swashplate connection.
 
+### Offset Sign Convention
+
+The rotor parameter `ServoFlapActuation.ac_offset_m` is the signed
+chordwise distance in metres:
+
+```text
+ac_offset_m = x_ac - x_feathering_axis
+```
+
+Section `x` increases from leading edge toward trailing edge, independently
+of body/NED axes, rotor azimuth, or cyclic phase.
+
+| Offset | AC location relative to feathering axis | Aerodynamic spring contribution |
+|---|---|---|
+| Positive | Aft | Positive stiffness, restoring |
+| Zero | On axis | No spring from this offset |
+| Negative | Forward | Negative stiffness, destabilising |
+
+Positive feathering angle is nose-up, increasing local angle of attack.
+The physical offset moment is `M_aero = -k_aero * theta`, with the spring
+term placed on the left of the equation of motion. Thus an aft AC gives
+a nose-down restoring moment for a nose-up pitch perturbation. These
+signs describe only the offset contribution; they do not establish the
+stability of the complete blade/flap/control system.
+
+For example, AC at `0.232c` and axis at `0.324c` give
+`ac_offset_m = -0.092 * chord_m`, or `-0.0092 m` for a `0.10 m` chord.
+These are illustrative positions, not confirmed hardware defaults.
+The implementation field contract is in
+[`rotor_definition.rs`](../dynbem_rs/src/rotor_definition.rs), and the
+agent-facing sign rules are in
+[`AGENTS.md`](../AGENTS.md#servo-flap-sign-conventions-load-bearing).
+
 ### Equation of Motion (psi-domain)
 
 $$I_\theta\,\delta\theta'' + C_\theta\,\delta\theta' + k_\text{aero}\,\delta\theta = M_\text{servo}(\psi)$$

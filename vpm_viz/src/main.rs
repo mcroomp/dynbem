@@ -1,12 +1,15 @@
-// VPM Rotor particle-cloud visualiser -- 30-degree crosswind, animated.
+// VPM Rotor particle-cloud visualiser -- adjustable wind, interactive.
 //
 // Workflow:
-//   1. Settles the free wake synchronously before the window opens
-//      (same march as before, prints progress to the terminal).
-//   2. Opens a two-panel egui window.
-//   3. Each frame calls VpmRotor::step_one, extracts the new particle
+//   1. Opens a two-panel egui window; the rotor starts at OMEGA_MIN (a
+//      floor -- omega=0 gives mu=inf) with zero drive torque.
+//   2. Each frame calls VpmRotor::step_one, extracts the new particle
 //      cloud from the returned state, and redraws -- giving a continuous
 //      forward-play animation of the skewed helical wake.
+//   3. Wind, cyclic, collective, and drive torque are live keyboard
+//      controls (see the on-screen legend / startup banner): Z/C wind
+//      speed (uncapped), A/D wind angle (0=axial, 90=crosswind), arrow
+//      keys cyclic, Q/E collective, [ / ] drive torque (uncapped, floor 0).
 //
 // Build & run:
 //   cd vpm_viz
@@ -32,17 +35,28 @@ const ALPHA_STALL_DEG: f64 = 15.0;
 const N_BLADES:        usize = 2;
 const N_STATIONS:      usize = 16;
 const RHO:             f64 = 1.225;
-const OMEGA_MIN:       f64 = 5.0;    // start here -- omega=0 gives mu=inf
-const OMEGA_MAX:       f64 = 120.0;  // target rotor speed (rad/s)
+const OMEGA_MIN:       f64 = 5.0;    // floor -- omega=0 gives mu=inf
 const I_ROTOR:         f64 = 0.05;   // effective blade inertia (kg*m^2)
-const Q_DRIVE:         f64 = 8.0;    // constant drive torque for spin-up (N*m)
-const V_WIND_MAX:      f64 = 10.0;   // final wind speed (m/s)
-const WIND_RAMP_STEPS: u64 = 3000;   // steps to full wind (3000/400 = 7.5 s)
-const CYCLIC_AMP:      f64 = 0.04;   // swashplate tilt amplitude (rad, ~2.3 deg)
-const CYCLIC_PERIOD_S: f64 = 2.0;    // one full cyclic rotation every 2 seconds
-const DT:              f64 = 1.0 / 400.0;
-const COLLECTIVE_DEG:  f64 = 8.0;
-const CROSSWIND_DEG:   f64 = 30.0;
+const DT:              f64 = 1.0 / 1200.0;
+const COLLECTIVE_DEG:  f64 = 8.0;    // initial collective (deg), Q/E-controlled thereafter
+// Azimuth (within the XY/disk plane) of the wind's horizontal component.
+// The wind's mix of axial vs horizontal is set by wind_angle_deg (A/D),
+// not by this constant -- see build_fc.
+const WIND_AZIMUTH_DEG: f64 = 30.0;
+
+// Manual keyboard controls -- rates are per second, applied while the key
+// is held so a tap nudges and holding ramps smoothly.
+const WIND_RATE_M_S2:        f64 = 40.0;  // wind speed change rate (m/s^2), no upper cap
+const WIND_PX_PER_MS:        f32 = 5.0;   // wind arrow scale (px per m/s), clamped on screen
+const ANGLE_MIN_DEG:         f64 = 0.0;   // 0 = fully axial (along shaft)
+const ANGLE_MAX_DEG:         f64 = 90.0;  // 90 = fully in-plane (crosswind)
+const ANGLE_RATE_DEG_S:      f64 = 60.0;  // wind angle change rate (deg/s)
+const CYCLIC_MAX_DEG:        f64 = 10.0;  // max swashplate cyclic tilt (deg)
+const CYCLIC_RATE_DEG_S:     f64 = 80.0;  // cyclic tilt change rate (deg/s)
+const COLLECTIVE_MIN_DEG:    f64 = 0.0;
+const COLLECTIVE_MAX_DEG:    f64 = 14.0;
+const COLLECTIVE_RATE_DEG_S: f64 = 60.0;  // collective change rate (deg/s)
+const DRIVE_TORQUE_RATE_NM_S: f64 = 20.0; // [ / ] drive torque change rate (N*m/s), no upper cap
 
 // ---------------------------------------------------------------------------
 // Viridis colormap (22-point approximation)
@@ -119,13 +133,20 @@ fn build_rotor() -> VpmRotor<LinearPolar> {
     VpmRotor::new(&defn, polar, ctrl, config)
 }
 
-fn build_fc(omega: f64, v_wind: f64, tilt_lon: f64, tilt_lat: f64) -> FlightCondition {
-    let ang = CROSSWIND_DEG.to_radians();
+// Builds the flight condition. wind_angle_deg mixes between fully axial
+// (0 deg, wind along the shaft/Z axis -- climb/descent-like flow through
+// the disk) and fully in-plane crosswind (90 deg, at WIND_AZIMUTH_DEG
+// within the disk plane).
+fn build_fc(omega: f64, v_wind: f64, wind_angle_deg: f64, tilt_lon: f64, tilt_lat: f64, collective_deg: f64) -> FlightCondition {
+    let az    = WIND_AZIMUTH_DEG.to_radians();
+    let elev  = wind_angle_deg.to_radians();
+    let horiz = v_wind * elev.sin();
+    let axial = v_wind * elev.cos();
     FlightCondition {
-        collective_rad: COLLECTIVE_DEG.to_radians(),
+        collective_rad: collective_deg.to_radians(),
         tilt_lon,
         tilt_lat,
-        v_hub: [v_wind * ang.cos(), v_wind * ang.sin(), 0.0],
+        v_hub: [horiz * az.cos(), horiz * az.sin(), axial],
         omega_rad_s:    omega,
         rho:            RHO,
     }
@@ -164,6 +185,21 @@ fn draw_arrow(painter: &egui::Painter, origin: Pos2, tip: Pos2, stroke: Stroke) 
     painter.line_segment([tip, tip - dir * head - perp * (head * 0.4)], stroke);
 }
 
+// Scale (dx, dy) down (preserving direction) so an arrow drawn from the
+// origin never exceeds the given per-direction margins. Keeps the force
+// arrows fully on-screen regardless of instantaneous magnitude (thrust
+// transients at cold-start otherwise draw past the panel edge).
+fn clamp_arrow_extent(dx: f32, dy: f32, max_up: f32, max_down: f32, max_side: f32) -> (f32, f32) {
+    let ratio_y = if dy.abs() > 1e-6 {
+        (if dy < 0.0 { max_up } else { max_down }) / dy.abs()
+    } else {
+        f32::INFINITY
+    };
+    let ratio_x = if dx.abs() > 1e-6 { max_side / dx.abs() } else { f32::INFINITY };
+    let ratio = ratio_y.min(ratio_x).min(1.0);
+    (dx * ratio, dy * ratio)
+}
+
 fn draw_panel_bg(painter: &egui::Painter, rect: Rect, cx: f32, cy: f32, scale: f32) {
     painter.rect_filled(rect, 0.0, Color32::from_rgb(10, 10, 20));
     let gc = Color32::from_rgb(35, 35, 55);
@@ -190,15 +226,26 @@ struct VpmVizApp {
     last_result:  VpmRotorResult,
     step_count:   u64,
     omega:        f64,   // current rotor speed (rad/s), integrated each frame
-    v_wind:       f64,   // current wind speed (m/s), ramped 0->V_WIND_MAX
-    cyclic_phase: f64,   // angle (rad), advances 2pi every CYCLIC_PERIOD_S
-    tilt_lon:     f64,   // current longitudinal swashplate tilt (rad)
-    tilt_lat:     f64,   // current lateral swashplate tilt (rad)
+    v_wind:       f64,   // current wind speed (m/s), manual Z/C control (uncapped)
+    wind_angle_deg: f64, // wind elevation (deg): 0=axial, 90=crosswind, manual A/D control
+    tilt_lon:     f64,   // current longitudinal swashplate tilt (rad), manual Up/Down control
+    tilt_lat:     f64,   // current lateral swashplate tilt (rad), manual Left/Right control
+    collective_deg: f64, // current collective pitch (deg), manual Q/E control
+    drive_torque: f64,   // current motor drive torque (N*m), manual [/] control, starts at 0
 
     // cached display data, refreshed from state.wake after each step_one call
     particles:    Vec<([f32; 3], f32)>,
     log_min:      f32,
     log_max:      f32,
+
+    // EMA-smoothed force values used ONLY for the arrow drawings below --
+    // the raw per-step result carries real 1/rev (and 2/rev, N_BLADES=2)
+    // ripple from the crosswind + cyclic input that would otherwise make
+    // the arrows jump every frame. Physics/omega integration always uses
+    // the raw self.last_result values, never these.
+    thrust_disp:  f64,
+    fx_disp:      f64,
+    fy_disp:      f64,
 }
 
 impl VpmVizApp {
@@ -206,14 +253,17 @@ impl VpmVizApp {
         let state = VpmRotorState::default();
         let last_result = VpmRotorResult {
             thrust: 0.0, torque: 0.0, mx_hub: 0.0, my_hub: 0.0,
+            fx_hub: 0.0, fy_hub: 0.0,
             n_particles: 0, wake_centroid: [0.0; 3],
         };
         let (particles, log_min, log_max) = extract_particles(&state);
         Self {
             rotor, state, last_result, step_count: 0,
-            omega: OMEGA_MIN, v_wind: 0.0,
-            cyclic_phase: 0.0, tilt_lon: 0.0, tilt_lat: 0.0,
+            omega: OMEGA_MIN, v_wind: 0.0, wind_angle_deg: ANGLE_MIN_DEG,
+            tilt_lon: 0.0, tilt_lat: 0.0, collective_deg: COLLECTIVE_DEG,
+            drive_torque: 0.0,
             particles, log_min, log_max,
+            thrust_disp: 0.0, fx_disp: 0.0, fy_disp: 0.0,
         }
     }
 
@@ -259,14 +309,48 @@ impl VpmVizApp {
         }
         painter.circle_filled(Pos2::new(cx, cy), 4.0, Color32::WHITE);
 
-        let ang = CROSSWIND_DEG as f32 * std::f32::consts::PI / 180.0;
         let ao  = Pos2::new(rect.left() + 40.0, rect.bottom() - 45.0);
-        draw_arrow(&painter, ao, ao + Vec2::new(ang.sin() * 50.0, -ang.cos() * 50.0),
+        let az    = WIND_AZIMUTH_DEG.to_radians();
+        let elev  = self.wind_angle_deg.to_radians();
+        let horiz = self.v_wind * elev.sin();
+        // Only the horizontal component is visible in this top-down (XY)
+        // view -- the axial (Z) component collapses to a point here. Same
+        // screen mapping as the particles (sx = cx + Y*scale, sy = cy - X*scale).
+        let raw_dx = (horiz * az.sin()) as f32 * WIND_PX_PER_MS;
+        let raw_dy = -(horiz * az.cos()) as f32 * WIND_PX_PER_MS;
+        let raw_len = raw_dx.hypot(raw_dy);
+        let max_len = 90.0_f32;
+        let (dx, dy) = if raw_len > max_len && raw_len > 1e-6 {
+            (raw_dx * max_len / raw_len, raw_dy * max_len / raw_len)
+        } else {
+            (raw_dx, raw_dy)
+        };
+        draw_arrow(&painter, ao, ao + Vec2::new(dx, dy),
             Stroke::new(2.0, Color32::from_rgb(64, 210, 255)));
-        painter.text(ao + Vec2::new(ang.sin() * 58.0, -ang.cos() * 58.0),
+        painter.text(ao + Vec2::new(dx, dy) + Vec2::new(6.0, 0.0),
             egui::Align2::LEFT_CENTER,
-            &format!("wind {:.1} m/s  {:.0}deg", self.v_wind, CROSSWIND_DEG),
+            &format!("wind {:.1} m/s  elev {:.0}deg", self.v_wind, self.wind_angle_deg),
             FontId::proportional(11.0), Color32::from_rgb(64, 210, 255));
+
+        // In-plane hub force (H-force): the horizontal (X,Y) component of the
+        // same net rotor force vector whose vertical (Z) component is drawn
+        // as "thrust" in the side view. Same screen mapping as the particles
+        // above (sx = cx + Y*scale, sy = cy - X*scale), scaled by N/px so the
+        // arrow is visible without swamping the disk.
+        let fx = self.fx_disp as f32;
+        let fy = self.fy_disp as f32;
+        let h_mag = fx.hypot(fy);
+        if h_mag > 1e-3 {
+            let n_per_px = 0.15_f32;
+            let max_extent = rect.width().min(rect.height()) * 0.5 - 18.0;
+            let (dx, dy) = clamp_arrow_extent(fy / n_per_px, -fx / n_per_px, max_extent, max_extent, max_extent);
+            let tip = Pos2::new(cx + dx, cy + dy);
+            draw_arrow(&painter, Pos2::new(cx, cy), tip,
+                Stroke::new(2.0, Color32::from_rgb(255, 200, 60)));
+            painter.text(tip + Vec2::new(6.0, 0.0), egui::Align2::LEFT_CENTER,
+                &format!("H = {:.1} N", h_mag),
+                FontId::proportional(12.0), Color32::from_rgb(255, 200, 60));
+        }
 
         painter.text(rect.min + Vec2::new(8.0, 8.0), egui::Align2::LEFT_TOP,
             "Top view  (XY, looking -Z)", FontId::proportional(13.0), Color32::from_rgb(200, 200, 200));
@@ -312,16 +396,51 @@ impl VpmVizApp {
         }
         painter.circle_filled(Pos2::new(cx, cy), 4.0, Color32::WHITE);
 
-        // Thrust arrow: tilted by tilt_lon in XZ (nose-down = forward = +X screen).
-        // Hub-frame thrust direction: X = -sin(tilt_lon), Z = -cos(tilt_lon).
-        // Screen XZ: sx = cx + X*scale, sy = cy + Z*scale (+Z is down).
-        let tl = self.tilt_lon as f32;
-        let arrow_len = 60.0_f32;
-        let tip = Pos2::new(cx - tl.sin() * arrow_len, cy - tl.cos() * arrow_len);
+        // Wind-direction indicator: the real (X, Z) projection of the wind
+        // vector in this XZ (looking +Y) view -- axial component (Z) plus
+        // the horizontal component's X-projection (its Y-projection is
+        // into/out of the page here, not visible). Scaled + clamped the
+        // same way as the top-view wind arrow.
+        let az    = WIND_AZIMUTH_DEG.to_radians();
+        let elev  = self.wind_angle_deg.to_radians();
+        let horiz = self.v_wind * elev.sin();
+        let axial = self.v_wind * elev.cos();
+        let wind_x = horiz * az.cos();
+        let wo     = Pos2::new(rect.left() + 40.0, rect.bottom() - 45.0);
+        let raw_dx = wind_x as f32 * WIND_PX_PER_MS;
+        let raw_dy = axial as f32 * WIND_PX_PER_MS;
+        let raw_len = raw_dx.hypot(raw_dy);
+        let max_len = 90.0_f32;
+        let (dx, dy) = if raw_len > max_len && raw_len > 1e-6 {
+            (raw_dx * max_len / raw_len, raw_dy * max_len / raw_len)
+        } else {
+            (raw_dx, raw_dy)
+        };
+        draw_arrow(&painter, wo, wo + Vec2::new(dx, dy),
+            Stroke::new(2.0, Color32::from_rgb(64, 210, 255)));
+        painter.text(wo + Vec2::new(dx, dy) + Vec2::new(6.0, 0.0),
+            egui::Align2::LEFT_CENTER,
+            &format!("wind {:.1} m/s  elev {:.0}deg", self.v_wind, self.wind_angle_deg),
+            FontId::proportional(11.0), Color32::from_rgb(64, 210, 255));
+
+        // Net force arrow in the XZ plane, from the ACTUAL computed force
+        // (not the swashplate tilt_lon command): X = fx_hub (in-plane
+        // H-force component, the same quantity arrowed in the top view),
+        // Z = -thrust (thrust is "up" = -Z per AGENTS.md). Screen XZ:
+        // sx = cx + X*scale, sy = cy + Z*scale (+Z is down).
+        let fx = self.fx_disp;
+        let fz = -self.thrust_disp;
+        let n_per_px = 2.5_f64;
+        let max_up   = (cy - rect.top() - 18.0).max(12.0);
+        let max_down = (rect.bottom() - cy - 18.0).max(12.0);
+        let max_side = (rect.width() * 0.5 - 18.0).max(12.0);
+        let (dx, dy) = clamp_arrow_extent(
+            (fx / n_per_px) as f32, (fz / n_per_px) as f32, max_up, max_down, max_side);
+        let tip = Pos2::new(cx + dx, cy + dy);
         draw_arrow(&painter, Pos2::new(cx, cy), tip,
             Stroke::new(2.0, Color32::from_rgb(255, 200, 60)));
         painter.text(tip + Vec2::new(6.0, 0.0), egui::Align2::LEFT_CENTER,
-            &format!("T = {:.0} N", self.last_result.thrust),
+            &format!("T = {:.0} N", self.thrust_disp),
             FontId::proportional(12.0), Color32::from_rgb(255, 200, 60));
 
         painter.text(rect.min + Vec2::new(8.0, 8.0), egui::Align2::LEFT_TOP,
@@ -364,34 +483,64 @@ impl VpmVizApp {
 
 impl eframe::App for VpmVizApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // Advance cyclic phase (one full rotation per CYCLIC_PERIOD_S).
-        self.cyclic_phase += DT * 2.0 * std::f64::consts::PI / CYCLIC_PERIOD_S;
-        self.tilt_lon = CYCLIC_AMP * self.cyclic_phase.cos();
-        self.tilt_lat = CYCLIC_AMP * self.cyclic_phase.sin();
+        // Manual controls -- checked every frame so a held key ramps smoothly.
+        //   Z / C           -- wind speed down / up (no upper limit)
+        //   A / D           -- wind angle: axial (0 deg) <-> crosswind (90 deg)
+        //   Up / Down       -- cyclic longitudinal tilt (tilt_lon)
+        //   Left / Right    -- cyclic lateral tilt (tilt_lat)
+        //   Q / E           -- collective down / up
+        //   [ / ]           -- drive torque down / up (starts at 0, no upper limit)
+        let cyclic_rate_rad_s = CYCLIC_RATE_DEG_S.to_radians();
+        ctx.input(|i| {
+            if i.key_down(egui::Key::Z) { self.v_wind -= WIND_RATE_M_S2 * DT; }
+            if i.key_down(egui::Key::C) { self.v_wind += WIND_RATE_M_S2 * DT; }
+            if i.key_down(egui::Key::A) { self.wind_angle_deg -= ANGLE_RATE_DEG_S * DT; }
+            if i.key_down(egui::Key::D) { self.wind_angle_deg += ANGLE_RATE_DEG_S * DT; }
+            if i.key_down(egui::Key::ArrowUp)    { self.tilt_lon += cyclic_rate_rad_s * DT; }
+            if i.key_down(egui::Key::ArrowDown)  { self.tilt_lon -= cyclic_rate_rad_s * DT; }
+            if i.key_down(egui::Key::ArrowRight) { self.tilt_lat += cyclic_rate_rad_s * DT; }
+            if i.key_down(egui::Key::ArrowLeft)  { self.tilt_lat -= cyclic_rate_rad_s * DT; }
+            if i.key_down(egui::Key::Q) { self.collective_deg -= COLLECTIVE_RATE_DEG_S * DT; }
+            if i.key_down(egui::Key::E) { self.collective_deg += COLLECTIVE_RATE_DEG_S * DT; }
+            if i.key_down(egui::Key::OpenBracket)  { self.drive_torque -= DRIVE_TORQUE_RATE_NM_S * DT; }
+            if i.key_down(egui::Key::CloseBracket) { self.drive_torque += DRIVE_TORQUE_RATE_NM_S * DT; }
+        });
+        self.v_wind = self.v_wind.max(0.0);
+        self.wind_angle_deg = self.wind_angle_deg.clamp(ANGLE_MIN_DEG, ANGLE_MAX_DEG);
+        let cyclic_max_rad = CYCLIC_MAX_DEG.to_radians();
+        self.tilt_lon = self.tilt_lon.clamp(-cyclic_max_rad, cyclic_max_rad);
+        self.tilt_lat = self.tilt_lat.clamp(-cyclic_max_rad, cyclic_max_rad);
+        self.collective_deg = self.collective_deg.clamp(COLLECTIVE_MIN_DEG, COLLECTIVE_MAX_DEG);
+        self.drive_torque = self.drive_torque.max(0.0);
 
         // Build flight condition from current dynamic omega/wind, advance one step.
-        let fc = build_fc(self.omega, self.v_wind, self.tilt_lon, self.tilt_lat);
+        let fc = build_fc(self.omega, self.v_wind, self.wind_angle_deg, self.tilt_lon, self.tilt_lat, self.collective_deg);
         let (result, new_state) = self.rotor.step_one(&fc, &self.state, DT);
         self.state       = new_state;
         self.last_result = result;
         self.step_count += 1;
 
-        // Integrate omega: constant drive torque minus aerodynamic resistive
+        // Smooth the force values for the arrow display only (see field
+        // doc comment) -- omega integration below still uses the raw
+        // self.last_result.torque.
+        let disp_alpha = 0.06;
+        self.thrust_disp += (self.last_result.thrust - self.thrust_disp) * disp_alpha;
+        self.fx_disp     += (self.last_result.fx_hub  - self.fx_disp)     * disp_alpha;
+        self.fy_disp     += (self.last_result.fy_hub  - self.fy_disp)     * disp_alpha;
+
+        // Integrate omega: manual drive torque minus aerodynamic resistive
         // torque, via the single canonical mechanical ODE stepper (no
-        // bearing friction modelled in this viz).
+        // bearing friction modelled in this viz). Floor only -- no upper
+        // clamp, so omega free-runs to whatever the torque balance gives.
         self.omega = dynbem_rs::mechanical::step_omega(
             self.omega,
             self.last_result.torque,
-            Q_DRIVE,
+            self.drive_torque,
             I_ROTOR,
             DT,
             0.0,
         )
-        .clamp(OMEGA_MIN, OMEGA_MAX);
-
-        // Ramp wind from 0 to V_WIND_MAX over WIND_RAMP_STEPS steps.
-        self.v_wind = (V_WIND_MAX * (self.step_count as f64 / WIND_RAMP_STEPS as f64))
-            .min(V_WIND_MAX);
+        .max(OMEGA_MIN);
 
         let (pts, lo, hi) = extract_particles(&self.state);
         self.particles = pts;
@@ -407,20 +556,23 @@ impl eframe::App for VpmVizApp {
                 ui.vertical_centered(|ui| {
                     ui.add_space(8.0);
                     ui.label(egui::RichText::new(format!(
-                        "VPM Rotor  --  {:.0}-deg Crosswind  (V = {:.1} m/s,  omega = {:.1} rad/s,  R = {:.1} m)",
-                        CROSSWIND_DEG, self.v_wind, self.omega, R_TIP))
+                        "VPM Rotor  --  (V = {:.1} m/s,  wind elev = {:.0} deg,  omega = {:.1} rad/s,  R = {:.1} m)",
+                        self.v_wind, self.wind_angle_deg, self.omega, R_TIP))
                         .size(17.0).color(Color32::WHITE));
                     ui.label(egui::RichText::new(format!(
-                        "step {}   T = {:.1} N   Q = {:.2} N*m   Mx = {:.2} N*m   My = {:.2} N*m   {} particles",
+                        "step {}   T = {:.1} N   Q = {:.2} N*m   Mx = {:.2} N*m   My = {:.2} N*m   Qdrive = {:.2} N*m   {} particles",
                         self.step_count, self.last_result.thrust, self.last_result.torque,
                         self.last_result.mx_hub, self.last_result.my_hub,
-                        self.particles.len()))
+                        self.drive_torque, self.particles.len()))
                         .size(12.5).color(Color32::from_rgb(175, 175, 175)));
                     ui.label(egui::RichText::new(format!(
-                        "cyclic: lon = {:+.2} deg   lat = {:+.2} deg   phase = {:.0} deg",
+                        "cyclic: lon = {:+.2} deg   lat = {:+.2} deg   collective = {:.1} deg   wind = {:.1} m/s",
                         self.tilt_lon.to_degrees(), self.tilt_lat.to_degrees(),
-                        self.cyclic_phase.to_degrees() % 360.0))
+                        self.collective_deg, self.v_wind))
                         .size(11.5).color(Color32::from_rgb(130, 190, 255)));
+                    ui.label(egui::RichText::new(
+                        "controls:  Z/C = wind speed (uncapped)   A/D = wind angle (axial<->crosswind)   arrows = cyclic (up/down lon, left/right lat)   Q/E = collective   [ / ] = drive torque (uncapped)")
+                        .size(11.5).color(Color32::from_rgb(150, 210, 150)));
                     ui.add_space(6.0);
                 });
 
@@ -446,11 +598,11 @@ impl eframe::App for VpmVizApp {
 
 fn main() {
     println!("==========================================================");
-    println!("  VPM Rotor Visualiser  --  {:.0}-deg Crosswind, cold start", CROSSWIND_DEG);
-    println!("  omega: {:.0} -> {:.0} rad/s (drive torque {:.0} N*m, I={:.2} kg*m^2)",
-        OMEGA_MIN, OMEGA_MAX, Q_DRIVE, I_ROTOR);
-    println!("  wind:  0 -> {:.0} m/s over {} steps ({:.1} s)",
-        V_WIND_MAX, WIND_RAMP_STEPS, WIND_RAMP_STEPS as f64 * DT);
+    println!("  VPM Rotor Visualiser  --  adjustable wind (axial <-> crosswind), cold start");
+    println!("  omega: starts at floor {:.0} rad/s (no upper limit), drive torque starts at 0 N*m (I={:.2} kg*m^2)",
+        OMEGA_MIN, I_ROTOR);
+    println!("  controls:  Z/C = wind speed (uncapped)   A/D = wind angle ({:.0}-{:.0} deg, axial->crosswind)   arrows = cyclic (+/-{:.0} deg)   Q/E = collective ({:.0}-{:.0} deg)   [ / ] = drive torque (uncapped)",
+        ANGLE_MIN_DEG, ANGLE_MAX_DEG, CYCLIC_MAX_DEG, COLLECTIVE_MIN_DEG, COLLECTIVE_MAX_DEG);
     println!("  Opening window...");
 
     let rotor = build_rotor();
@@ -458,7 +610,7 @@ fn main() {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1020.0, 660.0])
-            .with_title("VPM Rotor -- 30-deg Crosswind, cold start (animated)"),
+            .with_title("VPM Rotor -- adjustable wind, cold start (animated)"),
         ..Default::default()
     };
 

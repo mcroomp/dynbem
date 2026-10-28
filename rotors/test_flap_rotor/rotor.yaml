@@ -49,7 +49,8 @@ pitch_actuation:
     damper_Nms_per_rad: 0.5
     # Distance from feathering axis to aerodynamic centre [m].
     # 0.0 = Kaman ideal (AC at feathering axis): no aerodynamic spring, p_sq=1.
-    # Positive = AC forward of axis (destabilising if large).
+    # ac_offset_m = x_ac - x_feathering_axis; chordwise x increases aft.
+    # Positive = AC aft of axis (restoring); negative = forward (destabilising).
     ac_offset_m:        0.0
     flap:
       # Aerodynamic pitching moment per unit flap deflection [rad^-1].
