@@ -14,7 +14,7 @@ rust-version = "1.99"
 [workspace.dependencies]
 # Pinned versions used by the python-binding crate; kept here so any
 # future workspace members touching pyo3 stay on the same revision.
-pyo3 = { version = "0.30.1", features = ["extension-module", "abi3-py312"] }
+pyo3 = { version = "0.30.1", features = ["abi3-py312"] }
 numpy = "0.30"
 
 [profile.release]

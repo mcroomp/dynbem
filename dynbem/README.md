@@ -104,6 +104,9 @@ A `dynbem`-side change that breaks them is a real regression.
 The extension stub is generated from the PyO3 declarations and their
 type overrides. Regenerate it from the workspace root with:
 
-    cargo run -p dynbem --features stubgen --bin stub_gen
+    uv run cargo run -p dynbem --features stubgen --bin stub_gen
 
-CI checks that the checked-in generated stub is current.
+CI checks that the checked-in generated stub is current. Run the generator
+through `uv run` so it uses the workspace Python environment. Maturin enables
+PyO3's `extension-module` feature in `pyproject.toml` only for extension builds;
+standalone Cargo executables need Python linking enabled on Linux.

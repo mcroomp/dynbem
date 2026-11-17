@@ -34,7 +34,7 @@ jobs:
 
       - name: Verify generated PyO3 stubs
         run: |
-          cargo run -p dynbem --features stubgen --bin stub_gen
+          uv run cargo run -p dynbem --features stubgen --bin stub_gen
           git diff --exit-code -- dynbem/python/dynbem/_dynbem
 
       - name: Run Ruff
