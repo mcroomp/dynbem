@@ -17,6 +17,8 @@ Harrington (1951) NACA TN-2318: hover CT/CQ polar (Figures 4 and 6),
   single-rotor configuration, Rotor 1, ΩR = 500 ft/s.
 """
 
+from __future__ import annotations
+
 import math
 import pytest
 from typing import TYPE_CHECKING

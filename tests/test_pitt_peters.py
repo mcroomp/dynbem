@@ -5,6 +5,8 @@ Hover CT-vs-BEM parity coverage is exercised in Rust unit tests
 inflow transients, and oblique-flow covariance.
 """
 
+from __future__ import annotations
+
 import math
 from pathlib import Path
 from typing import TYPE_CHECKING
