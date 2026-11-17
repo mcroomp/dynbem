@@ -39,7 +39,6 @@ import numpy as np
 
 from dynbem import RotorInputs, create_aero
 from dynbem.mechanical import step_omega
-from dynbem.rotor_definition import RotorDefinition
 
 G = 9.81  # m/s²
 
@@ -329,7 +328,6 @@ def ramp_column_worker(args: dict) -> dict:
     if project_root and project_root not in _sys.path:
         _sys.path.insert(0, project_root)
 
-    from dynbem import create_aero
 
     defn        = args["defn"]
     model_name  = args.get("model", "pitt_peters")
@@ -481,9 +479,14 @@ def ramp_column_worker(args: dict) -> dict:
         int_vcol      = snap["int_vcol"]
         col_saturated = snap["col_saturated"]
         n = snap["n_samples"]
-        del t_samples [n:]; del col_samples[n:]; del v_samples [n:]
-        del sat_samples[n:]; del omega_samples[n:]; del tilt_samples[n:]
-        del lamc_samples[n:]; del lams_samples[n:]
+        del t_samples[n:]
+        del col_samples[n:]
+        del v_samples[n:]
+        del sat_samples[n:]
+        del omega_samples[n:]
+        del tilt_samples[n:]
+        del lamc_samples[n:]
+        del lams_samples[n:]
 
     snap = _snapshot()
     next_sample_t = T_min + sample_dn

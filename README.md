@@ -62,12 +62,12 @@ extension via maturin. See [setup.sh](setup.sh) for details.
 
 Source builds require Rust 1.99 or newer and use the Rust 2024 edition.
 The dependency upgrade was tested with stable Rust 1.99.1. Update an existing
-toolchain with `rustup update stable`. The development workspace still
-requires Python 3.11+, while the published package and its `abi3-py310` wheels
-retain Python 3.10+ support.
+toolchain with `rustup update stable`. The development workspace requires
+Python 3.14+, while the published package and its `abi3-py312` wheels support
+Python 3.12+.
 
-All repository packages share one release version. Cargo workspace members
-inherit `workspace.package.version` from [`Cargo.toml`](Cargo.toml), and
+All repository packages share the `0.10.0` release version. Cargo workspace
+members inherit `workspace.package.version` from [`Cargo.toml`](Cargo.toml), and
 maturin derives the Python `dynbem` version from its Cargo package. The
 development project's [`pyproject.toml`](pyproject.toml) and the standalone
 visualizer's [`Cargo.toml`](vpm_viz/Cargo.toml) require matching explicit
@@ -178,6 +178,17 @@ refresh aggregate bounds. For which papers and tables the models are
 checked against, what the achieved variance is, and the physical
 reasons for any residual bias, see
 [EMPIRICAL_VALIDATION.md](docs/EMPIRICAL_VALIDATION.md).
+
+## Static checks
+
+The dev dependency group includes Ruff and Pyright. Ruff checks all Python
+files in the repository; Pyright runs in strict mode on the production
+`dynbem/python/dynbem` package.
+
+```
+uv run ruff check .
+uv run pyright
+```
 
 ## Performance
 

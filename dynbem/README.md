@@ -5,8 +5,8 @@ the pure-Rust [`dynbem_rs`](../dynbem_rs/) core, plus a Python layer that
 provides YAML loading, compat shims, and ergonomic helpers.
 
 The bindings use PyO3 0.30 and rust-numpy 0.30, built with Rust 2024
-(Rust 1.99+). Python 3.10+ remains supported through `abi3-py310`; the
-development workspace requires Python 3.11+. PyO3 wrappers explicitly opt
+(Rust 1.99+). Python 3.12+ is supported through `abi3-py312`; the
+development workspace requires Python 3.14+. PyO3 wrappers explicitly opt
 into clone-based `FromPyObject` conversion to preserve the existing API.
 
 For sign conventions, NED frame, rotor rotation direction, hub-frame moments,
@@ -20,20 +20,23 @@ and Pitt-Peters L-matrix see [`../AGENTS.md`](../AGENTS.md).
     +-- src/
     |   +-- lib.rs             #[pymodule] registration, free pyfunctions,
     |   |                      solve_bem_element pyfunction + BEMElementResult
+    |   +-- bin/stub_gen.rs    regenerates the extension type stub
     |   +-- conv.rs            numpy <-> Vec3/Mat3 marshalling (only numpy site)
     |   +-- wrappers.rs        PyFoo(pub Foo) newtypes for ~15 core types
     |   +-- trim_py.rs         AeroAny dispatch, TrimResult, trim/relax pyfunctions
     +-- python/dynbem/
         +-- __init__.py        top-level API + Python subclasses (see below)
+        +-- _dynbem/__init__.pyi  generated typed interface for the PyO3 extension
+        +-- py.typed           marks the package as typed for consumers
         +-- bem.py             compat shim re-exporting dynbem.bem.*
         +-- cyclic.py          compat shim
         +-- factory.py         create_aero(), build_polar(), load_tabulated_polar()
         +-- mechanical.py      omega_derivative(), step_omega() -- single canonical spin ODE (caller-owned), Coulomb bearing friction always a parameter (default 0.0)
         +-- oye.py             compat shim
         +-- pitt_peters.py     compat shim
-        +-- polar.py           compat shim + AirfoilPolar tuple alias
+        +-- polar.py           polar type re-exports
         +-- rotor_definition.py  YAML load() / loads() in pure Python (yaml.safe_load)
-        +-- rotor_state.py     compat shim + RotorState ABC
+        +-- rotor_state.py     concrete state-type re-exports
         +-- trim.py            solve_trim_cyclic / relax_inflow (thin re-exports)
 
 ## Python layer responsibilities
@@ -43,11 +46,11 @@ The resulting Python `RotorDefinition` holds a lean Rust `_dynbem.RotorDefinitio
 wrapper (math fields only) as its `._rust` attribute. Call
 `dynbem.rotor_definition.load(path)` or `loads(text, base_dir=None)`.
 
-**Dotted submodule access** (`dynbem.bem.BEMModel`, `dynbem.polar.LinearPolar`,
+**Dotted submodule access** (`dynbem.bem.QuasiStaticBEM`, `dynbem.polar.LinearPolar`,
 etc.): each shim file re-exports the relevant names from the parent package
 and adds a few helpers so existing `import dynbem` callers keep working.
 
-**Auto polar inference**: `BEMModel(defn=...)` without a polar argument
+**Auto polar inference**: `QuasiStaticBEM(defn=...)` without a polar argument
 builds one from `defn.airfoil` automatically (including `polar_csv` CSV
 loading). Implemented as Python subclasses of the Rust pyclasses in
 `__init__.py`. Requires `subclass=True` on the three Rust model pyclasses
@@ -62,10 +65,8 @@ parameter, defaulting to `0.0`. The aero
 models are pure aerodynamic -- they take `omega_rad_s` via `RotorInputs`
 and return loads only. The caller owns the spin ODE.
 
-**Virtual ABCs** `dynbem.AeroBase` and `dynbem.RotorState` are declared in
-`__init__.py` with `ABC.register(...)` so `isinstance(model, AeroBase)`
-works. The Rust classes do not actually inherit from these; the ABC is a
-marker only.
+Model and state APIs expose their concrete Rust-backed types directly;
+there are no Python marker ABCs for backcompat.
 
 **`solve_trim_cyclic` / `relax_inflow`**: thin re-exports of the Rust
 pyfunctions; both require a pre-built `RotorInputs` as the third argument.
@@ -99,3 +100,13 @@ code paths and validation scripts. Run with:
     uv run pytest tests/ -q
 
 A `dynbem`-side change that breaks them is a real regression.
+
+The extension stub is generated from the PyO3 declarations and their
+type overrides. Regenerate it from the workspace root with:
+
+    uv run cargo run -p dynbem --features stubgen --bin stub_gen
+
+CI checks that the checked-in generated stub is current. Run the generator
+through `uv run` so it uses the workspace Python environment. Maturin enables
+PyO3's `extension-module` feature in `pyproject.toml` only for extension builds;
+standalone Cargo executables need Python linking enabled on Linux.

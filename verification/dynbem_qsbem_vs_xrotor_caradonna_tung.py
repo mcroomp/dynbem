@@ -27,6 +27,7 @@ import csv
 import math
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 import yaml
@@ -34,13 +35,15 @@ import yaml
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from dynbem import RotorInputs                                          # noqa: E402
-from dynbem.bem import BEMModel                                          # noqa: E402
+from dynbem import QuasiStaticBEM, RotorInputs                           # noqa: E402
 from dynbem.rotor_state import QuasiStaticRotorState                    # noqa: E402
 from dynbem.rotor_definition import (                                    # noqa: E402
     BladeGeometry, LinearPolarParameters, RotorDefinition,
 )
 from dynbem.polar import TabulatedPolar                                 # noqa: E402
+
+if TYPE_CHECKING:
+    from dynbem.factory import QuasiStaticModel
 
 DEFAULT_YAML  = ROOT / "verification" / "xrotor_docker" / "inputs" / "caradonna_tung_hover.yaml"
 DEFAULT_XCSV  = ROOT / "verification" / "data" / "caradonna_tung_hover_xrotor.csv"
@@ -53,7 +56,7 @@ PAPER_CT = {5.0: 0.00215, 8.0: 0.00465, 12.0: 0.00800}
 RHO = 1.225
 
 
-def build_dynbem_model(cfg: dict) -> BEMModel:
+def build_dynbem_model(cfg: dict) -> QuasiStaticModel:
     """Translate the YAML into a dynbem QuasiStaticBEM model."""
     r_tip = float(cfg["rotor"]["R_tip_m"])
     stations = sorted(cfg["blade_stations"], key=lambda s: s["r_m"])
@@ -82,10 +85,10 @@ def build_dynbem_model(cfg: dict) -> BEMModel:
         cd       =np.array([p["cd"] for p in pts]),
     )
     defn = RotorDefinition(blade=blade, airfoil=airfoil)
-    return BEMModel(defn, polar, 36)
+    return QuasiStaticBEM(defn, polar, 36)
 
 
-def dynbem_hover_thrust(model: BEMModel, pitch_deg: float,
+def dynbem_hover_thrust(model: QuasiStaticModel, pitch_deg: float,
                         omega_rpm: float, rho: float) -> tuple[float, float]:
     """Return (T, Q) at hover for the given collective + RPM."""
     omega = omega_rpm * math.pi / 30.0
@@ -130,7 +133,7 @@ def main() -> int:
     with args.xrotor_csv.open() as fh:
         xr_rows = {float(r["pitch_deg"]): r for r in csv.DictReader(fh)}
 
-    print(f"Caradonna-Tung hover  --  dynbem.QuasiStaticBEM vs XROTOR vs paper")
+    print("Caradonna-Tung hover  --  dynbem.QuasiStaticBEM vs XROTOR vs paper")
     print(f"R = {R:.3f} m, 2 blades NACA 0012, 1250 rpm")
     print()
     print(f"{'pitch':>5}  "

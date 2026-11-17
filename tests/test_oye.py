@@ -23,8 +23,7 @@ import pytest
 
 from dynbem import RotorInputs, create_aero
 from dynbem import _OyeBEMModelLinear, _OyeBEMModelTabulated
-from dynbem.oye import OyeBEMModel
-from dynbem.rotor_state import OyeRotorState, PittPetersRotorState
+from dynbem.rotor_state import OyeRotorState
 import dynbem.rotor_definition as rotor_definition
 from tests.helpers import make_oye, make_pitt_peters, pp_state
 

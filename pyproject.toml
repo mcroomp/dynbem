@@ -1,8 +1,8 @@
 [project]
 name = "aero-workspace"
-version = "0.9.0"
+version = "0.10.0"
 description = "Repo-wide development environment for dynbem + dynbem_rs. Not published to PyPI; the publishable package is `dynbem/` (Rust-backed)."
-requires-python = ">=3.11"
+requires-python = ">=3.14"
 dependencies = [
     # PyYAML is used by dynbem.rotor_definition (Python-side YAML loading)
     # and by the verification/ scripts that drive Docker tools.
@@ -19,6 +19,8 @@ dev = [
     "maturin>=1.15,<2.0",
     "build>=1.6.1",
     "twine>=7",
+    "pyright>=1.1",
+    "ruff>=0.15",
 ]
 
 # ---------------------------------------------------------------------------
@@ -48,3 +50,24 @@ testpaths = ["tests"]
 # `pytest` CLI (used by `uv run pytest` in CI) does not, hence the
 # explicit setting.
 pythonpath = ["."]
+
+[tool.pyright]
+include = ["dynbem/python/dynbem"]
+pythonVersion = "3.14"
+typeCheckingMode = "strict"
+venvPath = "."
+venv = ".venv"
+
+[tool.ruff]
+target-version = "py314"
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]
+
+[tool.ruff.lint.per-file-ignores]
+"verification/caradonna_tung_spanwise_cl.py" = ["E402"]
+"verification/dynbem_vs_ccblade_beaupoil.py" = ["E402"]
+"verification/dynbem_vs_ccblade_nrel_phase_vi.py" = ["E402"]
+"verification/wheatley_hood_autorotation_torque.py" = ["E402"]
+"verification/wheatley_hood_vpm_vs_bem.py" = ["E402"]

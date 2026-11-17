@@ -89,7 +89,7 @@ def main() -> int:
     with OPENFAST_CSV.open() as fh:
         of_rows = list(csv.DictReader(fh))
 
-    print(f"NREL Phase VI Sequence S  --  dynbem.OyeBEMModel vs AeroDyn DBEMT_Mod=1")
+    print("NREL Phase VI Sequence S  --  dynbem.OyeBEMModel vs AeroDyn DBEMT_Mod=1")
     print(f"R = {R:.3f} m, n_elements = {model.defn.blade.n_elements}, "
           f"polar = {model.defn.airfoil.name or '(unnamed)'}")
     print()

@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from dynbem.rotor_state import PittPetersRotorState, QuasiStaticRotorState, RotorState
+from dynbem.rotor_state import PittPetersRotorState, QuasiStaticRotorState
 
 
 class TestQuasiStaticRotorState:
@@ -18,10 +18,6 @@ class TestQuasiStaticRotorState:
     def test_from_array_wrong_shape_raises(self):
         with pytest.raises((ValueError, TypeError)):
             QuasiStaticRotorState().from_array(np.array([1.0]))
-
-    def test_is_rotor_state(self):
-        assert isinstance(QuasiStaticRotorState(), RotorState)
-
 
 class TestPittPetersRotorState:
     def test_default_fields_zero(self):
@@ -66,6 +62,3 @@ class TestPittPetersRotorState:
         r = s.from_array(np.array([0.5, 0.0, 0.0]))
         assert r.lambda_0 == pytest.approx(0.5)
         assert s.lambda_0 == pytest.approx(0.1)  # original unchanged
-
-    def test_is_rotor_state(self):
-        assert isinstance(PittPetersRotorState(0.0, 0.0, 0.0), RotorState)

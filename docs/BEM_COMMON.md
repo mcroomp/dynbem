@@ -288,7 +288,7 @@ fast transients and gives no dynamic-inflow phase shift; per-element
 iteration makes it the most expensive per call; inflow is azimuthally
 resolved only through the loading, with no explicit harmonic feedback.
 
-`BEMModel` / `solve_bem_element` (`quasi_static_bem.rs`). Each element's
+`QuasiStaticBEM` / `solve_bem_element` (`quasi_static_bem.rs`). Each element's
 inflow ratio $\lambda_r$ is solved per call via a fixed-point iteration
 (up to 60 iterations, tolerance $10^{-7}$):
 

@@ -344,10 +344,9 @@ Known limitations:
 - BEM flapping is a post-sweep hub-load correction, so it is not coupled to
   the feathering solve. VPM couples both DOFs through the section loads.
 
-The old `kaman_flap:` block under `control:` remains metadata-only and
-is not consumed by the Rust aero solvers. Use the `pitch_actuation:`
-YAML block (with a `servoflap:` sub-block) to enable active servo-flap
-feathering dynamics.
+The legacy `control.kaman_flap` YAML field is no longer supported. Use
+the `pitch_actuation:` YAML block (with a `servoflap:` sub-block) to
+enable active servo-flap feathering dynamics.
 
 ## Quasi-static blade flapping (hub moment reduction + flapback H-force)
 
