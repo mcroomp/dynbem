@@ -1,11 +1,4 @@
-"""dynbem.bem submodule (compat shim).
+"""Quasi-static BEM factory re-export."""
+from . import QuasiStaticBEM
 
-Re-exports QuasiStaticBEM (legacy alias BEMModel) so legacy dotted-path
-imports continue to work.
-"""
-from . import BEMModel, QuasiStaticBEM
-
-__all__ = [
-    "QuasiStaticBEM",
-    "BEMModel",
-]
+__all__ = ["QuasiStaticBEM"]

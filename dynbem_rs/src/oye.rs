@@ -6,17 +6,17 @@ use std::f64::consts::PI;
 use crate::aero_io::{AeroResult, RotorInputs};
 use crate::aero_model::{AeroModel, RotorStateExt};
 use crate::bem_common::{
-    apply_flap_dynamics, assemble_result, build_psi_trig_table, element_force, kinematics,
-    v_mass_flow_disk, vrs_regime, ElementCtx, PsiKernel, RadialGrid, SweepCtx,
+    ElementCtx, PsiKernel, RadialGrid, SweepCtx, apply_flap_dynamics, assemble_result,
+    build_psi_trig_table, element_force, kinematics, v_mass_flow_disk, vrs_regime,
 };
 use crate::common::{
-    vrs_lambda1, EPS_OMEGA_R, MASS_FLOW_HOVER_FLOOR_FRAC, MIN_LOSS_FACTOR, VRS_DESCENT_THRESHOLD,
+    EPS_OMEGA_R, MASS_FLOW_HOVER_FLOOR_FRAC, MIN_LOSS_FACTOR, VRS_DESCENT_THRESHOLD, vrs_lambda1,
 };
 use crate::cyclic::cyclic_coeffs;
 use crate::polar::Polar;
 use crate::quasi_static_bem::{prandtl_hub_loss, prandtl_tip_loss};
 use crate::rotor_definition::{PitchActuation, RotorDefinition};
-use crate::servoflap::{solve_feathering, FeatheringState};
+use crate::servoflap::{FeatheringState, solve_feathering};
 
 /// Oye empirical coupling constant (original Oye 1990, OpenFAST default).
 /// Damps the coupling between the quasi-steady target W_qs and the
@@ -244,7 +244,6 @@ impl<P: Polar + Clone> AeroModel for OyeBEMModel<P> {
         let (theta_1c, theta_1s) = cyclic_coeffs(inputs.tilt_lon, inputs.tilt_lat, gains);
 
         // Quasi-static feathering solve (pre-pass)
-        let mu = kin.mu;
         let feathering_state = match &self.defn.pitch_actuation {
             PitchActuation::DirectMechanical => FeatheringState::RIGID,
             PitchActuation::ServoFlap(act) => solve_feathering(
@@ -254,9 +253,8 @@ impl<P: Polar + Clone> AeroModel for OyeBEMModel<P> {
                 theta_1s,
                 rho,
                 omega,
-                mu,
-                r_tip,
-                blade.chord_m,
+                v_inplane_hub,
+                &self.grid,
                 self.defn.airfoil.CL_alpha_per_rad,
             ),
         };

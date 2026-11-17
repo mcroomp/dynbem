@@ -24,7 +24,7 @@ jobs:
           enable-cache: true
 
       - name: Set up Python
-        run: uv python install 3.11
+        run: uv python install 3.14
 
       # uv sync resolves the workspace, installs PyYAML / numpy / pytest /
       # maturin etc., and editable-installs the dynbem package (compiling
@@ -32,11 +32,28 @@ jobs:
       - name: Install workspace + dev deps
         run: uv sync --group dev
 
+      - name: Verify generated PyO3 stubs
+        run: |
+          uv run cargo run -p dynbem --features stubgen --bin stub_gen
+          git diff --exit-code -- dynbem/python/dynbem/_dynbem
+
+      - name: Run Ruff
+        run: uv run ruff check .
+
+      - name: Run Pyright
+        run: uv run pyright
+
       - name: Run tests
         # --timeout=0 disables the per-test 10s wall-clock cap that's set
         # in pyproject.toml for local runs. CI runners are noisier than
         # dev boxes and shouldn't fail on timing alone.
         run: uv run pytest tests/ -q --timeout=0
+
+      - name: Test published package on Python 3.12
+        run: >-
+          uv run --isolated --no-project --python 3.12
+          --with ./dynbem --with pytest --with pytest-timeout --with matplotlib
+          pytest tests/ -q --timeout=0
 
       - name: Sanity-build release wheel
         run: uv run maturin build --release --manifest-path dynbem/Cargo.toml
@@ -57,3 +74,12 @@ jobs:
 
       - name: cargo check (full workspace)
         run: cargo check --workspace
+
+      - name: Rust release tests
+        run: cargo test --release --workspace
+
+      - name: cargo check (standalone visualizer)
+        run: cargo check --manifest-path vpm_viz/Cargo.toml
+
+      - name: Standalone visualizer tests
+        run: cargo test --release --manifest-path vpm_viz/Cargo.toml

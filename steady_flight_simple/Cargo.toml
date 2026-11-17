@@ -10,4 +10,4 @@ publish = false
 
 [dependencies]
 dynbem_rs = { path = "../dynbem_rs" }
-bevy = "0.14"
+bevy = { version = "0.14", default-features = false, features = ["bevy_winit", "bevy_pbr", "multi_threaded", "x11", "tonemapping_luts"] }

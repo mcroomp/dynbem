@@ -2,7 +2,7 @@
 
 Defines pure-Python classes for all rotor definition types, including
 metadata fields not needed by the Rust math core (Re_design, polar_csv,
-inertia, kaman_flap, etc.).  Each Python class internally holds a ``_rust``
+inertia, etc.). Each Python class internally holds a ``_rust``
 attribute -- a lean _dynbem Rust wrapper populated with only the math fields
 -- which is what model constructors receive.
 
@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, cast
 
 import yaml
 
@@ -35,22 +35,52 @@ from ._dynbem import (
 
 class BladeGeometry(_RustBladeGeometry):
     def __new__(
-        cls, n_blades, radius_m, root_cutout_m, chord_m,
-        twist_deg=0.0, n_elements=20,
-        r_stations_m=None, chord_stations_m=None, twist_stations_deg=None,
-        tip_loss=True,
-    ):
-        return _RustBladeGeometry.__new__(
-            cls, n_blades, radius_m, root_cutout_m, chord_m,
-            twist_deg, n_elements,
-            r_stations_m if r_stations_m is not None else [],
-            chord_stations_m if chord_stations_m is not None else [],
-            twist_stations_deg if twist_stations_deg is not None else [],
-            tip_loss,
+        cls: type[BladeGeometry],
+        n_blades: int,
+        radius_m: float,
+        root_cutout_m: float,
+        chord_m: float,
+        twist_deg: float = 0.0,
+        n_elements: int = 20,
+        r_stations_m: list[float] | None = None,
+        chord_stations_m: list[float] | None = None,
+        twist_stations_deg: list[float] | None = None,
+        tip_loss: bool = True,
+    ) -> BladeGeometry:
+        return cast(
+            BladeGeometry,
+            _RustBladeGeometry.__new__(
+                cls,
+                n_blades,
+                radius_m,
+                root_cutout_m,
+                chord_m,
+                twist_deg,
+                n_elements,
+                r_stations_m if r_stations_m is not None else [],
+                chord_stations_m if chord_stations_m is not None else [],
+                twist_stations_deg if twist_stations_deg is not None else [],
+                tip_loss,
+            ),
         )
 
-    def __init__(self, *args, **kwargs):
+    def __init__(
+        self,
+        n_blades: int,
+        radius_m: float,
+        root_cutout_m: float,
+        chord_m: float,
+        twist_deg: float = 0.0,
+        n_elements: int = 20,
+        r_stations_m: list[float] | None = None,
+        chord_stations_m: list[float] | None = None,
+        twist_stations_deg: list[float] | None = None,
+        tip_loss: bool = True,
+    ) -> None:
         pass
+
+    def validate(self) -> list[ValidationIssue]:
+        return _validate_blade(self)
 
 __all__ = [
     "LinearPolarParameters",
@@ -61,39 +91,12 @@ __all__ = [
     "ServoFlapActuation",
     "ServoFlapGeometry",
     "InertiaProperties",
-    "KamanFlap",
     "RotorDefinition",
     "ValidationIssue",
     "load",
     "loads",
     "default",
 ]
-
-
-# ---------------------------------------------------------------------------
-# Pure-Python metadata classes (no Rust backing needed)
-# ---------------------------------------------------------------------------
-
-class KamanFlap:
-    """Kaman servo-flap geometry data (Python-only, not used in Rust math)."""
-
-    def __init__(
-        self,
-        chord_fraction=None,
-        span_start_m=None,
-        span_end_m=None,
-        tau=None,
-        CM_gamma_per_rad=None,
-        swashplate_load_fraction=None,
-        notes="",
-    ):
-        self.chord_fraction = chord_fraction
-        self.span_start_m = span_start_m
-        self.span_end_m = span_end_m
-        self.tau = tau
-        self.CM_gamma_per_rad = CM_gamma_per_rad
-        self.swashplate_load_fraction = swashplate_load_fraction
-        self.notes = notes
 
 
 class ServoFlapGeometry:
@@ -106,21 +109,13 @@ class ServoFlapGeometry:
 
     def __init__(
         self,
-        C_M_delta_per_rad,
-        r_inner_m,
-        r_outer_m,
-    ):
+        C_M_delta_per_rad: float,
+        r_inner_m: float,
+        r_outer_m: float,
+    ) -> None:
         self.C_M_delta_per_rad = C_M_delta_per_rad
         self.r_inner_m = r_inner_m
         self.r_outer_m = r_outer_m
-
-    def _to_rust(self):
-        return _RustServoFlapGeometry(
-            C_M_delta_per_rad=self.C_M_delta_per_rad,
-            r_inner_m=self.r_inner_m,
-            r_outer_m=self.r_outer_m,
-        )
-
 
 class ServoFlapActuation:
     """Servo-flap pitch actuation: feathering + damper architecture.
@@ -160,23 +155,27 @@ class ServoFlapActuation:
 
     def __init__(
         self,
-        I_theta_kgm2,
-        damper_Nms_per_rad,
-        flap,
-        ac_offset_m=0.0,
-        blade_Cm_AC=0.0,
-    ):
+        I_theta_kgm2: float,
+        damper_Nms_per_rad: float,
+        flap: ServoFlapGeometry,
+        ac_offset_m: float = 0.0,
+        blade_Cm_AC: float = 0.0,
+    ) -> None:
         self.I_theta_kgm2 = I_theta_kgm2
         self.damper_Nms_per_rad = damper_Nms_per_rad
         self.flap = flap
         self.ac_offset_m = ac_offset_m
         self.blade_Cm_AC = blade_Cm_AC
 
-    def _to_rust(self):
+    def _to_rust(self) -> _RustServoFlapActuation:
         return _RustServoFlapActuation(
             I_theta_kgm2=float(self.I_theta_kgm2),
             damper_Nms_per_rad=float(self.damper_Nms_per_rad),
-            flap=self.flap._to_rust(),
+            flap=_RustServoFlapGeometry(
+                C_M_delta_per_rad=self.flap.C_M_delta_per_rad,
+                r_inner_m=self.flap.r_inner_m,
+                r_outer_m=self.flap.r_outer_m,
+            ),
             ac_offset_m=float(self.ac_offset_m),
             blade_Cm_AC=float(self.blade_Cm_AC),
         )
@@ -196,30 +195,25 @@ class FlapProperties:
                             Set to 0.0 for a freely-hinged blade (no spring).
     """
 
-    def __init__(self, I_blade_flap_kgm2, omega_nr_rad_s=0.0):
+    def __init__(
+        self, I_blade_flap_kgm2: float, omega_nr_rad_s: float = 0.0
+    ) -> None:
         self.I_blade_flap_kgm2 = I_blade_flap_kgm2
         self.omega_nr_rad_s = omega_nr_rad_s
-
-    def _to_rust(self):
-        return _RustFlapProperties(
-            I_blade_flap_kgm2=float(self.I_blade_flap_kgm2),
-            omega_nr_rad_s=float(self.omega_nr_rad_s),
-        )
-
 
 class InertiaProperties:
     """Rotor inertia data (Python-only, not used in Rust math)."""
 
     def __init__(
         self,
-        mass_kg=None,
-        I_body_kgm2=None,
-        I_spin_kgm2=None,
-        blade_mass_kg=None,
-        stationary_assembly_mass_kg=None,
-        spinning_hub_shell_mass_kg=None,
-        I_blade_flap_kgm2=None,
-    ):
+        mass_kg: float | None = None,
+        I_body_kgm2: list[float] | None = None,
+        I_spin_kgm2: float | None = None,
+        blade_mass_kg: float | None = None,
+        stationary_assembly_mass_kg: float | None = None,
+        spinning_hub_shell_mass_kg: float | None = None,
+        I_blade_flap_kgm2: float | None = None,
+    ) -> None:
         self.mass_kg = mass_kg
         self.I_body_kgm2 = list(I_body_kgm2) if I_body_kgm2 is not None else []
         self.I_spin_kgm2 = I_spin_kgm2
@@ -234,17 +228,17 @@ class LinearPolarParameters:
 
     def __init__(
         self,
-        CL0,
-        CL_alpha_per_rad,
-        CD0,
-        alpha_stall_deg,
-        Re_design=None,
-        name="",
-        source="",
-        polar_csv=None,
-        CD_structural=0.0,
-        Re_operating=None,
-    ):
+        CL0: float,
+        CL_alpha_per_rad: float,
+        CD0: float,
+        alpha_stall_deg: float,
+        Re_design: int | None = None,
+        name: str = "",
+        source: str = "",
+        polar_csv: str | None = None,
+        CD_structural: float = 0.0,
+        Re_operating: int | None = None,
+    ) -> None:
         self.Re_design = Re_design
         self.CL0 = CL0
         self.CL_alpha_per_rad = CL_alpha_per_rad
@@ -256,27 +250,28 @@ class LinearPolarParameters:
         self.CD_structural = CD_structural
         self.Re_operating = Re_operating
 
+    def validate(self) -> list[ValidationIssue]:
+        return _validate_airfoil(self)
+
 
 class ControlProperties:
     """Control / swashplate properties."""
 
     def __init__(
         self,
-        swashplate_pitch_gain_rad,
-        axle_attachment_length_m=None,
-        K_cyc=None,
-        swashplate_phase_deg=None,
-        servo_slew_rate_deg_s=None,
-        servo_travel_deg=None,
-        kaman_flap=None,
-    ):
+        swashplate_pitch_gain_rad: float,
+        axle_attachment_length_m: float | None = None,
+        K_cyc: float | None = None,
+        swashplate_phase_deg: float | None = None,
+        servo_slew_rate_deg_s: float | None = None,
+        servo_travel_deg: float | None = None,
+    ) -> None:
         self.swashplate_pitch_gain_rad = swashplate_pitch_gain_rad
         self.axle_attachment_length_m = axle_attachment_length_m
         self.K_cyc = K_cyc
         self.swashplate_phase_deg = swashplate_phase_deg
         self.servo_slew_rate_deg_s = servo_slew_rate_deg_s
         self.servo_travel_deg = servo_travel_deg
-        self.kaman_flap = kaman_flap
 
 
 class AutorotationProperties:
@@ -284,10 +279,10 @@ class AutorotationProperties:
 
     def __init__(
         self,
-        I_ode_kgm2=None,
-        omega_min_rad_s=None,
-        omega_eq_rad_s=None,
-    ):
+        I_ode_kgm2: float | None = None,
+        omega_min_rad_s: float | None = None,
+        omega_eq_rad_s: float | None = None,
+    ) -> None:
         self.I_ode_kgm2 = I_ode_kgm2
         self.omega_min_rad_s = omega_min_rad_s
         self.omega_eq_rad_s = omega_eq_rad_s
@@ -302,16 +297,16 @@ class RotorDefinition:
 
     def __init__(
         self,
-        blade,
-        airfoil,
-        control=None,
-        inertia=None,
-        autorotation=None,
-        servoflap=None,
-        flap=None,
-        name="",
-        description="",
-    ):
+        blade: BladeGeometry,
+        airfoil: LinearPolarParameters,
+        control: ControlProperties | None = None,
+        inertia: InertiaProperties | None = None,
+        autorotation: AutorotationProperties | None = None,
+        servoflap: ServoFlapActuation | None = None,
+        flap: FlapProperties | None = None,
+        name: str = "",
+        description: str = "",
+    ) -> None:
         auto = autorotation if autorotation is not None else AutorotationProperties()
         self.blade = blade
         self.airfoil = airfoil
@@ -325,20 +320,23 @@ class RotorDefinition:
 
     # Convenience geometry properties that delegate to blade.
     @property
-    def span_m(self):
+    def span_m(self) -> float:
         return self.blade.span_m
 
     @property
-    def r_cp_m(self):
+    def r_cp_m(self) -> float:
         return self.blade.r_cp_m
 
     @property
-    def disk_area_m2(self):
+    def disk_area_m2(self) -> float:
         return self.blade.disk_area_m2
 
     @property
-    def solidity(self):
+    def solidity(self) -> float:
         return self.blade.solidity
+
+    def validate(self) -> list[ValidationIssue]:
+        return _validate_definition(self)
 
 
 # ---------------------------------------------------------------------------
@@ -355,8 +353,8 @@ class ValidationIssue:
         return f"[{self.level}] {self.field}: {self.message}"
 
 
-def _validate_blade(self) -> List[ValidationIssue]:
-    issues: List[ValidationIssue] = []
+def _validate_blade(self: BladeGeometry) -> list[ValidationIssue]:
+    issues: list[ValidationIssue] = []
     if self.radius_m <= 0:
         issues.append(ValidationIssue("ERROR", "blade.radius_m", "must be positive"))
     if self.chord_m <= 0:
@@ -369,24 +367,20 @@ def _validate_blade(self) -> List[ValidationIssue]:
     return issues
 
 
-def _validate_airfoil(self) -> List[ValidationIssue]:
-    issues: List[ValidationIssue] = []
+def _validate_airfoil(self: LinearPolarParameters) -> list[ValidationIssue]:
+    issues: list[ValidationIssue] = []
     if self.CD0 < 0:
         issues.append(ValidationIssue("ERROR", "airfoil.CD0", "must be >= 0"))
     return issues
 
 
-def _validate_definition(self) -> List[ValidationIssue]:
+def _validate_definition(self: RotorDefinition) -> list[ValidationIssue]:
     return self.blade.validate() + self.airfoil.validate()
 
 
-# Attach validate() to BladeGeometry (Rust pyclass) and Python classes.
-BladeGeometry.validate = _validate_blade
-LinearPolarParameters.validate = _validate_airfoil
-RotorDefinition.validate = _validate_definition
-
-
-def _to_rust_control(control):
+def _to_rust_control(  # pyright: ignore[reportUnusedFunction]
+    control: ControlProperties | _RustControlProperties | None,
+) -> _RustControlProperties | None:
     """Build a lean ``_dynbem.ControlProperties`` from a Python wrapper.
 
     Returns ``None`` for ``None`` input; passes through a Rust object unchanged.
@@ -399,13 +393,28 @@ def _to_rust_control(control):
     )
 
 
-def _to_rust_defn(defn):
+def _to_rust_defn(  # pyright: ignore[reportUnusedFunction]
+    defn: RotorDefinition | _RustRotorDefinition,
+) -> _RustRotorDefinition:
     if isinstance(defn, _RustRotorDefinition):
         return defn
     airfoil = defn.airfoil
     control = defn.control
-    servoflap = getattr(defn, "servoflap", None)
-    flap = getattr(defn, "flap", None)
+    servoflap = defn.servoflap
+    flap = defn.flap
+    servoflap_rust = (
+        servoflap._to_rust()  # pyright: ignore[reportPrivateUsage]
+        if servoflap is not None
+        else None
+    )
+    flap_rust = (
+        _RustFlapProperties(
+            I_blade_flap_kgm2=float(flap.I_blade_flap_kgm2),
+            omega_nr_rad_s=float(flap.omega_nr_rad_s),
+        )
+        if flap is not None
+        else None
+    )
     return _RustRotorDefinition(
         blade=defn.blade,
         airfoil=_RustLinearPolarParameters(
@@ -418,14 +427,14 @@ def _to_rust_defn(defn):
             swashplate_pitch_gain_rad=control.swashplate_pitch_gain_rad,
             swashplate_phase_deg=control.swashplate_phase_deg,
         ) if control is not None else None,
-        servoflap=servoflap._to_rust() if servoflap is not None else None,
+        servoflap=servoflap_rust,
         name=defn.name,
         description=defn.description,
-        flap=flap._to_rust() if flap is not None else None,
+        flap=flap_rust,
     )
 
 
-def load(path: str) -> RotorDefinition:
+def load(path: str | Path) -> RotorDefinition:
     """Load a RotorDefinition from a YAML file.
 
     ``airfoil.polar_csv``, if relative, is resolved against the YAML
@@ -442,18 +451,18 @@ def load(path: str) -> RotorDefinition:
 # YAML helpers
 # ---------------------------------------------------------------------------
 
-def _maybe_sum(value: Any) -> Optional[float]:
+def _maybe_sum(value: Any) -> float | None:
     """Accept a scalar or a dict whose values are summed (legacy schema)."""
     if value is None:
         return None
     if isinstance(value, (int, float)):
         return float(value)
     if isinstance(value, dict):
-        return float(sum(value.values()))
+        return float(sum(cast(dict[str, Any], value).values()))
     raise ValueError(f"expected number or dict, got {type(value).__name__}")
 
 
-def _resolve_polar_csv(value: Optional[str], base_dir: Optional[str]) -> Optional[str]:
+def _resolve_polar_csv(value: str | None, base_dir: str | None) -> str | None:
     if value is None:
         return None
     p = Path(value)
@@ -462,26 +471,25 @@ def _resolve_polar_csv(value: Optional[str], base_dir: Optional[str]) -> Optiona
     return str(Path(base_dir) / p)
 
 
-def _build_kaman_flap(k: Dict[str, Any]) -> KamanFlap:
-    return KamanFlap(
-        chord_fraction=k.get("chord_fraction"),
-        span_start_m=k.get("span_start_m"),
-        span_end_m=k.get("span_end_m"),
-        tau=k.get("tau"),
-        CM_gamma_per_rad=k.get("CM_gamma_per_rad"),
-        swashplate_load_fraction=k.get("swashplate_load_fraction"),
-        notes=k.get("notes", "") or "",
-    )
+def _mapping(value: Any, section: str) -> dict[str, Any]:
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise TypeError(f"expected a mapping for {section}")
+    if not all(isinstance(key, str) for key in cast(dict[object, Any], value)):
+        raise ValueError(f"expected string keys in {section}")
+    return cast(dict[str, Any], value)
 
 
-def _build_from_dict(doc: Dict[str, Any], base_dir: Optional[str]) -> RotorDefinition:
-    r = doc.get("rotor") or {}
-    a = doc.get("airfoil") or {}
-    i = doc.get("inertia") or {}
-    c_raw = doc.get("control")
-    ar = doc.get("autorotation") or {}
+def _build_from_dict(doc: dict[str, Any], base_dir: str | None) -> RotorDefinition:
+    r = _mapping(doc.get("rotor"), "rotor")
+    a = _mapping(doc.get("airfoil"), "airfoil")
+    i = _mapping(doc.get("inertia"), "inertia")
+    control_value = doc.get("control")
+    c_raw = _mapping(control_value, "control") if control_value is not None else None
+    ar = _mapping(doc.get("autorotation"), "autorotation")
 
-    def _req(mapping: Dict[str, Any], key: str, section: str) -> Any:
+    def _req(mapping: dict[str, Any], key: str, section: str) -> Any:
         v = mapping.get(key)
         if v is None:
             raise ValueError(f"missing required field: {section}.{key}")
@@ -536,7 +544,11 @@ def _build_from_dict(doc: Dict[str, Any], base_dir: Optional[str]) -> RotorDefin
 
     control = None
     if c_raw is not None:
-        kf_raw = c_raw.get("kaman_flap")
+        if "kaman_flap" in c_raw:
+            raise ValueError(
+                "control.kaman_flap is no longer supported; configure active "
+                "servo-flap dynamics with pitch_actuation.servoflap"
+            )
         control = ControlProperties(
             swashplate_pitch_gain_rad=float(_req(c_raw, "swashplate_pitch_gain_rad", "control")),
             axle_attachment_length_m=c_raw.get("axle_attachment_length_m"),
@@ -544,7 +556,6 @@ def _build_from_dict(doc: Dict[str, Any], base_dir: Optional[str]) -> RotorDefin
             swashplate_phase_deg=c_raw.get("swashplate_phase_deg"),
             servo_slew_rate_deg_s=c_raw.get("servo_slew_rate_deg_s"),
             servo_travel_deg=c_raw.get("servo_travel_deg"),
-            kaman_flap=_build_kaman_flap(kf_raw) if kf_raw else None,
         )
 
     autorotation = AutorotationProperties(
@@ -563,11 +574,14 @@ def _build_from_dict(doc: Dict[str, Any], base_dir: Optional[str]) -> RotorDefin
     #       flap: { C_M_delta_per_rad: ..., r_inner_m: ..., r_outer_m: ... }
     # Absent `pitch_actuation` (or absent `servoflap`) => direct mechanical.
     servoflap = None
-    pa_raw = doc.get("pitch_actuation")
-    if pa_raw is not None:
-        sf_raw = pa_raw.get("servoflap")
+    pa_value = doc.get("pitch_actuation")
+    if pa_value is not None:
+        pa_raw = _mapping(pa_value, "pitch_actuation")
+        sf_value = pa_raw.get("servoflap")
+        sf_raw = _mapping(sf_value, "pitch_actuation.servoflap") if sf_value is not None else None
         if sf_raw is not None:
-            flap_raw = sf_raw.get("flap")
+            flap_value = sf_raw.get("flap")
+            flap_raw = _mapping(flap_value, "pitch_actuation.servoflap.flap") if flap_value is not None else None
             if flap_raw is None:
                 raise ValueError(
                     "missing required field: pitch_actuation.servoflap.flap"
@@ -595,8 +609,9 @@ def _build_from_dict(doc: Dict[str, Any], base_dir: Optional[str]) -> RotorDefin
     #     I_blade_flap_kgm2: ...
     #     omega_nr_rad_s: ...        (optional, default 0.0 = pure hinge)
     flap_props = None
-    flap_raw = doc.get("flap")
-    if flap_raw is not None:
+    flap_value = doc.get("flap")
+    if flap_value is not None:
+        flap_raw = _mapping(flap_value, "flap")
         flap_props = FlapProperties(
             I_blade_flap_kgm2=float(_req(flap_raw, "I_blade_flap_kgm2", "flap")),
             omega_nr_rad_s=float(flap_raw.get("omega_nr_rad_s") or 0.0),
@@ -615,7 +630,7 @@ def _build_from_dict(doc: Dict[str, Any], base_dir: Optional[str]) -> RotorDefin
     )
 
 
-def loads(text: str, base_dir: Optional[str] = None) -> RotorDefinition:
+def loads(text: str, base_dir: str | None = None) -> RotorDefinition:
     """Parse a RotorDefinition from a YAML string.
 
     ``base_dir``, if provided, is the directory used to resolve a
@@ -623,7 +638,11 @@ def loads(text: str, base_dir: Optional[str] = None) -> RotorDefinition:
     verbatim.
     """
     doc = yaml.safe_load(text)
-    return _build_from_dict(doc, base_dir)
+    if not isinstance(doc, dict):
+        raise ValueError("rotor definition must be a YAML mapping")
+    if not all(isinstance(key, str) for key in cast(dict[object, Any], doc)):
+        raise ValueError("rotor definition keys must be strings")
+    return _build_from_dict(cast(dict[str, Any], doc), base_dir)
 
 
 def default() -> RotorDefinition:

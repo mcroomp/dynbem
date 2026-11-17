@@ -321,19 +321,14 @@ Additional Python-only classes wrapping the Rust types with metadata fields:
 | `ServoFlapGeometry` | `_RustServoFlapGeometry` | *(none)* | Direct re-export |
 | `ServoFlapActuation` | `_RustServoFlapActuation` | *(none)* | Direct re-export |
 | `FlapProperties` | `_RustFlapProperties` | *(none)* | Direct re-export |
-| `RotorDefinition` | `_RustRotorDefinition` | `inertia`, `kaman_flap`, `autorotation`, `validation_issues` | YAML metadata |
+| `RotorDefinition` | `_RustRotorDefinition` | `inertia`, `autorotation`, `validation_issues` | YAML metadata |
 
 **Key:** Python classes hold a `_rust` attribute containing the lean Rust wrapper.
 
 ### rotor_state.py
 
-Virtual base class registering concrete state types:
-
-```python
-RotorState.register(QuasiStaticRotorState)
-RotorState.register(PittPetersRotorState)
-RotorState.register(OyeRotorState)
-```
+Re-exports the concrete Rust-backed rotor-state types. There is no shared
+Python `RotorState` base class.
 
 ---
 

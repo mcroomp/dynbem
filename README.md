@@ -60,6 +60,19 @@ Both scripts check prerequisites (uv, cargo), then run `uv sync --group dev`,
 which creates the `.venv`, installs dependencies, and builds the Rust
 extension via maturin. See [setup.sh](setup.sh) for details.
 
+Source builds require Rust 1.99 or newer and use the Rust 2024 edition.
+The dependency upgrade was tested with stable Rust 1.99.1. Update an existing
+toolchain with `rustup update stable`. The development workspace requires
+Python 3.14+, while the published package and its `abi3-py312` wheels support
+Python 3.12+.
+
+All repository packages share the `0.10.0` release version. Cargo workspace
+members inherit `workspace.package.version` from [`Cargo.toml`](Cargo.toml), and
+maturin derives the Python `dynbem` version from its Cargo package. The
+development project's [`pyproject.toml`](pyproject.toml) and the standalone
+visualizer's [`Cargo.toml`](vpm_viz/Cargo.toml) require matching explicit
+versions because they do not share that metadata inheritance mechanism.
+
 **Manual setup** (equivalent to what the scripts run):
 
 The repo is a uv workspace + Cargo workspace. The Rust extension is built
@@ -76,6 +89,12 @@ Python dependencies are resolved through the default uv index configured in
 `https://packagefeedproxy.microsoft.io/pypi/simple/`, matching the sibling
 `windpower` project. Setup scripts and `uv run` use this feed automatically.
 
+Lockfiles are intentionally untracked in this repository. To refresh locally
+resolved dependencies, run `cargo update`, `cargo update --manifest-path
+vpm_viz/Cargo.toml`, and `uv sync --upgrade --group dev`. The standalone
+visualizer has its own Cargo workspace and must be checked separately with
+`cargo check --manifest-path vpm_viz/Cargo.toml`.
+
 The publishable Python package is [`dynbem/`](dynbem/) (Rust-backed via
 PyO3). Inside a non-uv environment you can still `pip install -e dynbem/`
 — maturin will pick up `dynbem/pyproject.toml` and compile the extension
@@ -83,6 +102,26 @@ against the sibling [`dynbem_rs/`](dynbem_rs/) crate. Requires a working
 Rust toolchain (`rustup` stable).
 
 ## Usage
+
+### Interactive Rust viewers
+
+- [VPM visualizer](vpm_viz/src/main.rs):
+  `cargo run --release --manifest-path vpm_viz/Cargo.toml`.
+  Z/C adjust wind speed, A/D wind angle (0 deg axial, 90 deg crosswind),
+  arrows cyclic, Q/E collective, and brackets drive torque. Wind speed and
+  torque have a zero floor and no upper cap. Cyclic is limited to +/-10 deg
+  and collective to 0--14 deg. Arrows show computed forces, smoothed only
+  for display. Keyboard rates use wall time; physics advances one fixed
+  1/1200 s step per frame, so playback is slower than real time.
+- [3D flight sandbox](steady_flight_simple/README.md):
+  `cargo run --release -p steady_flight_simple -- vpm`.
+  Also accepts `bem`, `oye`, or `pitt_peters`. This is a fixed-speed,
+  simplified tether/control demonstration, not a validated flight solver.
+
+Both require a graphical desktop. The Bevy sandbox enables only its rendering
+and windowing dependencies; it does not require audio or gamepad libraries.
+
+### Python API
 
 ```python
 import numpy as np
@@ -159,6 +198,17 @@ refresh aggregate bounds. For which papers and tables the models are
 checked against, what the achieved variance is, and the physical
 reasons for any residual bias, see
 [EMPIRICAL_VALIDATION.md](docs/EMPIRICAL_VALIDATION.md).
+
+## Static checks
+
+The dev dependency group includes Ruff and Pyright. Ruff checks all Python
+files in the repository; Pyright runs in strict mode on the production
+`dynbem/python/dynbem` package.
+
+```
+uv run ruff check .
+uv run pyright
+```
 
 ## Performance
 

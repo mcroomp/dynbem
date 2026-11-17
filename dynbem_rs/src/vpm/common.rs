@@ -1298,7 +1298,7 @@ mod tests {
     use super::*;
     // The merge/aging tests below exercise the sibling submodules directly.
     use crate::vpm::aging::{core_spread, strength_decay};
-    use crate::vpm::merge::{merge_particles, MergeOpts};
+    use crate::vpm::merge::{MergeOpts, merge_particles};
     use std::f64::consts::PI;
 
     /// A diverged wake with an infinite particle coordinate must NOT send the

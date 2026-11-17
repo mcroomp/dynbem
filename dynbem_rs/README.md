@@ -3,6 +3,9 @@
 Pure-Rust BEM / Pitt-Peters / Oye / VPM rotor aerodynamics library.
 No pyo3, no numpy, no file I/O -- just the math.
 
+Requires Rust 1.99+ and uses the Rust 2024 edition. The SIMD kernels use
+`wide` 1.7; benchmarks use Criterion 0.8 and `std::hint::black_box`.
+
 This crate is the computational core behind the
 [dynbem](https://github.com/mcroomp/dynbem) Python package, which wraps it
 via PyO3 + maturin and provides the public Python API.
@@ -115,7 +118,7 @@ Add to `Cargo.toml`:
 
 ```toml
 [dependencies]
-dynbem_rs = "0.7"
+dynbem_rs = "0.9"
 ```
 
 ```rust

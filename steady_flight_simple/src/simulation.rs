@@ -464,8 +464,48 @@ pub fn update_simulation(time: Res<Time>, mut runner: ResMut<SimRunner>) {
         runner.accumulator_s -= SIM_DT;
         steps += 1;
     }
+
     if runner.accumulator_s > SIM_DT {
         // Discard the backlog we could not process this frame.
         runner.accumulator_s = 0.0;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn all_models_advance_without_a_window() {
+        for choice in [
+            ModelChoice::Bem,
+            ModelChoice::PittPeters,
+            ModelChoice::Oye,
+            ModelChoice::Vpm,
+        ] {
+            let mut sim = FlightSim::new(choice);
+            let initial = sim.position_ned();
+            for _ in 0..10 {
+                sim.step(SIM_DT);
+                assert!(
+                    sim.pos.into_iter().chain(sim.vel).all(f64::is_finite),
+                    "{choice:?}"
+                );
+                assert!(sim.roll.is_finite() && sim.pitch.is_finite(), "{choice:?}");
+                assert!(sim.p_rate.abs() <= MAX_ANG_RATE_RAD_S);
+                assert!(sim.q_rate.abs() <= MAX_ANG_RATE_RAD_S);
+            }
+            assert_ne!(sim.position_ned(), initial, "{choice:?}");
+            let wake = sim.wake_particles_hub();
+            if matches!(choice, ModelChoice::Vpm) {
+                assert!(!wake.is_empty());
+                assert!(
+                    wake.iter()
+                        .all(|(pos, mag)| { pos.iter().all(|x| x.is_finite()) && mag.is_finite() })
+                );
+            } else {
+                assert!(wake.is_empty());
+            }
+        }
     }
 }

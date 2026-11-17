@@ -5,17 +5,21 @@ Hover CT-vs-BEM parity coverage is exercised in Rust unit tests
 inflow transients, and oblique-flow covariance.
 """
 
+from __future__ import annotations
+
 import math
 from pathlib import Path
+from typing import TYPE_CHECKING
 import numpy as np
 import pytest
 
-from dynbem.pitt_peters import PittPetersModel
-from dynbem.bem import BEMModel
 from dynbem import RotorInputs
 import dynbem.rotor_definition as rotor_definition
 from dynbem.rotor_state import PittPetersRotorState, QuasiStaticRotorState
 from tests.helpers import make_bem, make_pitt_peters
+
+if TYPE_CHECKING:
+    from dynbem.factory import QuasiStaticModel
 
 _ROTOR_YAML = str(
     Path(__file__).parent.parent / "rotors" / "castles_gray_6ft" / "rotor.yaml"
@@ -77,7 +81,7 @@ def _euler_to_steady(model, theta_deg: float, rpm: float, v_climb_ms: float,
     return CT, CQ, lam0
 
 
-def _bem_ct(model: BEMModel, theta_deg: float, rpm: float, v_climb_ms: float) -> float:
+def _bem_ct(model: QuasiStaticModel, theta_deg: float, rpm: float, v_climb_ms: float) -> float:
     omega = rpm * math.pi / 30.0
     R = model.defn.blade.radius_m
     A = math.pi * R**2
@@ -133,10 +137,7 @@ class TestPittPetersVRS:
         CT_nom = 0.004
         omega = rpm * math.pi / 30.0
         R = defn.blade.radius_m
-        A = math.pi * R**2
-
         # Find hover equilibrium first, then apply descent
-        hover_ct_bem = _bem_ct(make_bem(defn), theta_deg, rpm, 0.0)
         _ct, _, lam0_hover = _euler_to_steady(pp_model, theta_deg, rpm, 0.0)
 
         v_or_target = 0.020  # V/OR = 0.020, lambda2 ~ 0.4 in Level-1 blow-up zone
@@ -185,8 +186,6 @@ class TestPittPetersWBS:
         """
         theta_deg, rpm = 8.86, 1200
         omega = rpm * math.pi / 30.0
-        R = defn.blade.radius_m
-        A = math.pi * R**2
 
         # Find hover equilibrium lam0
         lam0_eq = 0.0

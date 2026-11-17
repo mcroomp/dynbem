@@ -57,7 +57,7 @@ def main() -> int:
     with PER_ELEMENT_CSV.open() as fh:
         rows = list(csv.DictReader(fh))
 
-    print(f"dynbem.TabulatedPolar vs AeroDyn polar lookup")
+    print("dynbem.TabulatedPolar vs AeroDyn polar lookup")
     print(f"Comparing on {len(rows)} (case, element) AeroDyn evaluations")
     print()
     print(f"{'case':>4} {'el':>3} {'alpha_deg':>10} "

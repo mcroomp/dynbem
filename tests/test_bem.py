@@ -11,7 +11,7 @@ import math
 import numpy as np
 import pytest
 
-from dynbem import AeroResult, BEMModel, RotorInputs, build_polar
+from dynbem import AeroResult, RotorInputs
 from dynbem.rotor_definition import (
     LinearPolarParameters, AutorotationProperties, BladeGeometry, RotorDefinition,
 )

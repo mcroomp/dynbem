@@ -1,19 +1,21 @@
-// dynbem-py: PyO3 glue crate. Wraps the pure-Rust dynbem-core API in
-// #[pyclass] newtypes and registers the _dynbem_rs Python module.
-// See crates/dynbem-py/CLAUDE.md.
+// PyO3 glue crate. Wraps the pure-Rust dynbem_rs API in #[pyclass] newtypes.
 
 #![allow(clippy::too_many_arguments)]
 
 use pyo3::prelude::*;
 use pyo3::wrap_pyfunction;
+#[cfg(feature = "stubgen")]
+use pyo3_stub_gen::define_stub_info_gatherer;
 
 mod conv;
 mod trim_py;
 mod wrappers;
 
-use trim_py::{relax_inflow_py, solve_trim_cyclic_py, PyTrimResult};
+use trim_py::{PyTrimResult, relax_inflow_py, solve_trim_cyclic_py};
 use wrappers::*;
 
+#[cfg_attr(feature = "stubgen", pyo3_stub_gen_derive::gen_stub_pyfunction)]
+#[cfg_attr(not(feature = "stubgen"), pyo3_stub_gen_derive::remove_gen_stub)]
 #[pyfunction]
 #[pyo3(signature = (tilt_lon, tilt_lat, control = None))]
 fn cyclic_coeffs(tilt_lon: f64, tilt_lat: f64, control: Option<PyControlProperties>) -> (f64, f64) {
@@ -33,6 +35,8 @@ fn cyclic_coeffs(tilt_lon: f64, tilt_lat: f64, control: Option<PyControlProperti
 /// Rigid-body rotor spin ODE derivative. See dynbem_rs::mechanical for the
 /// full physics (Coulomb bearing friction is always a parameter; pass
 /// bearing_friction_nm=0.0 for a frictionless bearing).
+#[cfg_attr(feature = "stubgen", pyo3_stub_gen_derive::gen_stub_pyfunction)]
+#[cfg_attr(not(feature = "stubgen"), pyo3_stub_gen_derive::remove_gen_stub)]
 #[pyfunction]
 #[pyo3(signature = (omega, q_aero, motor_torque_nm, i_ode_kgm2, bearing_friction_nm = 0.0))]
 fn omega_derivative(
@@ -54,6 +58,8 @@ fn omega_derivative(
 /// Semi-implicit (locally-frozen relaxation) step for the rigid-body spin
 /// ODE. This is the single canonical, recommended integrator -- see
 /// dynbem_rs::mechanical for the full derivation and stability properties.
+#[cfg_attr(feature = "stubgen", pyo3_stub_gen_derive::gen_stub_pyfunction)]
+#[cfg_attr(not(feature = "stubgen"), pyo3_stub_gen_derive::remove_gen_stub)]
 #[pyfunction]
 #[pyo3(signature = (omega, q_aero, motor_torque_nm, i_ode_kgm2, dt, bearing_friction_nm = 0.0))]
 fn step_omega(
@@ -107,3 +113,6 @@ fn _dynbem(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(relax_inflow_py, m)?)?;
     Ok(())
 }
+
+#[cfg(feature = "stubgen")]
+define_stub_info_gatherer!(stub_info);

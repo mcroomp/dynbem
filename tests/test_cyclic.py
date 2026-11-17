@@ -19,7 +19,7 @@ import pytest
 from dynbem import RotorInputs, create_aero
 from dynbem.cyclic import cyclic_coeffs
 from dynbem.rotor_definition import load as load_rotor
-from dynbem.rotor_state import PittPetersRotorState, QuasiStaticRotorState
+from dynbem.rotor_state import PittPetersRotorState
 from tests.helpers import pp_state
 
 
@@ -162,7 +162,6 @@ def _euler_integrate_pp(model, inputs, n_steps=200, dt=0.0005):
     (τ_cs ≈ tens of ms at hover) to converge.  Returns the final state and
     the final compute_forces result.
     """
-    from dynbem.rotor_state import PittPetersRotorState
 
     state = pp_state()
     res = None

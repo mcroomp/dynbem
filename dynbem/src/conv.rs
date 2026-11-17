@@ -39,12 +39,10 @@ pub fn read_mat3(arr: PyReadonlyArray2<'_, f64>, name: &str) -> PyResult<Mat3> {
 }
 
 pub fn vec3_to_py<'py>(py: Python<'py>, v: &Vec3) -> Bound<'py, PyArray1<f64>> {
-    vec![v.0[0], v.0[1], v.0[2]].into_pyarray_bound(py)
+    vec![v.0[0], v.0[1], v.0[2]].into_pyarray(py)
 }
 
 pub fn mat3_to_py<'py>(py: Python<'py>, m: &Mat3) -> Bound<'py, numpy::PyArray2<f64>> {
     let flat: Vec<f64> = m.0.iter().flatten().copied().collect();
-    numpy::PyArray1::from_vec_bound(py, flat)
-        .reshape([3, 3])
-        .unwrap()
+    numpy::PyArray1::from_vec(py, flat).reshape([3, 3]).unwrap()
 }

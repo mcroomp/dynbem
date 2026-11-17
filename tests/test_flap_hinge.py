@@ -14,10 +14,10 @@ import pytest
 import numpy as np
 import dynbem
 from dynbem.rotor_definition import (
-    load, FlapProperties, RotorDefinition,
+    FlapProperties, RotorDefinition,
     BladeGeometry, LinearPolarParameters, ControlProperties,
 )
-from dynbem._dynbem import RotorInputs, FlapProperties as _RustFlapProperties
+from dynbem._dynbem import RotorInputs
 
 
 # ---------------------------------------------------------------------------

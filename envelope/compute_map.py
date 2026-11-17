@@ -373,7 +373,7 @@ def plot_curves(data: dict[str, Any], out_dir: str = ".") -> list[str]:
 
         axes[0].set_ylabel("Equilibrium collective (deg)")
 
-        cb = fig.colorbar(sm, ax=axes, label="Elevation (deg)", shrink=0.8)
+        fig.colorbar(sm, ax=axes, label="Elevation (deg)", shrink=0.8)
 
         fig.tight_layout()
         fname = out_path / f"envelope_wind{ws:.0f}ms.png"

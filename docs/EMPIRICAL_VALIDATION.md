@@ -12,11 +12,20 @@ git clone.
 
 ## Servo-flap pitch actuation status
 
-The servo-flap actuation model (`dynbem_rs/src/servoflap.rs`)
-is currently covered by unit and integration behavior tests, but it is not yet
-benchmarked against a dedicated published servo-flap rotor dataset. Treat its
-authority and damping response as engineering behavior, not an empirically
-calibrated claim.
+The servo-flap actuation model (`dynbem_rs/src/servoflap.rs`) has unit tests
+and directional VPM checks for internal equation consistency, bounded trim,
+and expected qualitative response. These checks are not comparisons against
+measured servo-flap amplitudes, phase, trim, or damping, and do not establish
+quantitative physical accuracy.
+
+No dedicated published servo-flap rotor dataset is currently used to benchmark
+the model. Treat its predicted authority, damping response, and trim as
+uncalibrated engineering estimates. In particular, centrifugal pitch stiffness
+uses the thin-blade approximation `I_theta * omega^2`; the actual value depends
+on the blade's spanwise mass distribution. The BEM feathering model also
+linearizes dynamic pressure to the mean and first harmonic of in-plane wind,
+while BEM flapping remains a post-sweep hub-load correction. VPM feathering and
+flapping interact through their shared section loads.
 
 ---
 

@@ -87,14 +87,14 @@ use std::f64::consts::PI;
 use crate::aero_io::{AeroResult, RotorInputs};
 use crate::aero_model::{AeroModel, RotorStateExt};
 use crate::bem_common::{
-    apply_flap_dynamics, assemble_result, build_psi_trig_table, element_force, kinematics,
-    v_mass_flow_disk, vrs_regime, ElementCtx, PsiKernel, RadialGrid, SweepCtx,
+    ElementCtx, PsiKernel, RadialGrid, SweepCtx, apply_flap_dynamics, assemble_result,
+    build_psi_trig_table, element_force, kinematics, v_mass_flow_disk, vrs_regime,
 };
-use crate::common::{vrs_lambda1, EPS_DENOM, EPS_OMEGA_R, MU_T_FLOOR};
+use crate::common::{EPS_DENOM, EPS_OMEGA_R, MU_T_FLOOR, vrs_lambda1};
 use crate::cyclic::cyclic_coeffs;
 use crate::polar::Polar;
 use crate::rotor_definition::{PitchActuation, RotorDefinition};
-use crate::servoflap::{solve_feathering, FeatheringState};
+use crate::servoflap::{FeatheringState, solve_feathering};
 
 #[derive(Clone, Debug, Default)]
 pub struct PittPetersRotorState {
@@ -193,7 +193,6 @@ impl<P: Polar + Clone> AeroModel for PittPetersModel<P> {
         let hub_axis = kin.hub_axis;
         let v_climb = kin.v_climb;
         let v_edge = kin.v_edge;
-        let mu = kin.mu;
         let v_inplane_hub = kin.v_inplane_hub;
 
         let lam0 = state.lambda_0;
@@ -225,9 +224,8 @@ impl<P: Polar + Clone> AeroModel for PittPetersModel<P> {
                 theta_1s,
                 rho,
                 omega,
-                mu,
-                r_tip,
-                blade.chord_m,
+                v_inplane_hub,
+                &self.grid,
                 self.defn.airfoil.CL_alpha_per_rad,
             ),
         };

@@ -3,7 +3,9 @@
 // Moved from dynbem_rs/src/vpm/mod.rs::tests. Three checks:
 //   1. Zero swashplate command -> zero feathering on all blades.
 //   2. Collective command drives feathering to a bounded, settled angle.
-//   3. Cyclic command raises hub moment relative to no-command baseline.
+//   3. Cyclic command changes the hub-moment vector from the no-command
+//      baseline. Its expected axis and sign are checked separately in
+//      cyclic_phase_servo.
 //
 // The bounded/settled DC feathering in check 2 requires a restoring spring.
 // This is the aerodynamic spring from a nonzero ac_offset (AC aft of the
@@ -104,7 +106,41 @@ pub fn check_servo_flap(r: &mut Report) {
         );
     }
 
-    // --- 3. Cyclic command -> raises hub moment vs no-command baseline ---
+    // At zero AC offset there is no aerodynamic spring, but the rotating
+    // blade's centrifugal stiffness still gives a finite DC equilibrium.
+    let mut defn_centered = theory_rotor(10, 2.0);
+    defn_centered.pitch_actuation = PitchActuation::ServoFlap(servo_actuation(0.0));
+    let rotor_centered = make_fast_rotor(&defn_centered);
+    let (_res_centered, state_centered) =
+        rotor_centered.march(&fc_col, None, dt, 13 * STEPS_PER_REV);
+    let theta_centered = state_centered
+        .theta_f
+        .expect("servo active -> theta_f present");
+    let theta_dot_centered = state_centered
+        .theta_f_dot
+        .expect("servo active -> theta_f_dot present");
+    for (i, (&theta, &theta_dot)) in theta_centered.iter().zip(&theta_dot_centered).enumerate() {
+        r.assert_bool(
+            &format!("centered_blade{i}"),
+            "finite_dc_trim",
+            theta.abs(),
+            0.7,
+            theta.is_finite() && theta.abs() > 1e-3 && theta.abs() < 0.7,
+            &format!(
+                "centrifugal stiffness should give bounded DC trim at zero offset, got {theta:.4} rad"
+            ),
+        );
+        r.assert_bool(
+            &format!("centered_blade{i}"),
+            "dc_trim_settled",
+            theta_dot.abs(),
+            2.0,
+            theta_dot.is_finite() && theta_dot.abs() < 2.0,
+            &format!("zero-offset DC trim should settle, got {theta_dot:.3} rad/s"),
+        );
+    }
+
+    // --- 3. Cyclic command -> changes the hub-moment vector ---
     let n_steps = 21 * STEPS_PER_REV;
     let (no_cyc, _) = rotor.march(&hover_fc(8.0), None, dt, n_steps);
     let mut fc_cyc = hover_fc(8.0);
@@ -113,17 +149,19 @@ pub fn check_servo_flap(r: &mut Report) {
 
     let m_none = no_cyc.my_hub.hypot(no_cyc.mx_hub);
     let m_cyc = with_cyc.my_hub.hypot(with_cyc.mx_hub);
+    let m_delta = (with_cyc.my_hub - no_cyc.my_hub).hypot(with_cyc.mx_hub - no_cyc.mx_hub);
     r.info("cyclic_cmd", "hub_moment_no_cyc_Nm", m_none, f64::NAN);
     r.info("cyclic_cmd", "hub_moment_with_cyc_Nm", m_cyc, f64::NAN);
+    r.info("cyclic_cmd", "hub_moment_change_Nm", m_delta, f64::NAN);
     r.assert_bool(
         "cyclic_cmd",
-        "hub_moment_raised",
-        m_cyc,
-        m_none,
-        m_cyc > m_none,
+        "hub_moment_changed",
+        m_delta,
+        1e-3,
+        m_delta > 1e-3,
         &format!(
-            "cyclic feathering should raise hub moment: {:.3} vs {:.3} N*m",
-            m_cyc, m_none
+            "cyclic feathering should change the hub-moment vector by more than 1e-3 N*m, got {:.3}",
+            m_delta
         ),
     );
 }

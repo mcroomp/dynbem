@@ -90,7 +90,7 @@ def check_tabulated_vs_np_interp() -> int:
     cd_np_rand = np.interp(rand_alpha, a_tab, cd_tab)
     rcl_err = np.abs(cl_db_rand - cl_np_rand).max()
     rcd_err = np.abs(cd_db_rand - cd_np_rand).max()
-    print(f"\nOn 10,000 random alphas in the same range vs np.interp:")
+    print("\nOn 10,000 random alphas in the same range vs np.interp:")
     print(f"  Cl:  max abs err = {rcl_err:.2e}")
     print(f"  Cd:  max abs err = {rcd_err:.2e}")
 

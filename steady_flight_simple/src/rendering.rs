@@ -1,8 +1,9 @@
 use bevy::prelude::*;
 use bevy::render::mesh::{Indices, PrimitiveTopology};
 use bevy::render::render_asset::RenderAssetUsages;
+use bevy::render::view::NoFrustumCulling;
 
-use crate::simulation::{hub_rotation, SimRunner};
+use crate::simulation::{SimRunner, hub_rotation};
 
 const WORLD_SCALE: f32 = 0.3;
 const HUB_RADIUS: f32 = 0.2 * WORLD_SCALE;
@@ -242,6 +243,7 @@ pub fn setup_scene(
     });
     commands.spawn((
         WakeCloud,
+        NoFrustumCulling,
         PbrBundle {
             mesh: cloud_mesh,
             material: cloud_material,
@@ -298,7 +300,9 @@ pub fn update_visuals(
     let rotor_q = rotor_quat_in_bevy(sim.roll_rad(), sim.pitch_rad());
     let axis_world = rotor_q * Vec3::Y;
 
-    if let Ok(mut rotor_tf) = q.p0().get_single_mut() {
+    {
+        let mut roots = q.p0();
+        let mut rotor_tf = roots.single_mut();
         rotor_tf.translation = hub_pos;
         rotor_tf.rotation = rotor_q;
     }
@@ -308,12 +312,15 @@ pub fn update_visuals(
     let blade_center_r = (BLADE_ATTACH_R_M + BLADE_VISIBLE_SPAN_M * 0.5) * WORLD_SCALE;
     for (blade, mut tf) in &mut q.p1() {
         let a = sim.rotor_phase_rad() as f32 + blade.phase_rad;
-        let spin = Quat::from_rotation_y(a);
+        // Local +Z is hub -Y, so positive azimuth needs negative local-Y rotation.
+        let spin = Quat::from_rotation_y(-a);
         tf.rotation = spin;
         tf.translation = (spin * Vec3::X) * blade_center_r;
     }
 
-    if let Ok(mut tether_tf) = q.p2().get_single_mut() {
+    {
+        let mut tethers = q.p2();
+        let mut tether_tf = tethers.single_mut();
         let a = Vec3::ZERO;
         // Attach at axle-bottom-like offset instead of hub center.
         let b = hub_pos - axis_world.normalize_or_zero() * (AXLE_OFFSET_M * WORLD_SCALE);
@@ -331,7 +338,8 @@ pub fn follow_camera(runner: Res<SimRunner>, mut cam_q: Query<&mut Transform, Wi
     let sim = &runner.sim;
     let hub_pos = ned_to_bevy(sim.position_ned());
 
-    if let Ok(mut cam_tf) = cam_q.get_single_mut() {
+    {
+        let mut cam_tf = cam_q.single_mut();
         // Keep a fixed 3/4 offset relative to the hub so it stays large on screen.
         // Side-on view: offset along the horizontal +Z axis at hub height.
         let eye = hub_pos + Vec3::new(0.0, CAM_ELEVATION, CAM_DISTANCE);
@@ -358,18 +366,14 @@ pub fn update_particles(
     let hub_pos = ned_to_bevy(sim.position_ned());
     let rotor_q = rotor_quat_in_bevy(sim.roll_rad(), sim.pitch_rad());
 
-    let Ok(mesh_handle) = cloud_q.get_single() else {
-        return;
-    };
-    let Some(mesh) = meshes.get_mut(mesh_handle) else {
-        return;
-    };
+    let mesh_handle = cloud_q.single();
+    let mesh = meshes
+        .get_mut(mesh_handle)
+        .expect("WakeCloud mesh must remain in Assets<Mesh>");
 
     // Camera-facing basis so each quad always faces the viewer.
-    let (right, up) = match cam_q.get_single() {
-        Ok(t) => (Vec3::from(t.right()), Vec3::from(t.up())),
-        Err(_) => (Vec3::X, Vec3::Y),
-    };
+    let camera = cam_q.single();
+    let (right, up) = (Vec3::from(camera.right()), Vec3::from(camera.up()));
     let rx = right * PARTICLE_HALF_SIZE;
     let uy = up * PARTICLE_HALF_SIZE;
     let normal = {
@@ -417,4 +421,48 @@ pub fn update_particles(
     mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
     mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, colors);
     mesh.insert_indices(Indices::U32(indices));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn blade_and_wake_use_the_same_ccw_azimuth() {
+        let mut app = App::new();
+        app.insert_resource(SimRunner {
+            sim: crate::simulation::FlightSim::new(crate::simulation::ModelChoice::Bem),
+            accumulator_s: 0.0,
+        });
+        app.world_mut().spawn((RotorRoot, Transform::default()));
+        app.world_mut().spawn((TetherVisual, Transform::default()));
+        let phase = std::f32::consts::FRAC_PI_2;
+        let blade = app
+            .world_mut()
+            .spawn((Blade { phase_rad: phase }, Transform::default()))
+            .id();
+        app.add_systems(Update, update_visuals);
+        app.update();
+
+        let transform = app.world().get::<Transform>(blade).unwrap();
+        let sim = &app.world().resource::<SimRunner>().sim;
+        let orientation = rotor_quat_in_bevy(sim.roll_rad(), sim.pitch_rad());
+        let radius = BLADE_VISIBLE_SPAN_M * 0.5;
+        let expected = orientation
+            * hub_point_to_local_bevy([radius * phase.cos(), -radius * phase.sin(), 0.0]);
+        let actual = orientation * transform.translation;
+        assert!(actual.abs_diff_eq(expected, 1e-6));
+
+        let hub = hub_rotation(sim.roll_rad(), sim.pitch_rad());
+        let world_radial = [
+            hub.0[0][0] * phase.cos() as f64 - hub.0[0][1] * phase.sin() as f64,
+            hub.0[1][0] * phase.cos() as f64 - hub.0[1][1] * phase.sin() as f64,
+            hub.0[2][0] * phase.cos() as f64 - hub.0[2][1] * phase.sin() as f64,
+        ];
+        assert!(
+            actual
+                .normalize()
+                .abs_diff_eq(ned_dir_to_bevy(world_radial), 1e-6)
+        );
+    }
 }
