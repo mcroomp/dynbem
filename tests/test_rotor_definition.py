@@ -1,8 +1,6 @@
 import pytest
 
-from dynbem.rotor_definition import (
-    RotorDefinition,
-)
+from dynbem.rotor_definition import RotorDefinition, loads
 from tests.helpers import make_airfoil, make_blade, make_control
 
 
@@ -100,3 +98,23 @@ class TestRotorDefinition:
 
     def test_autorotation_defaults(self, defn):
         assert defn.autorotation.omega_eq_rad_s is None
+
+    def test_legacy_kaman_flap_yaml_is_rejected(self):
+        text = """
+rotor:
+  n_blades: 2
+  radius_m: 1.0
+  root_cutout_m: 0.1
+  chord_m: 0.1
+airfoil:
+  Re_design: 100000
+  CL0: 0.0
+  CL_alpha_per_rad: 6.28
+  CD0: 0.01
+  alpha_stall_deg: 15.0
+control:
+  swashplate_pitch_gain_rad: 1.0
+  kaman_flap: {}
+"""
+        with pytest.raises(ValueError, match="control\\.kaman_flap is no longer supported"):
+            loads(text)

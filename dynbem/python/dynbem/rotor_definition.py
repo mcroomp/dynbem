@@ -2,7 +2,7 @@
 
 Defines pure-Python classes for all rotor definition types, including
 metadata fields not needed by the Rust math core (Re_design, polar_csv,
-inertia, kaman_flap, etc.).  Each Python class internally holds a ``_rust``
+inertia, etc.). Each Python class internally holds a ``_rust``
 attribute -- a lean _dynbem Rust wrapper populated with only the math fields
 -- which is what model constructors receive.
 
@@ -91,39 +91,12 @@ __all__ = [
     "ServoFlapActuation",
     "ServoFlapGeometry",
     "InertiaProperties",
-    "KamanFlap",
     "RotorDefinition",
     "ValidationIssue",
     "load",
     "loads",
     "default",
 ]
-
-
-# ---------------------------------------------------------------------------
-# Pure-Python metadata classes (no Rust backing needed)
-# ---------------------------------------------------------------------------
-
-class KamanFlap:
-    """Kaman servo-flap geometry data (Python-only, not used in Rust math)."""
-
-    def __init__(
-        self,
-        chord_fraction: float | None = None,
-        span_start_m: float | None = None,
-        span_end_m: float | None = None,
-        tau: float | None = None,
-        CM_gamma_per_rad: float | None = None,
-        swashplate_load_fraction: float | None = None,
-        notes: str = "",
-    ) -> None:
-        self.chord_fraction = chord_fraction
-        self.span_start_m = span_start_m
-        self.span_end_m = span_end_m
-        self.tau = tau
-        self.CM_gamma_per_rad = CM_gamma_per_rad
-        self.swashplate_load_fraction = swashplate_load_fraction
-        self.notes = notes
 
 
 class ServoFlapGeometry:
@@ -292,7 +265,6 @@ class ControlProperties:
         swashplate_phase_deg: float | None = None,
         servo_slew_rate_deg_s: float | None = None,
         servo_travel_deg: float | None = None,
-        kaman_flap: KamanFlap | None = None,
     ) -> None:
         self.swashplate_pitch_gain_rad = swashplate_pitch_gain_rad
         self.axle_attachment_length_m = axle_attachment_length_m
@@ -300,7 +272,6 @@ class ControlProperties:
         self.swashplate_phase_deg = swashplate_phase_deg
         self.servo_slew_rate_deg_s = servo_slew_rate_deg_s
         self.servo_travel_deg = servo_travel_deg
-        self.kaman_flap = kaman_flap
 
 
 class AutorotationProperties:
@@ -500,18 +471,6 @@ def _resolve_polar_csv(value: str | None, base_dir: str | None) -> str | None:
     return str(Path(base_dir) / p)
 
 
-def _build_kaman_flap(k: dict[str, Any]) -> KamanFlap:
-    return KamanFlap(
-        chord_fraction=k.get("chord_fraction"),
-        span_start_m=k.get("span_start_m"),
-        span_end_m=k.get("span_end_m"),
-        tau=k.get("tau"),
-        CM_gamma_per_rad=k.get("CM_gamma_per_rad"),
-        swashplate_load_fraction=k.get("swashplate_load_fraction"),
-        notes=k.get("notes", "") or "",
-    )
-
-
 def _mapping(value: Any, section: str) -> dict[str, Any]:
     if value is None:
         return {}
@@ -585,7 +544,11 @@ def _build_from_dict(doc: dict[str, Any], base_dir: str | None) -> RotorDefiniti
 
     control = None
     if c_raw is not None:
-        kf_value = c_raw.get("kaman_flap")
+        if "kaman_flap" in c_raw:
+            raise ValueError(
+                "control.kaman_flap is no longer supported; configure active "
+                "servo-flap dynamics with pitch_actuation.servoflap"
+            )
         control = ControlProperties(
             swashplate_pitch_gain_rad=float(_req(c_raw, "swashplate_pitch_gain_rad", "control")),
             axle_attachment_length_m=c_raw.get("axle_attachment_length_m"),
@@ -593,11 +556,6 @@ def _build_from_dict(doc: dict[str, Any], base_dir: str | None) -> RotorDefiniti
             swashplate_phase_deg=c_raw.get("swashplate_phase_deg"),
             servo_slew_rate_deg_s=c_raw.get("servo_slew_rate_deg_s"),
             servo_travel_deg=c_raw.get("servo_travel_deg"),
-            kaman_flap=(
-                _build_kaman_flap(_mapping(kf_value, "control.kaman_flap"))
-                if kf_value
-                else None
-            ),
         )
 
     autorotation = AutorotationProperties(

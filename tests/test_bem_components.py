@@ -19,19 +19,22 @@ Harrington (1951) NACA TN-2318: hover CT/CQ polar (Figures 4 and 6),
 
 import math
 import pytest
+from typing import TYPE_CHECKING
 
-from dynbem.bem import BEMModel
 from dynbem.rotor_definition import (
     LinearPolarParameters, AutorotationProperties, BladeGeometry, RotorDefinition,
 )
 from dynbem.rotor_state import QuasiStaticRotorState
 from tests.helpers import hover_inputs, make_bem
 
+if TYPE_CHECKING:
+    from dynbem.factory import QuasiStaticModel
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _ct_rotor(model: BEMModel, coll_deg: float, omega_rpm: float) -> float:
+def _ct_rotor(model: QuasiStaticModel, coll_deg: float, omega_rpm: float) -> float:
     """Return non-dim thrust CT = T / (rho * A * (Omega*R)^2)."""
     omega = omega_rpm * math.pi / 30.0
     R = model.defn.blade.radius_m
@@ -44,7 +47,7 @@ def _ct_rotor(model: BEMModel, coll_deg: float, omega_rpm: float) -> float:
     return T / (rho * A * (omega * R)**2)
 
 
-def _cp_rotor(model: BEMModel, coll_deg: float, omega_rpm: float) -> float:
+def _cp_rotor(model: QuasiStaticModel, coll_deg: float, omega_rpm: float) -> float:
     """Return non-dim power CP = Q*Omega / (rho * A * (Omega*R)^3)."""
     omega = omega_rpm * math.pi / 30.0
     R = model.defn.blade.radius_m

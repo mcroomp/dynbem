@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import math
 from pathlib import Path
-from typing import TYPE_CHECKING, TypedDict
+from typing import TYPE_CHECKING, TypeAlias, TypedDict
 
 import numpy as np
 
@@ -23,7 +23,24 @@ from ._dynbem import (
 from .rotor_definition import LinearPolarParameters, RotorDefinition
 
 if TYPE_CHECKING:
-    from ._dynbem import AeroModel
+    from ._dynbem import (
+        _OyeBEMModelLinear,  # pyright: ignore[reportPrivateUsage]
+        _OyeBEMModelTabulated,  # pyright: ignore[reportPrivateUsage]
+        _PittPetersModelLinear,  # pyright: ignore[reportPrivateUsage]
+        _PittPetersModelTabulated,  # pyright: ignore[reportPrivateUsage]
+        _QuasiStaticBEMLinear,  # pyright: ignore[reportPrivateUsage]
+        _QuasiStaticBEMTabulated,  # pyright: ignore[reportPrivateUsage]
+        _VpmRotorLinear,  # pyright: ignore[reportPrivateUsage]
+        _VpmRotorTabulated,  # pyright: ignore[reportPrivateUsage]
+    )
+
+    QuasiStaticModel: TypeAlias = _QuasiStaticBEMLinear | _QuasiStaticBEMTabulated
+    PittPetersModel: TypeAlias = _PittPetersModelLinear | _PittPetersModelTabulated
+    OyeBEMModel: TypeAlias = _OyeBEMModelLinear | _OyeBEMModelTabulated
+    VpmRotor: TypeAlias = _VpmRotorLinear | _VpmRotorTabulated
+    AeroModel: TypeAlias = (
+        QuasiStaticModel | PittPetersModel | OyeBEMModel | VpmRotor
+    )
 
 
 class VpmConfig(TypedDict, total=False):

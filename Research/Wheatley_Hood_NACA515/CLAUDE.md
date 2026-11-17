@@ -72,7 +72,7 @@ For `dynbem` BEM validation against autorotation in forward flight:
 - Tables III and IV (manually transcribed, HIGH confidence) are the
   primary reference.
 - Convert tabulated (CL, CD, α) to (CT, CH) via the shaft rotation, then
-  compare against `BEMModel.compute_forces` at the same operating point.
+  compare against `QuasiStaticBEM.compute_forces` at the same operating point.
 - Alternatively, validate directly against the rotor-axis curves Harris
   digitized in his Figs 5-17 to 5-20 — easier because the transformation
   is already done.

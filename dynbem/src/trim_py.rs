@@ -52,6 +52,8 @@ enum FinalState {
     Oye(dynbem_rs::oye::OyeRotorState),
 }
 
+#[cfg_attr(feature = "stubgen", pyo3_stub_gen_derive::gen_stub_pyclass)]
+#[cfg_attr(not(feature = "stubgen"), pyo3_stub_gen_derive::remove_gen_stub)]
 #[pyclass(name = "TrimResult", module = "dynbem._dynbem")]
 #[allow(non_snake_case)]
 pub struct PyTrimResult {
@@ -72,9 +74,14 @@ pub struct PyTrimResult {
     final_state: FinalState,
 }
 
+#[cfg_attr(feature = "stubgen", pyo3_stub_gen_derive::gen_stub_pymethods)]
+#[cfg_attr(not(feature = "stubgen"), pyo3_stub_gen_derive::remove_gen_stub)]
 #[pymethods]
 impl PyTrimResult {
     #[getter]
+    #[gen_stub(override_return_type(
+        type_repr = "QuasiStaticRotorState | PittPetersRotorState | OyeRotorState"
+    ))]
     fn final_state<'py>(&self, py: Python<'py>) -> PyResult<Py<PyAny>> {
         match &self.final_state {
             FinalState::QuasiStatic(s) => {
@@ -88,6 +95,8 @@ impl PyTrimResult {
     }
 }
 
+#[cfg_attr(feature = "stubgen", pyo3_stub_gen_derive::gen_stub_pyfunction)]
+#[cfg_attr(not(feature = "stubgen"), pyo3_stub_gen_derive::remove_gen_stub)]
 #[pyfunction]
 #[pyo3(signature = (
     aero, state, base_inputs, *,
@@ -103,7 +112,13 @@ impl PyTrimResult {
 #[allow(clippy::too_many_arguments)]
 #[allow(non_snake_case)]
 pub fn solve_trim_cyclic_py(
+    #[gen_stub(override_type(
+        type_repr = "_QuasiStaticBEMLinear | _QuasiStaticBEMTabulated | _PittPetersModelLinear | _PittPetersModelTabulated | _OyeBEMModelLinear | _OyeBEMModelTabulated"
+    ))]
     aero: &Bound<'_, PyAny>,
+    #[gen_stub(override_type(
+        type_repr = "QuasiStaticRotorState | PittPetersRotorState | OyeRotorState"
+    ))]
     state: &Bound<'_, PyAny>,
     base_inputs: &PyRotorInputs,
     target_moment: (f64, f64),
@@ -160,11 +175,22 @@ pub fn solve_trim_cyclic_py(
     }
 }
 
+#[cfg_attr(feature = "stubgen", pyo3_stub_gen_derive::gen_stub_pyfunction)]
+#[cfg_attr(not(feature = "stubgen"), pyo3_stub_gen_derive::remove_gen_stub)]
 #[pyfunction]
 #[pyo3(signature = (aero, state, inputs, n_steps = 200, dt = 0.005))]
+#[gen_stub(override_return_type(
+    type_repr = "QuasiStaticRotorState | PittPetersRotorState | OyeRotorState"
+))]
 pub fn relax_inflow_py(
     py: Python<'_>,
+    #[gen_stub(override_type(
+        type_repr = "_QuasiStaticBEMLinear | _QuasiStaticBEMTabulated | _PittPetersModelLinear | _PittPetersModelTabulated | _OyeBEMModelLinear | _OyeBEMModelTabulated"
+    ))]
     aero: &Bound<'_, PyAny>,
+    #[gen_stub(override_type(
+        type_repr = "QuasiStaticRotorState | PittPetersRotorState | OyeRotorState"
+    ))]
     state: &Bound<'_, PyAny>,
     inputs: &PyRotorInputs,
     n_steps: usize,

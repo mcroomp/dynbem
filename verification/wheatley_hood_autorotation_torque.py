@@ -25,6 +25,7 @@ import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 
@@ -46,11 +47,13 @@ def _sample_evenly(items: list, n: int | None) -> list:
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from dynbem.bem import BEMModel
 from dynbem import RotorInputs, create_aero
 from dynbem.rotor_definition import load as load_rotor
 from dynbem.rotor_state import QuasiStaticRotorState
 from dynbem.trim import solve_trim_cyclic
+
+if TYPE_CHECKING:
+    from dynbem.factory import QuasiStaticModel
 
 CSV_DIR = ROOT / "Research" / "csv" / "Wheatley_Hood_NACA515"
 YAML = ROOT / "rotors" / "wheatley_pca2" / "rotor.yaml"
@@ -128,7 +131,7 @@ def load_table(label: str) -> list[dict[str, float]]:
     raise KeyError(label)
 
 
-def load_model() -> BEMModel | None:
+def load_model() -> QuasiStaticModel | None:
     """Build the PCA-2 BEM fixture (cached n_psi_elements=12 for speed).
     Returns None if the rotor.yaml is missing."""
     if not YAML.exists():
@@ -149,7 +152,7 @@ def measured_CT(mu: float, alpha_deg: float, CL: float, CD: float) -> float:
     return (CL * math.cos(a) + CD * math.sin(a)) * mu**2 / (2.0 * math.cos(a)**2)
 
 
-def _bem_at_point(model: BEMModel, mu: float, alpha_deg: float, N_rpm: float,
+def _bem_at_point(model: QuasiStaticModel, mu: float, alpha_deg: float, N_rpm: float,
                   pitch_deg: float, *, trim: bool):
     """Inner BEM driver: returns (CT, CQ, tilt_lon, tilt_lat) at one row.
 
@@ -199,7 +202,7 @@ def _bem_at_point(model: BEMModel, mu: float, alpha_deg: float, N_rpm: float,
     return CT, CQ, tilt_lon, tilt_lat
 
 
-def evaluate_point(model: BEMModel, row: dict[str, float], pitch_deg: float,
+def evaluate_point(model: QuasiStaticModel, row: dict[str, float], pitch_deg: float,
                    table_label: str, *, include_notrim: bool = True
                    ) -> Comparison:
     """Run trim + (optional) no-trim BEM at one CSV row; build a Comparison."""
@@ -221,7 +224,7 @@ def evaluate_point(model: BEMModel, row: dict[str, float], pitch_deg: float,
     )
 
 
-def run_survey(model: BEMModel | None = None, sample: int | None = None,
+def run_survey(model: QuasiStaticModel | None = None, sample: int | None = None,
                *, include_notrim: bool = True) -> Survey:
     """Run the CQ-residual / CT survey across (sampled) TR 515 operating
     points.
@@ -258,7 +261,7 @@ def _summarize(label: str, arr: np.ndarray) -> None:
           f"max|x|={np.max(np.abs(arr)):.5f}")
 
 
-def _print_survey(survey: Survey, *, model: BEMModel) -> None:
+def _print_survey(survey: Survey, *, model: QuasiStaticModel) -> None:
     print(f"Rotor: {model.defn.name}, "
           f"R={model.defn.blade.radius_m} m, "
           f"sigma={model.defn.blade.n_blades * model.defn.blade.chord_m / (math.pi * model.defn.blade.radius_m):.4f}")

@@ -40,15 +40,18 @@ import math
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from dynbem.bem import BEMModel
 from dynbem import RotorInputs, create_aero
 import dynbem.rotor_definition as rotor_definition
 from dynbem.rotor_state import QuasiStaticRotorState
+
+if TYPE_CHECKING:
+    from dynbem.factory import QuasiStaticModel
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -71,12 +74,12 @@ def _sample_evenly(items: list, n: int | None) -> list:
     return out
 
 
-def load_model() -> BEMModel:
+def load_model() -> QuasiStaticModel:
     """Build the Castles-Gray 6-ft rotor BEM model from rotor.yaml."""
     return create_aero(rotor_definition.load(ROTOR_YAML), "bem")
 
 
-def bem_forces(model: BEMModel, theta_deg: float, omega_rpm: float,
+def bem_forces(model: QuasiStaticModel, theta_deg: float, omega_rpm: float,
                v_climb_ms: float = 0.0) -> tuple[float, float, float]:
     """Run the BEM at one (theta, RPM, v_climb) point.
 
@@ -318,7 +321,7 @@ class Survey:
         return [c for c in self.comparisons if c.run == run]
 
 
-def run_survey(model: BEMModel | None = None,
+def run_survey(model: QuasiStaticModel | None = None,
                sample: int | None = None) -> Survey:
     """Sweep Table I; sample-N picks evenly-spaced rows from each run.
 

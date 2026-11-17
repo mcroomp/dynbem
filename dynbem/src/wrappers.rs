@@ -37,10 +37,14 @@ fn parse_integration_method(
 // Polars
 // ===========================================================================
 
+#[cfg_attr(feature = "stubgen", pyo3_stub_gen_derive::gen_stub_pyclass)]
+#[cfg_attr(not(feature = "stubgen"), pyo3_stub_gen_derive::remove_gen_stub)]
 #[pyclass(name = "LinearPolar", module = "dynbem._dynbem", from_py_object)]
 #[derive(Clone, Debug)]
 pub struct PyLinearPolar(pub core_::polar::LinearPolar);
 
+#[cfg_attr(feature = "stubgen", pyo3_stub_gen_derive::gen_stub_pymethods)]
+#[cfg_attr(not(feature = "stubgen"), pyo3_stub_gen_derive::remove_gen_stub)]
 #[pymethods]
 impl PyLinearPolar {
     #[new]
@@ -125,10 +129,14 @@ impl PyLinearPolar {
     }
 }
 
+#[cfg_attr(feature = "stubgen", pyo3_stub_gen_derive::gen_stub_pyclass)]
+#[cfg_attr(not(feature = "stubgen"), pyo3_stub_gen_derive::remove_gen_stub)]
 #[pyclass(name = "TabulatedPolar", module = "dynbem._dynbem", from_py_object)]
 #[derive(Clone, Debug)]
 pub struct PyTabulatedPolar(pub core_::polar::TabulatedPolar);
 
+#[cfg_attr(feature = "stubgen", pyo3_stub_gen_derive::gen_stub_pymethods)]
+#[cfg_attr(not(feature = "stubgen"), pyo3_stub_gen_derive::remove_gen_stub)]
 #[pymethods]
 impl PyTabulatedPolar {
     #[new]
@@ -188,6 +196,8 @@ pub fn extract_polar(obj: &Bound<'_, PyAny>) -> PyResult<ResolvedPolar> {
 // Rotor definition pieces
 // ===========================================================================
 
+#[cfg_attr(feature = "stubgen", pyo3_stub_gen_derive::gen_stub_pyclass)]
+#[cfg_attr(not(feature = "stubgen"), pyo3_stub_gen_derive::remove_gen_stub)]
 #[pyclass(
     name = "BladeGeometry",
     module = "dynbem._dynbem",
@@ -197,6 +207,8 @@ pub fn extract_polar(obj: &Bound<'_, PyAny>) -> PyResult<ResolvedPolar> {
 #[derive(Clone, Debug)]
 pub struct PyBladeGeometry(pub core_::rotor_definition::BladeGeometry);
 
+#[cfg_attr(feature = "stubgen", pyo3_stub_gen_derive::gen_stub_pymethods)]
+#[cfg_attr(not(feature = "stubgen"), pyo3_stub_gen_derive::remove_gen_stub)]
 #[pymethods]
 impl PyBladeGeometry {
     #[new]
@@ -310,6 +322,8 @@ impl PyBladeGeometry {
     }
 }
 
+#[cfg_attr(feature = "stubgen", pyo3_stub_gen_derive::gen_stub_pyclass)]
+#[cfg_attr(not(feature = "stubgen"), pyo3_stub_gen_derive::remove_gen_stub)]
 #[pyclass(
     name = "LinearPolarParameters",
     module = "dynbem._dynbem",
@@ -318,6 +332,8 @@ impl PyBladeGeometry {
 #[derive(Clone, Debug)]
 pub struct PyLinearPolarParameters(pub core_::rotor_definition::LinearPolarParameters);
 
+#[cfg_attr(feature = "stubgen", pyo3_stub_gen_derive::gen_stub_pymethods)]
+#[cfg_attr(not(feature = "stubgen"), pyo3_stub_gen_derive::remove_gen_stub)]
 #[pymethods]
 impl PyLinearPolarParameters {
     #[new]
@@ -353,10 +369,14 @@ impl PyLinearPolarParameters {
     }
 }
 
+#[cfg_attr(feature = "stubgen", pyo3_stub_gen_derive::gen_stub_pyclass)]
+#[cfg_attr(not(feature = "stubgen"), pyo3_stub_gen_derive::remove_gen_stub)]
 #[pyclass(name = "ControlProperties", module = "dynbem._dynbem", from_py_object)]
 #[derive(Clone, Debug)]
 pub struct PyControlProperties(pub core_::rotor_definition::ControlProperties);
 
+#[cfg_attr(feature = "stubgen", pyo3_stub_gen_derive::gen_stub_pymethods)]
+#[cfg_attr(not(feature = "stubgen"), pyo3_stub_gen_derive::remove_gen_stub)]
 #[pymethods]
 impl PyControlProperties {
     #[new]
@@ -378,10 +398,14 @@ impl PyControlProperties {
     }
 }
 
+#[cfg_attr(feature = "stubgen", pyo3_stub_gen_derive::gen_stub_pyclass)]
+#[cfg_attr(not(feature = "stubgen"), pyo3_stub_gen_derive::remove_gen_stub)]
 #[pyclass(name = "ServoFlapGeometry", module = "dynbem._dynbem", from_py_object)]
 #[derive(Clone, Debug)]
 pub struct PyServoFlapGeometry(pub core_::rotor_definition::ServoFlapGeometry);
 
+#[cfg_attr(feature = "stubgen", pyo3_stub_gen_derive::gen_stub_pymethods)]
+#[cfg_attr(not(feature = "stubgen"), pyo3_stub_gen_derive::remove_gen_stub)]
 #[pymethods]
 impl PyServoFlapGeometry {
     #[new]
@@ -410,10 +434,14 @@ impl PyServoFlapGeometry {
     }
 }
 
+#[cfg_attr(feature = "stubgen", pyo3_stub_gen_derive::gen_stub_pyclass)]
+#[cfg_attr(not(feature = "stubgen"), pyo3_stub_gen_derive::remove_gen_stub)]
 #[pyclass(name = "ServoFlapActuation", module = "dynbem._dynbem", from_py_object)]
 #[derive(Clone, Debug)]
 pub struct PyServoFlapActuation(pub core_::rotor_definition::ServoFlapActuation);
 
+#[cfg_attr(feature = "stubgen", pyo3_stub_gen_derive::gen_stub_pymethods)]
+#[cfg_attr(not(feature = "stubgen"), pyo3_stub_gen_derive::remove_gen_stub)]
 #[pymethods]
 impl PyServoFlapActuation {
     #[new]
@@ -460,10 +488,14 @@ impl PyServoFlapActuation {
     }
 }
 
+#[cfg_attr(feature = "stubgen", pyo3_stub_gen_derive::gen_stub_pyclass)]
+#[cfg_attr(not(feature = "stubgen"), pyo3_stub_gen_derive::remove_gen_stub)]
 #[pyclass(name = "FlapProperties", module = "dynbem._dynbem", from_py_object)]
 #[derive(Clone, Debug)]
 pub struct PyFlapProperties(pub core_::rotor_definition::FlapProperties);
 
+#[cfg_attr(feature = "stubgen", pyo3_stub_gen_derive::gen_stub_pymethods)]
+#[cfg_attr(not(feature = "stubgen"), pyo3_stub_gen_derive::remove_gen_stub)]
 #[pymethods]
 impl PyFlapProperties {
     #[new]
@@ -487,10 +519,14 @@ impl PyFlapProperties {
     }
 }
 
+#[cfg_attr(feature = "stubgen", pyo3_stub_gen_derive::gen_stub_pyclass)]
+#[cfg_attr(not(feature = "stubgen"), pyo3_stub_gen_derive::remove_gen_stub)]
 #[pyclass(name = "RotorDefinition", module = "dynbem._dynbem", from_py_object)]
 #[derive(Clone, Debug)]
 pub struct PyRotorDefinition(pub core_::rotor_definition::RotorDefinition);
 
+#[cfg_attr(feature = "stubgen", pyo3_stub_gen_derive::gen_stub_pymethods)]
+#[cfg_attr(not(feature = "stubgen"), pyo3_stub_gen_derive::remove_gen_stub)]
 #[pymethods]
 impl PyRotorDefinition {
     #[new]
@@ -560,6 +596,8 @@ impl PyRotorDefinition {
 // Rotor states
 // ===========================================================================
 
+#[cfg_attr(feature = "stubgen", pyo3_stub_gen_derive::gen_stub_pyclass)]
+#[cfg_attr(not(feature = "stubgen"), pyo3_stub_gen_derive::remove_gen_stub)]
 #[pyclass(
     name = "QuasiStaticRotorState",
     module = "dynbem._dynbem",
@@ -568,6 +606,8 @@ impl PyRotorDefinition {
 #[derive(Clone, Debug, Default)]
 pub struct PyQuasiStaticRotorState(pub core_::quasi_static_bem::QuasiStaticRotorState);
 
+#[cfg_attr(feature = "stubgen", pyo3_stub_gen_derive::gen_stub_pymethods)]
+#[cfg_attr(not(feature = "stubgen"), pyo3_stub_gen_derive::remove_gen_stub)]
 #[pymethods]
 impl PyQuasiStaticRotorState {
     #[new]
@@ -593,6 +633,8 @@ impl PyQuasiStaticRotorState {
     }
 }
 
+#[cfg_attr(feature = "stubgen", pyo3_stub_gen_derive::gen_stub_pyclass)]
+#[cfg_attr(not(feature = "stubgen"), pyo3_stub_gen_derive::remove_gen_stub)]
 #[pyclass(
     name = "PittPetersRotorState",
     module = "dynbem._dynbem",
@@ -601,6 +643,8 @@ impl PyQuasiStaticRotorState {
 #[derive(Clone, Debug, Default)]
 pub struct PyPittPetersRotorState(pub core_::pitt_peters::PittPetersRotorState);
 
+#[cfg_attr(feature = "stubgen", pyo3_stub_gen_derive::gen_stub_pymethods)]
+#[cfg_attr(not(feature = "stubgen"), pyo3_stub_gen_derive::remove_gen_stub)]
 #[pymethods]
 impl PyPittPetersRotorState {
     #[new]
@@ -660,10 +704,14 @@ impl PyPittPetersRotorState {
     }
 }
 
+#[cfg_attr(feature = "stubgen", pyo3_stub_gen_derive::gen_stub_pyclass)]
+#[cfg_attr(not(feature = "stubgen"), pyo3_stub_gen_derive::remove_gen_stub)]
 #[pyclass(name = "OyeRotorState", module = "dynbem._dynbem", from_py_object)]
 #[derive(Clone, Debug)]
 pub struct PyOyeRotorState(pub core_::oye::OyeRotorState);
 
+#[cfg_attr(feature = "stubgen", pyo3_stub_gen_derive::gen_stub_pymethods)]
+#[cfg_attr(not(feature = "stubgen"), pyo3_stub_gen_derive::remove_gen_stub)]
 #[pymethods]
 impl PyOyeRotorState {
     #[new]
@@ -730,12 +778,16 @@ impl PyOyeRotorState {
 // RotorInputs / AeroResult
 // ===========================================================================
 
+#[cfg_attr(feature = "stubgen", pyo3_stub_gen_derive::gen_stub_pyclass)]
+#[cfg_attr(not(feature = "stubgen"), pyo3_stub_gen_derive::remove_gen_stub)]
 #[pyclass(name = "RotorInputs", module = "dynbem._dynbem", from_py_object)]
 #[derive(Clone, Debug)]
 pub struct PyRotorInputs {
     pub inner: core_::aero_io::RotorInputs,
 }
 
+#[cfg_attr(feature = "stubgen", pyo3_stub_gen_derive::gen_stub_pymethods)]
+#[cfg_attr(not(feature = "stubgen"), pyo3_stub_gen_derive::remove_gen_stub)]
 #[pymethods]
 impl PyRotorInputs {
     #[new]
@@ -825,10 +877,14 @@ impl PyRotorInputs {
     }
 }
 
+#[cfg_attr(feature = "stubgen", pyo3_stub_gen_derive::gen_stub_pyclass)]
+#[cfg_attr(not(feature = "stubgen"), pyo3_stub_gen_derive::remove_gen_stub)]
 #[pyclass(name = "AeroResult", module = "dynbem._dynbem", from_py_object)]
 #[derive(Clone, Debug)]
 pub struct PyAeroResult(pub core_::aero_io::AeroResult);
 
+#[cfg_attr(feature = "stubgen", pyo3_stub_gen_derive::gen_stub_pymethods)]
+#[cfg_attr(not(feature = "stubgen"), pyo3_stub_gen_derive::remove_gen_stub)]
 #[pymethods]
 impl PyAeroResult {
     #[getter]
@@ -869,6 +925,8 @@ use dynbem_rs::aero_model::AeroModel as _;
 // QuasiStaticBEM
 // ---------------------------------------------------------------------------
 
+#[cfg_attr(feature = "stubgen", pyo3_stub_gen_derive::gen_stub_pyclass)]
+#[cfg_attr(not(feature = "stubgen"), pyo3_stub_gen_derive::remove_gen_stub)]
 #[pyclass(
     name = "_QuasiStaticBEMLinear",
     module = "dynbem._dynbem",
@@ -880,6 +938,8 @@ pub struct PyQuasiStaticBEMLinear(
     pub Box<core_::quasi_static_bem::QuasiStaticBEM<core_::polar::LinearPolar>>,
 );
 
+#[cfg_attr(feature = "stubgen", pyo3_stub_gen_derive::gen_stub_pymethods)]
+#[cfg_attr(not(feature = "stubgen"), pyo3_stub_gen_derive::remove_gen_stub)]
 #[pymethods]
 impl PyQuasiStaticBEMLinear {
     #[new]
@@ -932,6 +992,8 @@ impl PyQuasiStaticBEMLinear {
     }
 }
 
+#[cfg_attr(feature = "stubgen", pyo3_stub_gen_derive::gen_stub_pyclass)]
+#[cfg_attr(not(feature = "stubgen"), pyo3_stub_gen_derive::remove_gen_stub)]
 #[pyclass(
     name = "_QuasiStaticBEMTabulated",
     module = "dynbem._dynbem",
@@ -943,6 +1005,8 @@ pub struct PyQuasiStaticBEMTabulated(
     pub Box<core_::quasi_static_bem::QuasiStaticBEM<core_::polar::TabulatedPolar>>,
 );
 
+#[cfg_attr(feature = "stubgen", pyo3_stub_gen_derive::gen_stub_pymethods)]
+#[cfg_attr(not(feature = "stubgen"), pyo3_stub_gen_derive::remove_gen_stub)]
 #[pymethods]
 impl PyQuasiStaticBEMTabulated {
     #[new]
@@ -999,6 +1063,8 @@ impl PyQuasiStaticBEMTabulated {
 // PittPetersModel
 // ---------------------------------------------------------------------------
 
+#[cfg_attr(feature = "stubgen", pyo3_stub_gen_derive::gen_stub_pyclass)]
+#[cfg_attr(not(feature = "stubgen"), pyo3_stub_gen_derive::remove_gen_stub)]
 #[pyclass(
     name = "_PittPetersModelLinear",
     module = "dynbem._dynbem",
@@ -1010,6 +1076,8 @@ pub struct PyPittPetersModelLinear(
     pub Box<core_::pitt_peters::PittPetersModel<core_::polar::LinearPolar>>,
 );
 
+#[cfg_attr(feature = "stubgen", pyo3_stub_gen_derive::gen_stub_pymethods)]
+#[cfg_attr(not(feature = "stubgen"), pyo3_stub_gen_derive::remove_gen_stub)]
 #[pymethods]
 impl PyPittPetersModelLinear {
     #[new]
@@ -1062,6 +1130,8 @@ impl PyPittPetersModelLinear {
     }
 }
 
+#[cfg_attr(feature = "stubgen", pyo3_stub_gen_derive::gen_stub_pyclass)]
+#[cfg_attr(not(feature = "stubgen"), pyo3_stub_gen_derive::remove_gen_stub)]
 #[pyclass(
     name = "_PittPetersModelTabulated",
     module = "dynbem._dynbem",
@@ -1073,6 +1143,8 @@ pub struct PyPittPetersModelTabulated(
     pub Box<core_::pitt_peters::PittPetersModel<core_::polar::TabulatedPolar>>,
 );
 
+#[cfg_attr(feature = "stubgen", pyo3_stub_gen_derive::gen_stub_pymethods)]
+#[cfg_attr(not(feature = "stubgen"), pyo3_stub_gen_derive::remove_gen_stub)]
 #[pymethods]
 impl PyPittPetersModelTabulated {
     #[new]
@@ -1129,6 +1201,8 @@ impl PyPittPetersModelTabulated {
 // OyeBEMModel
 // ---------------------------------------------------------------------------
 
+#[cfg_attr(feature = "stubgen", pyo3_stub_gen_derive::gen_stub_pyclass)]
+#[cfg_attr(not(feature = "stubgen"), pyo3_stub_gen_derive::remove_gen_stub)]
 #[pyclass(
     name = "_OyeBEMModelLinear",
     module = "dynbem._dynbem",
@@ -1138,6 +1212,8 @@ impl PyPittPetersModelTabulated {
 #[derive(Clone)]
 pub struct PyOyeBEMModelLinear(pub Box<core_::oye::OyeBEMModel<core_::polar::LinearPolar>>);
 
+#[cfg_attr(feature = "stubgen", pyo3_stub_gen_derive::gen_stub_pymethods)]
+#[cfg_attr(not(feature = "stubgen"), pyo3_stub_gen_derive::remove_gen_stub)]
 #[pymethods]
 impl PyOyeBEMModelLinear {
     #[new]
@@ -1200,6 +1276,8 @@ impl PyOyeBEMModelLinear {
     }
 }
 
+#[cfg_attr(feature = "stubgen", pyo3_stub_gen_derive::gen_stub_pyclass)]
+#[cfg_attr(not(feature = "stubgen"), pyo3_stub_gen_derive::remove_gen_stub)]
 #[pyclass(
     name = "_OyeBEMModelTabulated",
     module = "dynbem._dynbem",
@@ -1209,6 +1287,8 @@ impl PyOyeBEMModelLinear {
 #[derive(Clone)]
 pub struct PyOyeBEMModelTabulated(pub Box<core_::oye::OyeBEMModel<core_::polar::TabulatedPolar>>);
 
+#[cfg_attr(feature = "stubgen", pyo3_stub_gen_derive::gen_stub_pymethods)]
+#[cfg_attr(not(feature = "stubgen"), pyo3_stub_gen_derive::remove_gen_stub)]
 #[pymethods]
 impl PyOyeBEMModelTabulated {
     #[new]
@@ -1286,10 +1366,14 @@ impl PyOyeBEMModelTabulated {
 // VpmRotor() factory dispatches on the polar instance.
 // ---------------------------------------------------------------------------
 
+#[cfg_attr(feature = "stubgen", pyo3_stub_gen_derive::gen_stub_pyclass)]
+#[cfg_attr(not(feature = "stubgen"), pyo3_stub_gen_derive::remove_gen_stub)]
 #[pyclass(name = "VpmRotorState", module = "dynbem._dynbem", from_py_object)]
 #[derive(Clone, Debug)]
 pub struct PyVpmRotorState(pub core_::vpm::VpmRotorState);
 
+#[cfg_attr(feature = "stubgen", pyo3_stub_gen_derive::gen_stub_pymethods)]
+#[cfg_attr(not(feature = "stubgen"), pyo3_stub_gen_derive::remove_gen_stub)]
 #[pymethods]
 impl PyVpmRotorState {
     #[new]
@@ -1381,6 +1465,8 @@ fn build_vpm_config(
     }
 }
 
+#[cfg_attr(feature = "stubgen", pyo3_stub_gen_derive::gen_stub_pyclass)]
+#[cfg_attr(not(feature = "stubgen"), pyo3_stub_gen_derive::remove_gen_stub)]
 #[pyclass(
     name = "_VpmRotorLinear",
     module = "dynbem._dynbem",
@@ -1390,6 +1476,8 @@ fn build_vpm_config(
 #[derive(Clone)]
 pub struct PyVpmRotorLinear(pub Box<core_::vpm::VpmRotor<core_::polar::LinearPolar>>);
 
+#[cfg_attr(feature = "stubgen", pyo3_stub_gen_derive::gen_stub_pymethods)]
+#[cfg_attr(not(feature = "stubgen"), pyo3_stub_gen_derive::remove_gen_stub)]
 #[pymethods]
 impl PyVpmRotorLinear {
     #[new]
@@ -1479,6 +1567,8 @@ impl PyVpmRotorLinear {
     }
 }
 
+#[cfg_attr(feature = "stubgen", pyo3_stub_gen_derive::gen_stub_pyclass)]
+#[cfg_attr(not(feature = "stubgen"), pyo3_stub_gen_derive::remove_gen_stub)]
 #[pyclass(
     name = "_VpmRotorTabulated",
     module = "dynbem._dynbem",
@@ -1488,6 +1578,8 @@ impl PyVpmRotorLinear {
 #[derive(Clone)]
 pub struct PyVpmRotorTabulated(pub Box<core_::vpm::VpmRotor<core_::polar::TabulatedPolar>>);
 
+#[cfg_attr(feature = "stubgen", pyo3_stub_gen_derive::gen_stub_pymethods)]
+#[cfg_attr(not(feature = "stubgen"), pyo3_stub_gen_derive::remove_gen_stub)]
 #[pymethods]
 impl PyVpmRotorTabulated {
     #[new]

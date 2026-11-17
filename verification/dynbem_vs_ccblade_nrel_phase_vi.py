@@ -41,6 +41,7 @@ import math
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 
@@ -62,10 +63,12 @@ def _sample_evenly(items: list, n: int | None) -> list:
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from dynbem.bem import BEMModel
 from dynbem import RotorInputs, create_aero
 from dynbem.rotor_definition import load as load_rotor
 from dynbem.rotor_state import QuasiStaticRotorState
+
+if TYPE_CHECKING:
+    from dynbem.factory import QuasiStaticModel
 
 ROTOR_YAML = ROOT / "rotors" / "nrel_phase_vi" / "rotor.yaml"
 CCBLADE_CSV = ROOT / "verification" / "data" / "nrel_phase_vi_seqS.csv"
@@ -132,7 +135,7 @@ def cc_to_heli_coeffs(row: dict, rho: float, R: float) -> tuple[float, float]:
     return CT_heli, CQ_heli
 
 
-def dynbem_at_point(model: BEMModel, U_wind_ms: float, Omega_rpm: float,
+def dynbem_at_point(model: QuasiStaticModel, U_wind_ms: float, Omega_rpm: float,
                     cc_pitch_deg: float, rho: float
                     ) -> tuple[float, float, float, float]:
     """Run dynbem at one CCBlade operating point.  cc_pitch_deg uses the

@@ -28,7 +28,6 @@ from ._dynbem import _OyeBEMModelLinear, _OyeBEMModelTabulated  # noqa: F401  # 
 from ._dynbem import _VpmRotorLinear, _VpmRotorTabulated  # noqa: F401  # pyright: ignore[reportPrivateUsage]
 from .rotor_definition import (  # noqa: F401
     BladeGeometry,
-    KamanFlap,
     InertiaProperties,
     LinearPolarParameters,
     ControlProperties,
@@ -42,7 +41,7 @@ from .trim import solve_trim_cyclic, relax_inflow  # noqa: F401
 from .mechanical import omega_derivative, step_omega  # noqa: F401
 
 if TYPE_CHECKING:
-    from ._dynbem import (
+    from .factory import (
         OyeBEMModel as _OyeBEMModel,
         PittPetersModel as _PittPetersModel,
         QuasiStaticModel as _QuasiStaticModel,
@@ -81,10 +80,6 @@ def QuasiStaticBEM(
     if isinstance(polar_rs, LinearPolar):
         return _QuasiStaticBEMLinear(defn_rs, polar_rs, n_psi_elements)
     return _QuasiStaticBEMTabulated(defn_rs, polar_rs, n_psi_elements)
-
-
-# Backwards-compat alias (was BEMModel before the quasi-static qualifier was added).
-BEMModel = QuasiStaticBEM
 
 
 def PittPetersModel(
@@ -134,17 +129,6 @@ def VpmRotor(
         return _VpmRotorLinear(defn_rs, polar_rs, **config)
     return _VpmRotorTabulated(defn_rs, polar_rs, **config)
 
-
-
-# Legacy alias: the original pure-Python package exposed `AirfoilPolar`
-# as a marker for the two concrete polar types. Provide it as a tuple
-# usable in isinstance().
-AirfoilPolar: tuple[type[LinearPolar], type[TabulatedPolar]] = (
-    LinearPolar,
-    TabulatedPolar,
-)
-
-
 __all__ = [
     # functions
     "cyclic_coeffs",
@@ -152,14 +136,14 @@ __all__ = [
     "solve_trim_cyclic", "relax_inflow",
     "omega_derivative", "step_omega",
     # types
-    "LinearPolar", "TabulatedPolar", "AirfoilPolar",
-    "KamanFlap", "BladeGeometry", "LinearPolarParameters",
+    "LinearPolar", "TabulatedPolar",
+    "BladeGeometry", "LinearPolarParameters",
     "InertiaProperties", "ControlProperties", "AutorotationProperties",
     "RotorDefinition",
     "QuasiStaticRotorState", "PittPetersRotorState", "OyeRotorState",
     "VpmRotorState",
     "RotorInputs", "AeroResult",
-    "QuasiStaticBEM", "BEMModel", "PittPetersModel", "OyeBEMModel",
+    "QuasiStaticBEM", "PittPetersModel", "OyeBEMModel",
     "VpmRotor",
     "TrimResult",
 ]
