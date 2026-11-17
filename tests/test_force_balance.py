@@ -125,7 +125,6 @@ def _euler_to_steady(model, inputs: RotorInputs, *, rpm: float,
     Holds omega fixed at the given rpm; only lambda_0, lambda_c, lambda_s
     evolve. Returns (final_state, final_result).
     """
-    omega = rpm * math.pi / 30.0
     state = pp_state()
     res = None
     for _ in range(n_steps):

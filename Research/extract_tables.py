@@ -104,7 +104,7 @@ _ASCII_MAP = {
     "✓": "OK", "✔": "OK", "✗": "X", "✘": "X",
     "⚠": "!", "❌": "X", "✅": "OK",
     # Zero-width / variation selectors (emoji presentation, BOMs, joiners)
-    "️": "", "︎": "", "​": "", "‌": "", "‍": "",
+    "️": "", "︎": "", "‌": "", "‍": "",
     "﻿": "",
 }
 

@@ -9,8 +9,8 @@ on:
 # The published package is `dynbem` (Rust + PyO3 via maturin). Build it
 # for each supported platform/arch, then upload to PyPI on tag.
 #
-# Because the abi3-py310 ABI is set on the pyo3 dep, a single wheel per
-# (os, arch) covers Python 3.10+. No need to matrix over python versions.
+# Because the abi3-py312 ABI is set on the pyo3 dep, a single wheel per
+# (os, arch) covers Python 3.12+. No need to matrix over python versions.
 
 jobs:
   linux:
@@ -22,7 +22,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.14"
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:
@@ -43,7 +43,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.14"
           architecture: ${{ matrix.target }}
       - name: Build wheels
         uses: PyO3/maturin-action@v1
@@ -64,7 +64,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.14"
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:
@@ -84,7 +84,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.14"
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:

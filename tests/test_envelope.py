@@ -13,7 +13,6 @@ import sys
 from pathlib import Path
 
 import numpy as np
-import pytest
 
 _ROOT = Path(__file__).resolve().parent.parent
 if str(_ROOT) not in sys.path:
@@ -48,7 +47,6 @@ def test_envelope_smoke():
 
     cols    = data["cols_arr"]       # shape (1, 1, 1, n_samples)
     omegas  = data["omegas_arr"]
-    sats    = data["sats_arr"]
 
     # At least one non-NaN sample per curve.
     assert np.any(np.isfinite(cols)), "all collective samples are NaN -- job crashed"

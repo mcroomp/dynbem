@@ -5,6 +5,10 @@ the public surface. (Formerly published as `dynbem_rs`; supersedes the
 legacy pure-Python implementation.)
 """
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, TypeAlias, Unpack
+
 from ._dynbem import (  # noqa: F401
     cyclic_coeffs as _cyclic_coeffs_rust,
     LinearPolar,
@@ -16,11 +20,12 @@ from ._dynbem import (  # noqa: F401
     RotorInputs,
     AeroResult,
     TrimResult,
+    ControlProperties as _RustControlProperties,
 )
-from ._dynbem import _QuasiStaticBEMLinear, _QuasiStaticBEMTabulated  # noqa: F401
-from ._dynbem import _PittPetersModelLinear, _PittPetersModelTabulated  # noqa: F401
-from ._dynbem import _OyeBEMModelLinear, _OyeBEMModelTabulated  # noqa: F401
-from ._dynbem import _VpmRotorLinear, _VpmRotorTabulated  # noqa: F401
+from ._dynbem import _QuasiStaticBEMLinear, _QuasiStaticBEMTabulated  # noqa: F401  # pyright: ignore[reportPrivateUsage]
+from ._dynbem import _PittPetersModelLinear, _PittPetersModelTabulated  # noqa: F401  # pyright: ignore[reportPrivateUsage]
+from ._dynbem import _OyeBEMModelLinear, _OyeBEMModelTabulated  # noqa: F401  # pyright: ignore[reportPrivateUsage]
+from ._dynbem import _VpmRotorLinear, _VpmRotorTabulated  # noqa: F401  # pyright: ignore[reportPrivateUsage]
 from .rotor_definition import (  # noqa: F401
     BladeGeometry,
     KamanFlap,
@@ -29,15 +34,31 @@ from .rotor_definition import (  # noqa: F401
     ControlProperties,
     AutorotationProperties,
     RotorDefinition,
-    _to_rust_defn,
-    _to_rust_control,
 )
-from .factory import create_aero, build_polar, load_tabulated_polar, _build_polar_from_defn  # noqa: F401
+from .rotor_definition import _to_rust_control, _to_rust_defn  # pyright: ignore[reportPrivateUsage]
+from .factory import build_polar, create_aero, load_tabulated_polar
+from .factory import _build_polar_from_defn  # pyright: ignore[reportPrivateUsage]
 from .trim import solve_trim_cyclic, relax_inflow  # noqa: F401
 from .mechanical import omega_derivative, step_omega  # noqa: F401
 
+if TYPE_CHECKING:
+    from ._dynbem import (
+        OyeBEMModel as _OyeBEMModel,
+        PittPetersModel as _PittPetersModel,
+        QuasiStaticModel as _QuasiStaticModel,
+        VpmRotor as _VpmRotor,
+    )
+    from .factory import VpmConfig as _VpmConfig
+    from ._dynbem import RotorDefinition as _RustRotorDefinition
 
-def cyclic_coeffs(tilt_lon, tilt_lat, control=None):  # noqa: F401
+Polar: TypeAlias = LinearPolar | TabulatedPolar
+
+
+def cyclic_coeffs(
+    tilt_lon: float,
+    tilt_lat: float,
+    control: ControlProperties | _RustControlProperties | None = None,
+) -> tuple[float, float]:
     """Compute (theta_1c, theta_1s) cyclic coefficients."""
     return _cyclic_coeffs_rust(tilt_lon, tilt_lat, _to_rust_control(control))
 
@@ -50,7 +71,11 @@ def cyclic_coeffs(tilt_lon, tilt_lat, control=None):  # noqa: F401
 # ---------------------------------------------------------------------------
 
 
-def QuasiStaticBEM(defn, polar=None, n_psi_elements=36):  # noqa: N802
+def QuasiStaticBEM(
+    defn: RotorDefinition | _RustRotorDefinition,
+    polar: Polar | None = None,
+    n_psi_elements: int = 36,
+) -> _QuasiStaticModel:  # noqa: N802
     polar_rs = _build_polar_from_defn(defn, polar)
     defn_rs = _to_rust_defn(defn)
     if isinstance(polar_rs, LinearPolar):
@@ -62,7 +87,11 @@ def QuasiStaticBEM(defn, polar=None, n_psi_elements=36):  # noqa: N802
 BEMModel = QuasiStaticBEM
 
 
-def PittPetersModel(defn, polar=None, n_psi_elements=36):  # noqa: N802
+def PittPetersModel(
+    defn: RotorDefinition | _RustRotorDefinition,
+    polar: Polar | None = None,
+    n_psi_elements: int = 36,
+) -> _PittPetersModel:  # noqa: N802
     polar_rs = _build_polar_from_defn(defn, polar)
     defn_rs = _to_rust_defn(defn)
     if isinstance(polar_rs, LinearPolar):
@@ -70,7 +99,12 @@ def PittPetersModel(defn, polar=None, n_psi_elements=36):  # noqa: N802
     return _PittPetersModelTabulated(defn_rs, polar_rs, n_psi_elements)
 
 
-def OyeBEMModel(defn, polar=None, n_psi_elements=36, coupling_k=0.6):  # noqa: N802
+def OyeBEMModel(
+    defn: RotorDefinition | _RustRotorDefinition,
+    polar: Polar | None = None,
+    n_psi_elements: int = 36,
+    coupling_k: float = 0.6,
+) -> _OyeBEMModel:  # noqa: N802
     polar_rs = _build_polar_from_defn(defn, polar)
     defn_rs = _to_rust_defn(defn)
     if isinstance(polar_rs, LinearPolar):
@@ -78,7 +112,11 @@ def OyeBEMModel(defn, polar=None, n_psi_elements=36, coupling_k=0.6):  # noqa: N
     return _OyeBEMModelTabulated(defn_rs, polar_rs, n_psi_elements, coupling_k)
 
 
-def VpmRotor(defn, polar=None, **config):  # noqa: N802
+def VpmRotor(
+    defn: RotorDefinition | _RustRotorDefinition,
+    polar: Polar | None = None,
+    **config: Unpack[_VpmConfig],
+) -> _VpmRotor:  # noqa: N802
     """Forward-flight free-wake VPM rotor (Level 3).
 
     Like the BEM-family models, the Rust core is generic over the polar type,
@@ -101,7 +139,10 @@ def VpmRotor(defn, polar=None, **config):  # noqa: N802
 # Legacy alias: the original pure-Python package exposed `AirfoilPolar`
 # as a marker for the two concrete polar types. Provide it as a tuple
 # usable in isinstance().
-AirfoilPolar = (LinearPolar, TabulatedPolar)
+AirfoilPolar: tuple[type[LinearPolar], type[TabulatedPolar]] = (
+    LinearPolar,
+    TabulatedPolar,
+)
 
 
 __all__ = [
@@ -109,6 +150,7 @@ __all__ = [
     "cyclic_coeffs",
     "create_aero", "build_polar", "load_tabulated_polar",
     "solve_trim_cyclic", "relax_inflow",
+    "omega_derivative", "step_omega",
     # types
     "LinearPolar", "TabulatedPolar", "AirfoilPolar",
     "KamanFlap", "BladeGeometry", "LinearPolarParameters",

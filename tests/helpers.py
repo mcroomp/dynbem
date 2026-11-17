@@ -21,7 +21,7 @@ from dynbem import (
     RotorInputs,
     build_polar,
 )
-from dynbem.rotor_definition import ControlProperties, RotorDefinition
+from dynbem.rotor_definition import ControlProperties
 
 
 # ---------------------------------------------------------------------------

@@ -10,7 +10,6 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from dynbem.pitt_peters import PittPetersModel
 from dynbem.bem import BEMModel
 from dynbem import RotorInputs
 import dynbem.rotor_definition as rotor_definition
@@ -133,10 +132,7 @@ class TestPittPetersVRS:
         CT_nom = 0.004
         omega = rpm * math.pi / 30.0
         R = defn.blade.radius_m
-        A = math.pi * R**2
-
         # Find hover equilibrium first, then apply descent
-        hover_ct_bem = _bem_ct(make_bem(defn), theta_deg, rpm, 0.0)
         _ct, _, lam0_hover = _euler_to_steady(pp_model, theta_deg, rpm, 0.0)
 
         v_or_target = 0.020  # V/OR = 0.020, lambda2 ~ 0.4 in Level-1 blow-up zone
@@ -185,8 +181,6 @@ class TestPittPetersWBS:
         """
         theta_deg, rpm = 8.86, 1200
         omega = rpm * math.pi / 30.0
-        R = defn.blade.radius_m
-        A = math.pi * R**2
 
         # Find hover equilibrium lam0
         lam0_eq = 0.0

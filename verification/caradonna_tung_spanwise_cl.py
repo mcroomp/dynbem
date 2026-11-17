@@ -165,7 +165,6 @@ def section_CL_bem(coll_deg: float, omega_rpm: float, r_over_R: float) -> float:
     r = r_over_R * R
     chord = ROTOR.blade.chord_m
     n_blades = ROTOR.blade.n_blades
-    rho = 1.225
     use_tip_loss = ROTOR.blade.tip_loss
     collective_rad = math.radians(coll_deg)
 

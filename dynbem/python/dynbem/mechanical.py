@@ -86,7 +86,7 @@ def step_omega(
     I_ode_kgm2: float,
     dt: float,
     bearing_friction_Nm: float = 0.0,
-) -> tuple:
+) -> tuple[float, float]:
     """Semi-implicit (locally-frozen relaxation) step for the spin ODE.
 
     This is the single canonical integrator for the mechanical ODE -- use

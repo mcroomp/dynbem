@@ -8,28 +8,54 @@ manually.
 """
 from __future__ import annotations
 
-import csv
 import math
 from pathlib import Path
-from typing import Optional, Union
+from typing import TYPE_CHECKING, TypedDict
 
 import numpy as np
 
 from ._dynbem import (
     LinearPolar,
+    LinearPolarParameters as RustLinearPolarParameters,
     TabulatedPolar,
-    RotorDefinition,
+    RotorDefinition as RustRotorDefinition,
 )
+from .rotor_definition import LinearPolarParameters, RotorDefinition
+
+if TYPE_CHECKING:
+    from ._dynbem import AeroModel
 
 
-def build_polar(airfoil) -> Union[LinearPolar, TabulatedPolar]:
+class VpmConfig(TypedDict, total=False):
+    max_particles: int
+    sigma: float
+    relax: float
+    nonlinear_lifting_line: bool
+    tip_clustering: bool
+    local_core: bool
+    barnes_hut: bool
+    bh_theta: float
+    bh_min_particles: int
+    merge_wake: bool
+    merge_every: int
+    merge_min_particles: int
+    merge_kappa: float
+    merge_chi_min: float
+    merge_region_dist: float
+    core_spread_nu: float
+    strength_decay_tau_rev: float
+
+
+def build_polar(
+    airfoil: LinearPolarParameters | RustLinearPolarParameters,
+) -> LinearPolar | TabulatedPolar:
     """Build a polar from a LinearPolarParameters.
 
     If polar_csv is provided, load it (airfoiltools.com format -- 9
     metadata rows then Alpha,Cl,Cd, with any non-numeric leading rows
     skipped). Otherwise build a LinearPolar from CL0/CL_alpha/CD0/stall.
     """
-    if airfoil.polar_csv is not None:
+    if isinstance(airfoil, LinearPolarParameters) and airfoil.polar_csv is not None:
         return load_tabulated_polar(airfoil.polar_csv)
     return LinearPolar(
         CL0=airfoil.CL0,
@@ -39,9 +65,11 @@ def build_polar(airfoil) -> Union[LinearPolar, TabulatedPolar]:
     )
 
 
-def load_tabulated_polar(path: Union[str, Path]) -> TabulatedPolar:
+def load_tabulated_polar(path: str | Path) -> TabulatedPolar:
     """Load TabulatedPolar from an Alpha,Cl,Cd CSV (airfoiltools.com format)."""
-    alphas, cls, cds = [], [], []
+    alphas: list[float] = []
+    cls: list[float] = []
+    cds: list[float] = []
     with open(path, encoding="utf-8") as f:
         for line in f:
             line = line.strip()
@@ -63,7 +91,10 @@ def load_tabulated_polar(path: Union[str, Path]) -> TabulatedPolar:
     )
 
 
-def _build_polar_from_defn(defn, polar):
+def _build_polar_from_defn(  # pyright: ignore[reportUnusedFunction]
+    defn: RotorDefinition | RustRotorDefinition,
+    polar: LinearPolar | TabulatedPolar | None,
+) -> LinearPolar | TabulatedPolar:
     """Return ``polar`` if given, else auto-build from ``defn.airfoil``."""
     if polar is not None:
         return polar
@@ -71,12 +102,12 @@ def _build_polar_from_defn(defn, polar):
 
 
 def create_aero(
-    defn: RotorDefinition,
+    defn: RotorDefinition | RustRotorDefinition,
     model: str,
     *,
     n_psi_elements: int = 36,
-    polar: Optional[Union[LinearPolar, TabulatedPolar]] = None,
-):
+    polar: LinearPolar | TabulatedPolar | None = None,
+) -> AeroModel:
     """Build an aero model for a RotorDefinition.
 
     model
@@ -108,8 +139,5 @@ def create_aero(
         "Choose 'quasi_static' (alias 'bem'), 'pitt_peters', 'oye', or 'vpm'."
     )
 
-
-# silence unused-import warning for csv (kept in case future extensions need it)
-_ = csv
 
 __all__ = ["create_aero", "build_polar", "load_tabulated_polar"]

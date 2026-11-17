@@ -1,11 +1,6 @@
 import pytest
 
 from dynbem.rotor_definition import (
-    LinearPolarParameters,
-    AutorotationProperties,
-    BladeGeometry,
-    ControlProperties,
-    InertiaProperties,
     RotorDefinition,
 )
 from tests.helpers import make_airfoil, make_blade, make_control

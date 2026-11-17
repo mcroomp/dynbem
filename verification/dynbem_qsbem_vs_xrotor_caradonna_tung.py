@@ -130,7 +130,7 @@ def main() -> int:
     with args.xrotor_csv.open() as fh:
         xr_rows = {float(r["pitch_deg"]): r for r in csv.DictReader(fh)}
 
-    print(f"Caradonna-Tung hover  --  dynbem.QuasiStaticBEM vs XROTOR vs paper")
+    print("Caradonna-Tung hover  --  dynbem.QuasiStaticBEM vs XROTOR vs paper")
     print(f"R = {R:.3f} m, 2 blades NACA 0012, 1250 rpm")
     print()
     print(f"{'pitch':>5}  "

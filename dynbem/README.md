@@ -5,8 +5,8 @@ the pure-Rust [`dynbem_rs`](../dynbem_rs/) core, plus a Python layer that
 provides YAML loading, compat shims, and ergonomic helpers.
 
 The bindings use PyO3 0.30 and rust-numpy 0.30, built with Rust 2024
-(Rust 1.99+). Python 3.10+ remains supported through `abi3-py310`; the
-development workspace requires Python 3.11+. PyO3 wrappers explicitly opt
+(Rust 1.99+). Python 3.12+ is supported through `abi3-py312`; the
+development workspace requires Python 3.14+. PyO3 wrappers explicitly opt
 into clone-based `FromPyObject` conversion to preserve the existing API.
 
 For sign conventions, NED frame, rotor rotation direction, hub-frame moments,
@@ -25,6 +25,8 @@ and Pitt-Peters L-matrix see [`../AGENTS.md`](../AGENTS.md).
     |   +-- trim_py.rs         AeroAny dispatch, TrimResult, trim/relax pyfunctions
     +-- python/dynbem/
         +-- __init__.py        top-level API + Python subclasses (see below)
+        +-- _dynbem.pyi        typed interface for the PyO3 extension
+        +-- py.typed           marks the package as typed for consumers
         +-- bem.py             compat shim re-exporting dynbem.bem.*
         +-- cyclic.py          compat shim
         +-- factory.py         create_aero(), build_polar(), load_tabulated_polar()
